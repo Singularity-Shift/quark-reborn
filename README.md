@@ -7,6 +7,7 @@ A next-generation Telegram bot built in Rust, leveraging [teloxide](https://gith
 - Telegram bot framework via teloxide
 - OpenAI GPT, image generation, and advanced tools via open-ai-rust-responses-by-sshift
 - Async, production-ready architecture
+- Embedded, high-performance database via [sled](https://github.com/spacejam/sled)
 - Extensible for future Web3 and AI integrations
 
 ## Getting Started
@@ -45,4 +46,5 @@ This project is licensed under the [Apache License 2.0](LICENSE).
 
 **Powered by:**
 - [teloxide](https://github.com/teloxide/teloxide)
-- [open-ai-rust-responses-by-sshift](https://github.com/Singularity-Shift/openai-rust-responses-sshift) 
+- [open-ai-rust-responses-by-sshift](https://github.com/Singularity-Shift/openai-rust-responses-sshift)
+- [sled](https://github.com/spacejam/sled) 

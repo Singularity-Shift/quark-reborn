@@ -4,4 +4,6 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+open-ai-rust-responses-by-sshift = "0.1.7"
+sled = "0.34.7"
 teloxide = "0.15.0"
