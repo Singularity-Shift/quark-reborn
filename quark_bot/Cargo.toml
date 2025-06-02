@@ -4,5 +4,9 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-teloxide = "0.15.0"
+teloxide = { version = "0.15.0", features = ["macros"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
+log = "0.4"
+tracing-subscriber = "0.3"
+dotenvy = "0.15"
 quark_backend = { path = "../quark_backend" }
