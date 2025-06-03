@@ -14,6 +14,14 @@ pub async fn upload_files_to_vector_store(
     let client = OAIClient::new(openai_api_key)?;
     let mut file_ids = Vec::new();
 
+    // Check if user has invalid vector store ID and clear stale data upfront
+    if let Some(existing_vs_id) = user_convos.get_vector_store_id(user_id) {
+        if existing_vs_id.is_empty() || !existing_vs_id.starts_with("vs_") {
+            // Clear stale file tracking before adding new files
+            user_convos.clear_files(user_id)?;
+        }
+    }
+
     // Upload each file to OpenAI
     for path in &file_paths {
         let file = client
@@ -32,18 +40,34 @@ pub async fn upload_files_to_vector_store(
 
     // Check if user already has a vector store
     let vector_store_id = if let Some(existing_vs_id) = user_convos.get_vector_store_id(user_id) {
-        // User has existing vector store, add files to it
-        for file_id in &file_ids {
-            let add_file_request = AddFileToVectorStoreRequest {
-                file_id: file_id.clone(),
-                attributes: None,
+        // Check if the vector store ID is valid (not empty and starts with 'vs_')
+        if existing_vs_id.is_empty() || !existing_vs_id.starts_with("vs_") {
+            // Invalid vector store ID, create a new one
+            let vs_request = CreateVectorStoreRequest {
+                name: format!("user_{}_vector_store", user_id),
+                file_ids: file_ids.clone(),
             };
-            let _ = client
-                .vector_stores
-                .add_file(&existing_vs_id, add_file_request)
-                .await?;
+            let vector_store = client.vector_stores.create(vs_request).await?;
+            let new_vs_id = vector_store.id.clone();
+            
+            // Store the new vector_store_id in the user's db record
+            user_convos.set_vector_store_id(user_id, &new_vs_id)?;
+            
+            new_vs_id
+        } else {
+            // User has existing valid vector store, add files to it
+            for file_id in &file_ids {
+                let add_file_request = AddFileToVectorStoreRequest {
+                    file_id: file_id.clone(),
+                    attributes: None,
+                };
+                let _ = client
+                    .vector_stores
+                    .add_file(&existing_vs_id, add_file_request)
+                    .await?;
+            }
+            existing_vs_id
         }
-        existing_vs_id
     } else {
         // User doesn't have a vector store, create a new one
         let vs_request = CreateVectorStoreRequest {
