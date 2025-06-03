@@ -16,6 +16,8 @@ enum Command {
     Help,
     #[command(description = "Upload files to your vector store (DM only).")]
     AddFiles,
+    #[command(description = "List files in your vector store (DM only).")]
+    ListFiles,
 }
 
 #[tokio::main]
@@ -69,7 +71,7 @@ async fn main() {
                 }
                 // /add_files command, only in private chat
                 if (text == "/add_files" || text == format!("/add_files@{}", bot_username)) && msg.chat.is_private() {
-                    bot.send_message(msg.chat.id, "Please attach the files you wish to upload as documents in your next message.").await?;
+                    bot.send_message(msg.chat.id, "📎 Please attach the files you wish to upload in your next message.\n\n✅ Supported: Documents, Photos, Videos, Audio files\n💡 You can send multiple files in one message!").await?;
                 }
                 if text == "/help" || text == format!("/help@{}", bot_username) {
                     bot.send_message(msg.chat.id, Command::descriptions().to_string()).await?;
@@ -78,32 +80,103 @@ async fn main() {
                 if text == "/login_group" || text == format!("/login_group@{}", bot_username) {
                     bot.send_message(msg.chat.id, "under development").await?;
                 }
+                // /list_files command
+                if text.starts_with("/list_files") && msg.chat.is_private() {
+                    use quark_backend::ai::list_user_files_with_names;
+                    let user_id = msg.from.as_ref().map(|u| u.id.0).unwrap_or(0) as i64;
+                    let db = db.clone();
+                    
+                    // Check if user has a vector store
+                    let user_convos = quark_backend::db::UserConversations::new(&db).unwrap();
+                    if let Some(_vector_store_id) = user_convos.get_vector_store_id(user_id) {
+                        match list_user_files_with_names(user_id, &db) {
+                            Ok(files) => {
+                                if files.is_empty() {
+                                    bot.send_message(msg.chat.id, "Your vector store is empty. Use /add_files to upload documents.").await?;
+                                } else {
+                                    let file_list = files.iter()
+                                        .enumerate()
+                                        .map(|(i, file)| format!("{}. {} ({})", i + 1, file.name, file.id))
+                                        .collect::<Vec<_>>()
+                                        .join("\n");
+                                    let response = format!("📁 Files in your vector store ({} total):\n\n{}\n\n💡 Files are tracked locally for reliable listing.", files.len(), file_list);
+                                    bot.send_message(msg.chat.id, response).await?;
+                                }
+                            },
+                            Err(e) => {
+                                bot.send_message(msg.chat.id, format!("❌ Error listing files: {}", e)).await?;
+                            }
+                        }
+                    } else {
+                        bot.send_message(msg.chat.id, "You don't have a vector store yet. Use /add_files to upload your first documents.").await?;
+                    }
+                }
             }
             // Handle document upload in DM for /add_files
-            if msg.chat.is_private() && msg.document().is_some() {
+            if msg.chat.is_private() && (msg.document().is_some() || msg.photo().is_some() || msg.video().is_some() || msg.audio().is_some()) {
                 use quark_backend::ai::upload_files_to_vector_store;
                 use tokio::fs::File;
                 let user_id = msg.from.as_ref().map(|u| u.id.0).unwrap_or(0) as i64;
                 let mut file_paths = Vec::new();
+                
+                // Handle document
                 if let Some(document) = msg.document() {
                     let file_id = &document.file.id;
                     let file_info = bot.get_file(file_id).await?;
-                    let file_path = format!("/tmp/{}_{}", user_id, document.file_name.clone().unwrap_or_else(|| "file.bin".to_string()));
+                    let filename = document.file_name.clone().unwrap_or_else(|| "document.bin".to_string());
+                    let file_path = format!("/tmp/{}_{}", user_id, filename);
                     let mut file = File::create(&file_path).await.map_err(|e| teloxide::RequestError::from(std::sync::Arc::new(e)))?;
                     bot.download_file(&file_info.path, &mut file).await.map_err(|e| teloxide::RequestError::from(e))?;
-                    file_paths.push(file_path.clone());
+                    file_paths.push(file_path);
                 }
+                
+                // Handle photo (largest size)
+                if let Some(photos) = msg.photo() {
+                    if let Some(photo) = photos.last() { // Get the largest photo
+                        let file_id = &photo.file.id;
+                        let file_info = bot.get_file(file_id).await?;
+                        let file_path = format!("/tmp/{}_photo_{}.jpg", user_id, photo.file.id);
+                        let mut file = File::create(&file_path).await.map_err(|e| teloxide::RequestError::from(std::sync::Arc::new(e)))?;
+                        bot.download_file(&file_info.path, &mut file).await.map_err(|e| teloxide::RequestError::from(e))?;
+                        file_paths.push(file_path);
+                    }
+                }
+                
+                // Handle video
+                if let Some(video) = msg.video() {
+                    let file_id = &video.file.id;
+                    let file_info = bot.get_file(file_id).await?;
+                    let filename = video.file_name.clone().unwrap_or_else(|| "video.mp4".to_string());
+                    let file_path = format!("/tmp/{}_{}", user_id, filename);
+                    let mut file = File::create(&file_path).await.map_err(|e| teloxide::RequestError::from(std::sync::Arc::new(e)))?;
+                    bot.download_file(&file_info.path, &mut file).await.map_err(|e| teloxide::RequestError::from(e))?;
+                    file_paths.push(file_path);
+                }
+                
+                // Handle audio
+                if let Some(audio) = msg.audio() {
+                    let file_id = &audio.file.id;
+                    let file_info = bot.get_file(file_id).await?;
+                    let filename = audio.file_name.clone().unwrap_or_else(|| "audio.mp3".to_string());
+                    let file_path = format!("/tmp/{}_{}", user_id, filename);
+                    let mut file = File::create(&file_path).await.map_err(|e| teloxide::RequestError::from(std::sync::Arc::new(e)))?;
+                    bot.download_file(&file_info.path, &mut file).await.map_err(|e| teloxide::RequestError::from(e))?;
+                    file_paths.push(file_path);
+                }
+                
                 if !file_paths.is_empty() {
                     match upload_files_to_vector_store(user_id, &db, &openai_api_key, file_paths.clone()).await {
                         Ok(vector_store_id) => {
-                            bot.send_message(msg.chat.id, format!("✅ Files uploaded and indexed! Your vector store ID: {}", vector_store_id)).await?;
+                            let file_count = file_paths.len();
+                            let files_text = if file_count == 1 { "file" } else { "files" };
+                            bot.send_message(msg.chat.id, format!("✅ {} {} uploaded and indexed! Your vector store ID: {}", file_count, files_text, vector_store_id)).await?;
                         },
                         Err(e) => {
                             bot.send_message(msg.chat.id, format!("[Upload error]: {}", e)).await?;
                         }
                     }
                 } else {
-                    bot.send_message(msg.chat.id, "No document found in your message. Please attach a file.").await?;
+                    bot.send_message(msg.chat.id, "No supported files found in your message. Please attach documents, photos, videos, or audio files.").await?;
                 }
             }
             respond(())

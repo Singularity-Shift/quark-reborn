@@ -8,6 +8,7 @@ use contracts::aptos::simulate_aptos_contract_call;
 
 mod vector_store;
 pub use vector_store::upload_files_to_vector_store;
+pub use vector_store::{list_vector_store_files, list_user_files_local, list_user_files_with_names, delete_file_from_vector_store, delete_vector_store, delete_all_files_from_vector_store};
 
 const SYSTEM_PROMPT: &str = "You are Quark, a helpful and friendly assistant for Telegram groups. Respond conversationally and maintain context.";
 

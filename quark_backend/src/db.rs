@@ -3,11 +3,18 @@ use serde::{Serialize, Deserialize};
 
 const TREE_NAME: &str = "user_conversations";
 
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct FileInfo {
+    pub id: String,
+    pub name: String,
+}
+
 #[derive(Serialize, Deserialize, Debug, Default, Clone)]
 pub struct UserData {
     pub response_id: Option<String>,
     pub vector_store_id: Option<String>,
     pub wallet_address: Option<String>,
+    pub files: Vec<FileInfo>,
 }
 
 pub struct UserConversations {
@@ -62,5 +69,38 @@ impl UserConversations {
 
     pub fn get_wallet_address(&self, user_id: i64) -> Option<String> {
         self.get_user_data(user_id).and_then(|data| data.wallet_address)
+    }
+
+    pub fn add_file(&self, user_id: i64, file_id: &str, filename: &str) -> sled::Result<()> {
+        let mut data = self.get_user_data(user_id).unwrap_or_default();
+        if !data.files.iter().any(|f| f.id == file_id) {
+            data.files.push(FileInfo {
+                id: file_id.to_string(),
+                name: filename.to_string(),
+            });
+        }
+        self.set_user_data(user_id, &data)
+    }
+
+    pub fn get_files(&self, user_id: i64) -> Vec<FileInfo> {
+        self.get_user_data(user_id)
+            .map(|data| data.files)
+            .unwrap_or_else(Vec::new)
+    }
+
+    pub fn get_file_ids(&self, user_id: i64) -> Vec<String> {
+        self.get_files(user_id).into_iter().map(|f| f.id).collect()
+    }
+
+    pub fn remove_file_id(&self, user_id: i64, file_id: &str) -> sled::Result<()> {
+        let mut data = self.get_user_data(user_id).unwrap_or_default();
+        data.files.retain(|f| f.id != file_id);
+        self.set_user_data(user_id, &data)
+    }
+
+    pub fn clear_files(&self, user_id: i64) -> sled::Result<()> {
+        let mut data = self.get_user_data(user_id).unwrap_or_default();
+        data.files.clear();
+        self.set_user_data(user_id, &data)
     }
 } 
