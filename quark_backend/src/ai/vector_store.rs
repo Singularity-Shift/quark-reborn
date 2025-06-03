@@ -117,8 +117,8 @@ pub async fn delete_file_from_vector_store(
     let client = OAIClient::new(openai_api_key)?;
     let user_convos = UserConversations::new(db)?;
     
-    // Remove file from vector store
-    let _deleted_file = client
+    // Remove file from vector store - now returns VectorStoreFileDeleteResponse
+    let _delete_response = client
         .vector_stores
         .delete_file(vector_store_id, file_id)
         .await?;
@@ -176,8 +176,8 @@ pub async fn delete_all_files_from_vector_store(
     let file_ids = vector_store.file_ids.unwrap_or_else(Vec::new);
         
     for file_id in file_ids {
-        // Remove from vector store
-        let _deleted_file = client
+        // Remove from vector store - now returns VectorStoreFileDeleteResponse
+        let _delete_response = client
             .vector_stores
             .delete_file(vector_store_id, &file_id)
             .await?;
