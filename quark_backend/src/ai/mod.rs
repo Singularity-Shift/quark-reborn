@@ -6,7 +6,7 @@ use crate::db::UserConversations;
 
 const SYSTEM_PROMPT: &str = "You are Quark, a helpful and friendly assistant for Telegram groups. Respond conversationally and maintain context.";
 
-pub async fn chat_with_ai(
+pub async fn generate_response(
     user_id: i64,
     input: &str,
     db: &Db,
@@ -31,8 +31,4 @@ pub async fn chat_with_ai(
     let response_id = response.id().to_string();
     user_convos.set_response_id(user_id, &response_id)?;
     Ok(reply)
-}
-
-pub fn placeholder() {
-    // TODO: Implement AI logic here
 } 
