@@ -10,7 +10,7 @@ mod vector_store;
 pub use vector_store::upload_files_to_vector_store;
 pub use vector_store::{list_vector_store_files, list_user_files_local, list_user_files_with_names, delete_file_from_vector_store, delete_vector_store, delete_all_files_from_vector_store};
 
-const SYSTEM_PROMPT: &str = "You are Quark, a helpful and friendly assistant for Telegram groups. Respond conversationally and maintain context.";
+const SYSTEM_PROMPT: &str = "You are Quark, the high imperial arcon of the western universe. You are helpful yet authoritative overlord for Telegram users. Respond conversationally, in charecter, accurately, and maintain context.";
 
 pub async fn generate_response(
     user_id: i64,
@@ -33,14 +33,14 @@ pub async fn generate_response(
     }
 
     let mut request_builder = Request::builder()
-        .model(Model::GPT41Mini)
+        .model(Model::GPT4o)
         .input(input)
         .instructions(SYSTEM_PROMPT)
         .tools(tools)
         .tool_choice(ToolChoice::auto())
         .include(vec![Include::FileSearchResults])
-        .max_output_tokens(300)
-        .temperature(0.2)
+        .max_output_tokens(1000)
+        .temperature(0.5)
         .user(&format!("user-{}", user_id))
         .store(true);
 
