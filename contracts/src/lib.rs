@@ -1,7 +1,3 @@
-pub mod ai;
-pub mod db;
-// To use contract simulation logic, import from the root: contracts::aptos::simulate_aptos_contract_call
-
 pub fn add(left: u64, right: u64) -> u64 {
     left + right
 }
@@ -16,3 +12,5 @@ mod tests {
         assert_eq!(result, 4);
     }
 }
+
+pub mod aptos;

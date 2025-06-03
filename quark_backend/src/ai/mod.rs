@@ -3,6 +3,7 @@
 use open_ai_rust_responses_by_sshift::{Client as OAIClient, Request, Model, Response};
 use sled::Db;
 use crate::db::UserConversations;
+use contracts::aptos::simulate_aptos_contract_call;
 
 const SYSTEM_PROMPT: &str = "You are Quark, a helpful and friendly assistant for Telegram groups. Respond conversationally and maintain context.";
 
@@ -15,6 +16,10 @@ pub async fn generate_response(
     let user_convos = UserConversations::new(db)?;
     let previous_response_id = user_convos.get_response_id(user_id);
     let client = OAIClient::new(openai_api_key)?;
+
+    // Simulate contract call and log result
+    let contract_result = simulate_aptos_contract_call(user_id);
+    println!("Simulated Aptos contract call: {}", contract_result);
 
     let mut request_builder = Request::builder()
         .model(Model::GPT41Mini)
