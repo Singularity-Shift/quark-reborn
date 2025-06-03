@@ -6,6 +6,9 @@ use sled::Db;
 use crate::db::UserConversations;
 use contracts::aptos::simulate_aptos_contract_call;
 
+mod vector_store;
+pub use vector_store::upload_files_to_vector_store;
+
 const SYSTEM_PROMPT: &str = "You are Quark, a helpful and friendly assistant for Telegram groups. Respond conversationally and maintain context.";
 
 pub async fn generate_response(
@@ -16,13 +19,17 @@ pub async fn generate_response(
 ) -> Result<String, anyhow::Error> {
     let user_convos = UserConversations::new(db)?;
     let previous_response_id = user_convos.get_response_id(user_id);
+    let vector_store_id = user_convos.get_vector_store_id(user_id);
     let client = OAIClient::new(openai_api_key)?;
 
     // Simulate contract call (logging is handled in the contract module)
     let _ = simulate_aptos_contract_call(user_id);
 
-    // Always include the websearch tool
-    let tools = vec![Tool::web_search_preview()];
+    // Always include the websearch tool, and file search if user has a vector store
+    let mut tools = vec![Tool::web_search_preview()];
+    if let Some(vs_id) = vector_store_id.clone() {
+        tools.push(Tool::file_search(vec![vs_id]));
+    }
 
     let mut request_builder = Request::builder()
         .model(Model::GPT41Mini)

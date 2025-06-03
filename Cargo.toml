@@ -1,5 +1,5 @@
 [workspace]
-members = [
+members = [ "contracts",
     "quark_backend",
     "quark_bot"
 ]
