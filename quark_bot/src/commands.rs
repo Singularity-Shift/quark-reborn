@@ -123,4 +123,23 @@ pub async fn handle_chat(bot: Bot, msg: Message, db: Db, openai_api_key: String)
         bot.send_message(msg.chat.id, "Usage: /chat <your message>").await?;
     }
     Ok(())
+}
+
+pub async fn handle_new_chat(bot: Bot, msg: Message, db: Db) -> Result<(), teloxide::RequestError> {
+    let user_id = msg.from.as_ref().map(|u| u.id.0).unwrap_or(0) as i64;
+    let user_convos = quark_backend::db::UserConversations::new(&db).unwrap();
+    
+    match user_convos.clear_response_id(user_id) {
+        Ok(_) => {
+            bot.send_message(msg.chat.id, "🆕 <b>New conversation started!</b>\n\n✨ Your previous chat history has been cleared. Your next /chat command will start a fresh conversation thread.\n\n💡 <i>Your uploaded files and settings remain intact</i>")
+                .parse_mode(teloxide::types::ParseMode::Html)
+                .await?;
+        },
+        Err(e) => {
+            bot.send_message(msg.chat.id, format!("❌ <b>Error starting new chat</b>\n\n<i>Technical details:</i> {}", e))
+                .parse_mode(teloxide::types::ParseMode::Html)
+                .await?;
+        }
+    }
+    Ok(())
 } 

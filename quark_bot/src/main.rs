@@ -19,6 +19,8 @@ enum Command {
     AddFiles,
     #[command(description = "List files in your vector store (DM only).")]
     ListFiles,
+    #[command(description = "Start a new conversation thread.")]
+    NewChat,
 }
 
 #[tokio::main]
@@ -63,6 +65,9 @@ async fn main() {
                 }
                 if text.starts_with("/list_files") && msg.chat.is_private() {
                     crate::commands::handle_list_files(bot.clone(), msg.clone(), db.clone(), openai_api_key.clone()).await?;
+                }
+                if text == "/new_chat" || text == format!("/new_chat@{}", bot_username) {
+                    crate::commands::handle_new_chat(bot.clone(), msg.clone(), db.clone()).await?;
                 }
             }
             if msg.chat.is_private() && (msg.document().is_some() || msg.photo().is_some() || msg.video().is_some() || msg.audio().is_some()) {
