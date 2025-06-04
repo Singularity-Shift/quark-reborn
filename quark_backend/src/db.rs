@@ -103,4 +103,10 @@ impl UserConversations {
         data.files.clear();
         self.set_user_data(user_id, &data)
     }
+
+    pub fn clear_response_id(&self, user_id: i64) -> sled::Result<()> {
+        let mut data = self.get_user_data(user_id).unwrap_or_default();
+        data.response_id = None;
+        self.set_user_data(user_id, &data)
+    }
 } 
