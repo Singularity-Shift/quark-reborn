@@ -1,6 +1,7 @@
 //! Command handlers for quark_bot Telegram bot.
 
 use teloxide::prelude::*;
+use teloxide::types::ChatAction;
 use sled::Db;
 use crate::utils;
 use contracts::aptos::simulate_aptos_contract_call;
@@ -114,6 +115,9 @@ pub async fn handle_list_files(bot: Bot, msg: Message, db: Db, openai_api_key: S
 pub async fn handle_chat(bot: Bot, msg: Message, db: Db, openai_api_key: String) -> Result<(), teloxide::RequestError> {
     if let Some(text) = msg.text() {
         let user_id = msg.from.as_ref().map(|u| u.id.0).unwrap_or(0) as i64;
+        
+        // Show typing indicator while processing
+        bot.send_chat_action(msg.chat.id, ChatAction::Typing).await?;
         
         // Get Google Cloud Storage credentials from environment
         let storage_credentials = std::env::var("STORAGE_CREDENTIALS")
