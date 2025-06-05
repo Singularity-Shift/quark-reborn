@@ -1,6 +1,7 @@
 //! File upload and processing logic for quark_bot.
 
 use teloxide::prelude::*;
+use teloxide::types::ChatAction;
 use sled::Db;
 use teloxide::net::Download;
 
@@ -51,6 +52,9 @@ pub async fn handle_file_upload(bot: Bot, msg: Message, db: Db, openai_api_key: 
         file_paths.push(file_path);
     }
     if !file_paths.is_empty() {
+        // Show typing indicator while processing files
+        bot.send_chat_action(msg.chat.id, ChatAction::Typing).await?;
+        
         match upload_files_to_vector_store(user_id, &db, &openai_api_key, file_paths.clone()).await {
             Ok(vector_store_id) => {
                 let file_count = file_paths.len();
