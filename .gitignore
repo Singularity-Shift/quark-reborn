@@ -4,5 +4,6 @@ Cargo.lock
 quark_db/
 
 DOCUMENTATION.md
+demo_script.rs
 
 .env
