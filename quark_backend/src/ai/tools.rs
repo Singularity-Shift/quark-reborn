@@ -298,87 +298,164 @@ async fn execute_trending_pools(arguments: &serde_json::Value) -> String {
 /// Format the trending pools API response into a readable string
 fn format_trending_pools_response(data: &serde_json::Value, network: &str, limit: u32, duration: &str) -> String {
     let mut result = format!("🔥 **Trending Pools on {} ({})**\n\n", network.to_uppercase(), duration);
-    
+
+    // Build lookup maps for tokens and DEXes from included array
+    let mut token_map = std::collections::HashMap::new();
+    let mut dex_map = std::collections::HashMap::new();
+    if let Some(included) = data.get("included").and_then(|d| d.as_array()) {
+        for item in included {
+            if let Some(id) = item.get("id").and_then(|v| v.as_str()) {
+                match item.get("type").and_then(|v| v.as_str()) {
+                    Some("token") => { token_map.insert(id, item); },
+                    Some("dex") => { dex_map.insert(id, item); },
+                    _ => {}
+                }
+            }
+        }
+    }
+
     if let Some(pools) = data.get("data").and_then(|d| d.as_array()) {
         let pools_to_show: Vec<_> = pools.iter().take(limit as usize).collect();
-        
         for (index, pool) in pools_to_show.iter().enumerate() {
             if let Some(attributes) = pool.get("attributes") {
-                let name = attributes.get("name")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("Unknown Pool");
-                
-                let dex_name = attributes.get("dex_id")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("Unknown DEX");
-                
-                let base_token_price = attributes.get("base_token_price_usd")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("0");
-                
-                let price_change_24h = attributes.get("price_change_percentage")
-                    .and_then(|v| v.get("h24"))
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("0");
-                
-                let volume_24h = attributes.get("volume_usd")
-                    .and_then(|v| v.get("h24"))
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("0");
-                
-                let reserve_usd = attributes.get("reserve_in_usd")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("0");
-                
-                let pool_address = pool.get("id")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("");
-                
-                // Format price change with emoji
-                let price_change_formatted = if let Ok(change) = price_change_24h.parse::<f64>() {
+                let name = attributes.get("name").and_then(|v| v.as_str()).unwrap_or("Unknown Pool");
+                let pool_address = attributes.get("address").and_then(|v| v.as_str()).unwrap_or("");
+                let pool_created_at = attributes.get("pool_created_at").and_then(|v| v.as_str()).unwrap_or("Unknown");
+                let fdv_usd = attributes.get("fdv_usd").and_then(|v| v.as_str()).unwrap_or("0");
+                let market_cap_usd = attributes.get("market_cap_usd").and_then(|v| v.as_str()).unwrap_or("0");
+                let reserve_usd = attributes.get("reserve_in_usd").and_then(|v| v.as_str()).unwrap_or("0");
+                let base_token_price = attributes.get("base_token_price_usd").and_then(|v| v.as_str()).unwrap_or("0");
+                let quote_token_price = attributes.get("quote_token_price_usd").and_then(|v| v.as_str()).unwrap_or("0");
+                let price_changes = if let Some(pcp) = attributes.get("price_change_percentage") {
+                    let h1 = pcp.get("h1").and_then(|v| v.as_str()).unwrap_or("0");
+                    let h6 = pcp.get("h6").and_then(|v| v.as_str()).unwrap_or("0");
+                    let h24 = pcp.get("h24").and_then(|v| v.as_str()).unwrap_or("0");
+                    format!("1h: {}% | 6h: {}% | 24h: {}%", h1, h6, h24)
+                } else { "No data".to_string() };
+                let volumes = if let Some(vol) = attributes.get("volume_usd") {
+                    let h5m = vol.get("h5m").and_then(|v| v.as_str()).unwrap_or("0");
+                    let h1 = vol.get("h1").and_then(|v| v.as_str()).unwrap_or("0");
+                    let h6 = vol.get("h6").and_then(|v| v.as_str()).unwrap_or("0");
+                    let h24 = vol.get("h24").and_then(|v| v.as_str()).unwrap_or("0");
+                    format!("5m: ${} | 1h: ${} | 6h: ${} | 24h: ${}",
+                        format_large_number(h5m),
+                        format_large_number(h1),
+                        format_large_number(h6),
+                        format_large_number(h24))
+                } else { "No data".to_string() };
+                let transactions = if let Some(txns) = attributes.get("transactions") {
+                    let h5m = txns.get("h5m").and_then(|v| v.get("buys")).and_then(|b| b.as_u64()).unwrap_or(0) +
+                             txns.get("h5m").and_then(|v| v.get("sells")).and_then(|s| s.as_u64()).unwrap_or(0);
+                    let h1 = txns.get("h1").and_then(|v| v.get("buys")).and_then(|b| b.as_u64()).unwrap_or(0) +
+                            txns.get("h1").and_then(|v| v.get("sells")).and_then(|s| s.as_u64()).unwrap_or(0);
+                    let h24 = txns.get("h24").and_then(|v| v.get("buys")).and_then(|b| b.as_u64()).unwrap_or(0) +
+                             txns.get("h24").and_then(|v| v.get("sells")).and_then(|s| s.as_u64()).unwrap_or(0);
+                    format!("5m: {} | 1h: {} | 24h: {}", h5m, h1, h24)
+                } else { "No data".to_string() };
+                let main_change_24h = attributes.get("price_change_percentage").and_then(|v| v.get("h24")).and_then(|v| v.as_str()).unwrap_or("0");
+                let price_change_formatted = if let Ok(change) = main_change_24h.parse::<f64>() {
                     if change >= 0.0 {
                         format!("📈 +{:.2}%", change)
                     } else {
                         format!("📉 {:.2}%", change)
                     }
-                } else {
-                    "➡️ 0.00%".to_string()
-                };
-                
-                // Format numbers with proper scaling
-                let volume_formatted = format_large_number(volume_24h);
+                } else { "➡️ 0.00%".to_string() };
                 let liquidity_formatted = format_large_number(reserve_usd);
-                let price_formatted = format_price(base_token_price);
-                
+                let base_price_formatted = format_price(base_token_price);
+                let quote_price_formatted = format_price(quote_token_price);
+                let fdv_formatted = format_large_number(fdv_usd);
+                let mcap_formatted = format_large_number(market_cap_usd);
+                let created_date = if pool_created_at != "Unknown" {
+                    pool_created_at.split('T').next().unwrap_or(pool_created_at)
+                } else { "Unknown" };
+
+                // --- ENRICH WITH TOKEN & DEX INFO ---
+                let (base_token_info, quote_token_info, dex_info) = if let Some(relationships) = pool.get("relationships") {
+                    let base_token_id = relationships.get("base_token").and_then(|r| r.get("data")).and_then(|d| d.get("id")).and_then(|v| v.as_str());
+                    let quote_token_id = relationships.get("quote_token").and_then(|r| r.get("data")).and_then(|d| d.get("id")).and_then(|v| v.as_str());
+                    let dex_id = relationships.get("dex").and_then(|r| r.get("data")).and_then(|d| d.get("id")).and_then(|v| v.as_str());
+                    (
+                        base_token_id.and_then(|id| token_map.get(id)),
+                        quote_token_id.and_then(|id| token_map.get(id)),
+                        dex_id.and_then(|id| dex_map.get(id)),
+                    )
+                } else { (None, None, None) };
+
+                // Base token details
+                let (base_name, base_symbol, base_addr, base_dec, base_cg) = if let Some(token) = base_token_info {
+                    let attr = token.get("attributes").unwrap_or(&serde_json::Value::Null);
+                    (
+                        attr.get("name").and_then(|v| v.as_str()).unwrap_or("?"),
+                        attr.get("symbol").and_then(|v| v.as_str()).unwrap_or("?"),
+                        attr.get("address").and_then(|v| v.as_str()).unwrap_or("?"),
+                        attr.get("decimals").and_then(|v| v.as_u64()).map(|d| d.to_string()).unwrap_or("?".to_string()),
+                        attr.get("coingecko_coin_id").and_then(|v| v.as_str()).unwrap_or("-")
+                    )
+                } else { ("?", "?", "?", "?".to_string(), "-") };
+                // Quote token details
+                let (quote_name, quote_symbol, quote_addr, quote_dec, quote_cg) = if let Some(token) = quote_token_info {
+                    let attr = token.get("attributes").unwrap_or(&serde_json::Value::Null);
+                    (
+                        attr.get("name").and_then(|v| v.as_str()).unwrap_or("?"),
+                        attr.get("symbol").and_then(|v| v.as_str()).unwrap_or("?"),
+                        attr.get("address").and_then(|v| v.as_str()).unwrap_or("?"),
+                        attr.get("decimals").and_then(|v| v.as_u64()).map(|d| d.to_string()).unwrap_or("?".to_string()),
+                        attr.get("coingecko_coin_id").and_then(|v| v.as_str()).unwrap_or("-")
+                    )
+                } else { ("?", "?", "?", "?".to_string(), "-") };
+                // DEX details
+                let dex_name = if let Some(dex) = dex_info {
+                    dex.get("attributes").and_then(|a| a.get("name")).and_then(|v| v.as_str()).unwrap_or("Unknown DEX")
+                } else { attributes.get("dex_id").and_then(|v| v.as_str()).unwrap_or("Unknown DEX") };
+
                 result.push_str(&format!(
-                    "**{}. {} ({})**\n💰 Price: ${}\n{}\n📊 Volume (24h): ${}\n💧 Liquidity: ${}\n🔗 [View on GeckoTerminal](https://www.geckoterminal.com/{}/pools/{})\n\n",
+                    "**{}. {} ({})** {}\n\
+🔹 **Base Token:** {} ({})\n  - Address: `{}`\n  - Decimals: {}\n  - CoinGecko: {}\n\
+🔹 **Quote Token:** {} ({})\n  - Address: `{}`\n  - Decimals: {}\n  - CoinGecko: {}\n\
+🏦 **DEX:** {}\n\
+💰 **Base Price:** ${} | **Quote Price:** ${}\n\
+📊 **Volume:** {}\n\
+📈 **Price Changes:** {}\n\
+🔄 **Transactions:** {}\n\
+💧 **Liquidity:** ${}\n\
+💎 **Market Cap:** ${} | **FDV:** ${}\n\
+📅 **Created:** {}\n\
+🏊 **Pool:** `{}`\n\
+🔗 [View on GeckoTerminal](https://www.geckoterminal.com/{}/pools/{})\n\n",
                     index + 1,
                     name,
-                    dex_name.to_uppercase(),
-                    price_formatted,
+                    dex_name,
                     price_change_formatted,
-                    volume_formatted,
+                    base_name, base_symbol, base_addr, base_dec, base_cg,
+                    quote_name, quote_symbol, quote_addr, quote_dec, quote_cg,
+                    dex_name,
+                    base_price_formatted, quote_price_formatted,
+                    volumes,
+                    price_changes,
+                    transactions,
                     liquidity_formatted,
+                    mcap_formatted,
+                    fdv_formatted,
+                    created_date,
+                    pool_address,
                     network,
                     pool_address
                 ));
             }
         }
-        
         if pools.is_empty() {
             result.push_str("No trending pools found for this network.\n");
         } else {
             result.push_str(&format!("📈 Data from GeckoTerminal • Updates every 30 seconds\n"));
-            result.push_str(&format!("🌐 Network: {} • Showing {}/{} pools", 
-                network.to_uppercase(), 
-                pools_to_show.len(), 
+            result.push_str(&format!("🌐 Network: {} • Showing {}/{} pools",
+                network.to_uppercase(),
+                pools_to_show.len(),
                 pools.len()
             ));
         }
     } else {
         result.push_str("❌ No pool data found in API response.");
     }
-    
     result
 }
 
