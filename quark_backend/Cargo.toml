@@ -11,3 +11,13 @@ anyhow = "1.0"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 contracts = { path = "../contracts" }
+# Google Cloud Storage dependencies - using simpler cloud-storage crate
+cloud-storage = "0.11"
+# Image processing dependencies  
+base64 = "0.22"
+tokio = { version = "1.0", features = ["full"] }
+uuid = { version = "1.0", features = ["v4"] }
+# Environment variables
+dotenv = "0.15"
+# HTTP client for downloading images
+reqwest = { version = "0.11", features = ["json"] }

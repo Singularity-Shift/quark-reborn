@@ -8,10 +8,12 @@ use contracts::aptos::simulate_aptos_contract_call;
 
 mod vector_store;
 mod tools;
+mod gcs;
 
 pub use vector_store::upload_files_to_vector_store;
 pub use vector_store::{list_vector_store_files, list_user_files_local, list_user_files_with_names, delete_file_from_vector_store, delete_vector_store, delete_all_files_from_vector_store};
-pub use tools::{get_balance_tool, withdraw_funds_tool, execute_custom_tool, get_all_custom_tools, handle_parallel_tool_calls};
+pub use tools::{get_balance_tool, withdraw_funds_tool, generate_image_tool, execute_custom_tool, get_all_custom_tools, handle_parallel_tool_calls};
+pub use gcs::GcsImageUploader;
 
 const SYSTEM_PROMPT: &str = "You are Quark, the high imperial arcon of the western universe. You are helpful yet authoritative overlord for Telegram users. Respond conversationally, in charecter, accurately, and maintain context.";
 
@@ -20,11 +22,16 @@ pub async fn generate_response(
     input: &str,
     db: &Db,
     openai_api_key: &str,
+    storage_credentials: &str,
+    bucket_name: &str,
 ) -> Result<String, anyhow::Error> {
     let user_convos = UserConversations::new(db)?;
     let previous_response_id = user_convos.get_response_id(user_id);
     let vector_store_id = user_convos.get_vector_store_id(user_id);
     let client = OAIClient::new(openai_api_key)?;
+    
+    // Initialize GCS uploader
+    let gcs_uploader = GcsImageUploader::new(storage_credentials, bucket_name.to_string()).await?;
 
     // Simulate contract call (logging is handled in the contract module)
     let _ = simulate_aptos_contract_call(user_id);
@@ -34,7 +41,7 @@ pub async fn generate_response(
     if let Some(vs_id) = vector_store_id.clone() {
         tools.push(Tool::file_search(vec![vs_id]));
     }
-    // Add custom function tools (get_balance, withdraw_funds)
+    // Add custom function tools (get_balance, withdraw_funds, generate_image)
     tools.extend(get_all_custom_tools());
 
     let mut request_builder = Request::builder()
@@ -64,9 +71,9 @@ pub async fn generate_response(
     while !current_response.tool_calls().is_empty() && iteration <= MAX_ITERATIONS {
         let tool_calls = current_response.tool_calls();
         
-        // Filter for custom function calls (get_balance, withdraw_funds)
+        // Filter for custom function calls (get_balance, withdraw_funds, generate_image)
         let custom_tool_calls: Vec<_> = tool_calls.iter()
-            .filter(|tc| tc.name == "get_balance" || tc.name == "withdraw_funds")
+            .filter(|tc| tc.name == "get_balance" || tc.name == "withdraw_funds" || tc.name == "generate_image")
             .collect();
         
         if !custom_tool_calls.is_empty() {
@@ -76,7 +83,7 @@ pub async fn generate_response(
                 // Parse arguments as JSON Value for execute_custom_tool
                 let args_value: serde_json::Value = serde_json::from_str(&tool_call.arguments)
                     .unwrap_or_else(|_| serde_json::json!({}));
-                let result = execute_custom_tool(&tool_call.name, &args_value);
+                let result = execute_custom_tool(&tool_call.name, &args_value, &client, &gcs_uploader).await;
                 function_outputs.push((tool_call.call_id.clone(), result));
             }
             
