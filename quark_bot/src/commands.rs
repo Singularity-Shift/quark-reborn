@@ -114,7 +114,23 @@ pub async fn handle_list_files(bot: Bot, msg: Message, db: Db, openai_api_key: S
 pub async fn handle_chat(bot: Bot, msg: Message, db: Db, openai_api_key: String) -> Result<(), teloxide::RequestError> {
     if let Some(text) = msg.text() {
         let user_id = msg.from.as_ref().map(|u| u.id.0).unwrap_or(0) as i64;
-        let reply = match quark_backend::ai::generate_response(user_id, text, &db, &openai_api_key).await {
+        
+        // Get Google Cloud Storage credentials from environment
+        let storage_credentials = std::env::var("STORAGE_CREDENTIALS")
+            .unwrap_or_else(|_| {
+                eprintln!("Warning: STORAGE_CREDENTIALS environment variable not set, image generation will not work");
+                String::new()
+            });
+        let bucket_name = "sshift-gpt-bucket"; // Your Google Cloud Storage bucket
+        
+        let reply = match quark_backend::ai::generate_response(
+            user_id, 
+            text, 
+            &db, 
+            &openai_api_key, 
+            &storage_credentials, 
+            bucket_name
+        ).await {
             Ok(resp) => resp,
             Err(e) => format!("[AI error]: {}", e),
         };
