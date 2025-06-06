@@ -71,9 +71,13 @@ pub async fn generate_response(
     while !current_response.tool_calls().is_empty() && iteration <= MAX_ITERATIONS {
         let tool_calls = current_response.tool_calls();
         
-        // Filter for custom function calls (get_balance, withdraw_funds, generate_image, get_trending_pools)
+        // Filter for custom function calls (get_balance, withdraw_funds, generate_image, get_trending_pools, search_pools)
         let custom_tool_calls: Vec<_> = tool_calls.iter()
-            .filter(|tc| tc.name == "get_balance" || tc.name == "withdraw_funds" || tc.name == "generate_image" || tc.name == "get_trending_pools")
+            .filter(|tc| tc.name == "get_balance"
+                || tc.name == "withdraw_funds"
+                || tc.name == "generate_image"
+                || tc.name == "get_trending_pools"
+                || tc.name == "search_pools")
             .collect();
         
         if !custom_tool_calls.is_empty() {
