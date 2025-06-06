@@ -160,6 +160,25 @@ pub fn get_new_pools_tool() -> Tool {
     )
 }
 
+/// Get current time tool - returns a Tool for fetching the current time for a specific timezone
+pub fn get_time_tool() -> Tool {
+    Tool::function(
+        "get_current_time",
+        "Get the current time for a specified timezone. Defaults to 'Europe/London' if not provided.",
+        json!({
+            "type": "object",
+            "properties": {
+                "timezone": {
+                    "type": "string",
+                    "description": "The timezone to get the current time for, in IANA format (e.g., 'America/New_York', 'Europe/London', 'Asia/Tokyo').",
+                    "default": "Europe/London"
+                }
+            },
+            "required": []
+        }),
+    )
+}
+
 /// Execute a custom tool and return the result
 pub async fn execute_custom_tool(
     tool_name: &str, 
@@ -185,6 +204,9 @@ pub async fn execute_custom_tool(
         }
         "get_new_pools" => {
             execute_new_pools(arguments).await
+        }
+        "get_current_time" => {
+            execute_get_time(arguments).await
         }
         _ => {
             format!("Error: Unknown custom tool '{}'", tool_name)
@@ -561,6 +583,7 @@ pub fn get_all_custom_tools() -> Vec<Tool> {
         get_trending_pools_tool(),
         get_search_pools_tool(),
         get_new_pools_tool(),
+        get_time_tool(),
     ]
 }
 
@@ -934,6 +957,51 @@ fn format_new_pools_response(data: &serde_json::Value, network: &str) -> String 
     result
 }
 
+/// Execute get time fetch from WorldTimeAPI
+async fn execute_get_time(arguments: &serde_json::Value) -> String {
+    let timezone = arguments.get("timezone")
+        .and_then(|v| v.as_str())
+        .filter(|s| !s.trim().is_empty())
+        .unwrap_or("Europe/London");
+
+    let url = format!("http://worldtimeapi.org/api/timezone/{}", timezone);
+
+    let client = reqwest::Client::new();
+    match client.get(&url).header("User-Agent", "QuarkBot/1.0").send().await {
+        Ok(response) => {
+            if response.status().is_success() {
+                match response.json::<serde_json::Value>().await {
+                    Ok(data) => format_time_response(&data),
+                    Err(e) => format!("❌ Error parsing time API response: {}", e),
+                }
+            } else {
+                format!("❌ Error fetching time for timezone '{}'. Please check the timezone name (e.g., 'Europe/London').", timezone)
+            }
+        }
+        Err(e) => format!("❌ Network error when calling WorldTimeAPI: {}", e),
+    }
+}
+
+/// Format the time API response into a readable string
+fn format_time_response(data: &serde_json::Value) -> String {
+    let timezone = data.get("timezone").and_then(|v| v.as_str()).unwrap_or("Unknown");
+    let datetime = data.get("datetime").and_then(|v| v.as_str()).unwrap_or("");
+    let abbreviation = data.get("abbreviation").and_then(|v| v.as_str()).unwrap_or("");
+    let utc_offset = data.get("utc_offset").and_then(|v| v.as_str()).unwrap_or("");
+
+    // Extract time part by splitting the string, avoids the chrono dependency
+    let time_part = datetime.split('T').nth(1).and_then(|s| s.split('.').next()).unwrap_or("").to_string();
+
+    if time_part.is_empty() {
+        return "❌ Could not extract the time from the API response.".to_string();
+    }
+
+    format!(
+        "🕰️ The current time in **{}** is **{}** ({} / UTC{}).",
+        timezone, time_part, abbreviation, utc_offset
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -941,7 +1009,7 @@ mod tests {
     #[test]
     fn test_get_all_custom_tools() {
         let tools = get_all_custom_tools();
-        assert_eq!(tools.len(), 6); // Now includes image generation, trending pools, search pools, and new pools tools
+        assert_eq!(tools.len(), 7); // Now includes time tool
         // Test that tools were created successfully - the exact Tool structure is SDK-internal
     }
 } 
