@@ -77,7 +77,8 @@ pub async fn generate_response(
                 || tc.name == "withdraw_funds"
                 || tc.name == "generate_image"
                 || tc.name == "get_trending_pools"
-                || tc.name == "search_pools")
+                || tc.name == "search_pools"
+                || tc.name == "get_new_pools")
             .collect();
         
         if !custom_tool_calls.is_empty() {
