@@ -179,6 +179,27 @@ pub fn get_time_tool() -> Tool {
     )
 }
 
+/// Fear & Greed Index tool - returns a Tool for fetching the crypto market sentiment
+pub fn get_fear_and_greed_index_tool() -> Tool {
+    Tool::function(
+        "get_fear_and_greed_index",
+        "Get the Fear & Greed Index for the crypto market. Can fetch historical data.",
+        json!({
+            "type": "object",
+            "properties": {
+                "days": {
+                    "type": "integer",
+                    "description": "Number of days of historical data to retrieve (e.g., 7 for the last week). Default is 1 for the latest index.",
+                    "minimum": 1,
+                    "maximum": 90,
+                    "default": 1
+                }
+            },
+            "required": []
+        }),
+    )
+}
+
 /// Execute a custom tool and return the result
 pub async fn execute_custom_tool(
     tool_name: &str, 
@@ -207,6 +228,9 @@ pub async fn execute_custom_tool(
         }
         "get_current_time" => {
             execute_get_time(arguments).await
+        }
+        "get_fear_and_greed_index" => {
+            execute_fear_and_greed_index(arguments).await
         }
         _ => {
             format!("Error: Unknown custom tool '{}'", tool_name)
@@ -584,6 +608,7 @@ pub fn get_all_custom_tools() -> Vec<Tool> {
         get_search_pools_tool(),
         get_new_pools_tool(),
         get_time_tool(),
+        get_fear_and_greed_index_tool(),
     ]
 }
 
@@ -1002,6 +1027,81 @@ fn format_time_response(data: &serde_json::Value) -> String {
     )
 }
 
+/// Execute Fear & Greed Index fetch from Alternative.me
+async fn execute_fear_and_greed_index(arguments: &serde_json::Value) -> String {
+    let limit = arguments.get("days")
+        .and_then(|v| v.as_u64())
+        .unwrap_or(1);
+
+    // Use date_format=world to get DD-MM-YYYY dates instead of unix timestamps
+    let url = format!("https://api.alternative.me/fng/?limit={}&date_format=world", limit);
+
+    let client = reqwest::Client::new();
+    match client.get(&url).header("User-Agent", "QuarkBot/1.0").send().await {
+        Ok(response) => {
+            if response.status().is_success() {
+                match response.json::<serde_json::Value>().await {
+                    Ok(data) => format_fear_and_greed_response(&data),
+                    Err(e) => format!("❌ Error parsing Fear & Greed API response: {}", e),
+                }
+            } else {
+                format!("❌ Error fetching Fear & Greed Index. Status: {}", response.status())
+            }
+        }
+        Err(e) => format!("❌ Network error when calling Fear & Greed API: {}", e),
+    }
+}
+
+/// Format the Fear & Greed Index API response into a readable string
+fn format_fear_and_greed_response(data: &serde_json::Value) -> String {
+    if let Some(index_data_array) = data.get("data").and_then(|d| d.as_array()) {
+        if index_data_array.is_empty() {
+            return "❌ No Fear & Greed Index data could be found.".to_string();
+        }
+
+        // Handle single-day response (latest)
+        if index_data_array.len() == 1 {
+            let index_data = &index_data_array[0];
+            let value = index_data.get("value").and_then(|v| v.as_str()).unwrap_or("N/A");
+            let classification = index_data.get("value_classification").and_then(|v| v.as_str()).unwrap_or("Unknown");
+            let time_until_update = index_data.get("time_until_update").and_then(|v| v.as_str()).unwrap_or("0");
+            
+            let emoji = match classification {
+                "Extreme Fear" => "😨", "Fear" => "😟", "Neutral" => "😐", "Greed" => "😊", "Extreme Greed" => "🤑", _ => "📊",
+            };
+
+            let hours_until_update = time_until_update.parse::<f64>().unwrap_or(0.0) / 3600.0;
+
+            return format!(
+                "**Crypto Market Sentiment: Fear & Greed Index**\n\n\
+                {} **{} - {}**\n\n\
+                The current sentiment in the crypto market is **{}**.\n\
+                *Next update in {:.1} hours.*",
+                emoji, value, classification, classification, hours_until_update
+            );
+        } else { // Handle historical data response
+            let mut result = format!("**Fear & Greed Index - Last {} Days**\n\n", index_data_array.len());
+            for item in index_data_array {
+                let value = item.get("value").and_then(|v| v.as_str()).unwrap_or("N/A");
+                let classification = item.get("value_classification").and_then(|v| v.as_str()).unwrap_or("Unknown");
+                let date_str = item.get("timestamp").and_then(|v| v.as_str()).unwrap_or("Unknown Date");
+                
+                let emoji = match classification {
+                    "Extreme Fear" => "😨", "Fear" => "😟", "Neutral" => "😐", "Greed" => "😊", "Extreme Greed" => "🤑", _ => "📊",
+                };
+
+                result.push_str(&format!(
+                    "{} **{}**: {} ({})\n",
+                    emoji, date_str, value, classification
+                ));
+            }
+            return result;
+        }
+    } else {
+        "❌ Could not retrieve Fear & Greed Index data from the API response.".to_string()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1009,7 +1109,7 @@ mod tests {
     #[test]
     fn test_get_all_custom_tools() {
         let tools = get_all_custom_tools();
-        assert_eq!(tools.len(), 7); // Now includes time tool
+        assert_eq!(tools.len(), 8); // Now includes Fear & Greed tool
         // Test that tools were created successfully - the exact Tool structure is SDK-internal
     }
 } 
