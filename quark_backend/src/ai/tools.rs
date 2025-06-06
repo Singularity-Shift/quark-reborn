@@ -3,6 +3,7 @@ use open_ai_rust_responses_by_sshift::{Client as OAIClient, ImageGenerateRequest
 use serde_json::json;
 use crate::ai::gcs::GcsImageUploader;
 use base64::{engine::general_purpose, Engine as _};
+use urlencoding;
 
 /// Get account balance tool - returns a Tool for checking user balance
 pub fn get_balance_tool() -> Tool {
@@ -77,7 +78,7 @@ pub fn get_trending_pools_tool() -> Tool {
                 "network": {
                     "type": "string",
                     "description": "Blockchain network identifier (e.g., 'aptos' for Aptos, 'eth' for Ethereum, 'bsc' for BSC, 'polygon_pos' for Polygon)",
-                    "enum": ["aptos", "eth", "bsc", "polygon_pos", "avax", "ftm", "cro", "arbitrum", "base", "solana"]
+                    "enum": ["aptos", "sui", "eth", "bsc", "polygon_pos", "avax", "ftm", "cro", "arbitrum", "base", "solana"]
                 },
                 "limit": {
                     "type": "integer",
@@ -105,6 +106,34 @@ pub fn get_trending_pools_tool() -> Tool {
     )
 }
 
+/// Search pools tool - returns a Tool for searching DEX pools by text, ticker, or address
+pub fn get_search_pools_tool() -> Tool {
+    Tool::function(
+        "search_pools",
+        "Search for DEX pools on GeckoTerminal by text, token symbol, contract address, or pool address.",
+        json!({
+            "type": "object",
+            "properties": {
+                "query": {
+                    "type": "string",
+                    "description": "Free-text search. Accepts a token symbol, token contract address, or a pool address."
+                },
+                "network": {
+                    "type": "string",
+                    "description": "(Optional) Restrict results to one chain (slug as used on GeckoTerminal). E.g. 'aptos', 'sui' 'ethereum', 'solana', 'base'"
+                },
+                "page": {
+                    "type": "integer",
+                    "description": "(Optional) Pagination (20 results per page).",
+                    "minimum": 1,
+                    "default": 1
+                }
+            },
+            "required": ["query"]
+        }),
+    )
+}
+
 /// Execute a custom tool and return the result
 pub async fn execute_custom_tool(
     tool_name: &str, 
@@ -124,6 +153,9 @@ pub async fn execute_custom_tool(
         }
         "get_trending_pools" => {
             execute_trending_pools(arguments).await
+        }
+        "search_pools" => {
+            execute_search_pools(arguments).await
         }
         _ => {
             format!("Error: Unknown custom tool '{}'", tool_name)
@@ -498,6 +530,7 @@ pub fn get_all_custom_tools() -> Vec<Tool> {
         withdraw_funds_tool(),
         generate_image_tool(),
         get_trending_pools_tool(),
+        get_search_pools_tool(),
     ]
 }
 
@@ -524,6 +557,175 @@ pub async fn handle_parallel_tool_calls(
     function_outputs
 }
 
+/// Execute search pools fetch from GeckoTerminal
+async fn execute_search_pools(arguments: &serde_json::Value) -> String {
+    // Parse arguments
+    let query = match arguments.get("query").and_then(|v| v.as_str()) {
+        Some(q) if !q.trim().is_empty() => q,
+        _ => return "❌ Error: 'query' is required for pool search.".to_string(),
+    };
+    let network = arguments.get("network").and_then(|v| v.as_str());
+    let page = arguments.get("page").and_then(|v| v.as_u64()).unwrap_or(1).max(1);
+
+    // Construct GeckoTerminal API URL
+    let mut url = format!(
+        "https://api.geckoterminal.com/api/v2/search/pools?query={}&page={}",
+        urlencoding::encode(query),
+        page
+    );
+    if let Some(net) = network {
+        url.push_str(&format!("&network={}", urlencoding::encode(net)));
+    }
+    url.push_str("&include=base_token,quote_token,dex");
+
+    // Make HTTP request
+    let client = reqwest::Client::new();
+    let result = match client
+        .get(&url)
+        .header("Accept", "application/json")
+        .header("User-Agent", "QuarkBot/1.0")
+        .send()
+        .await
+    {
+        Ok(response) => {
+            if response.status().is_success() {
+                match response.json::<serde_json::Value>().await {
+                    Ok(data) => {
+                        let result = format_search_pools_response(&data, query, network);
+                        if result.trim().is_empty() {
+                            format!("🔍 No pools found for query '{}'. The API returned valid data but no pools matched the criteria.", query)
+                        } else {
+                            result
+                        }
+                    }
+                    Err(e) => {
+                        format!("❌ Error parsing API response: {}", e)
+                    }
+                }
+            } else if response.status() == 404 {
+                format!("❌ No pools found for query '{}'.", query)
+            } else if response.status() == 429 {
+                "⚠️ Rate limit exceeded. GeckoTerminal allows 30 requests per minute. Please try again later.".to_string()
+            } else {
+                format!("❌ API request failed with status: {} - {}", 
+                    response.status(), 
+                    response.text().await.unwrap_or_else(|_| "Unknown error".to_string())
+                )
+            }
+        }
+        Err(e) => {
+            format!("❌ Network error when calling GeckoTerminal API: {}", e)
+        }
+    };
+    if result.trim().is_empty() {
+        format!("🔧 Debug: Function completed but result was empty. Query: {}", query)
+    } else {
+        result
+    }
+}
+
+/// Format the search pools API response into a readable string
+fn format_search_pools_response(data: &serde_json::Value, query: &str, network: Option<&str>) -> String {
+    let mut result = String::new();
+    result.push_str(&format!("🔍 **Search Results for '{}'{}**\n\n",
+        query,
+        network.map(|n| format!(" on {}", n)).unwrap_or_default()
+    ));
+    // Build lookup maps for tokens and DEXes from included array
+    let mut token_map = std::collections::HashMap::new();
+    let mut dex_map = std::collections::HashMap::new();
+    if let Some(included) = data.get("included").and_then(|d| d.as_array()) {
+        for item in included {
+            if let Some(id) = item.get("id").and_then(|v| v.as_str()) {
+                match item.get("type").and_then(|v| v.as_str()) {
+                    Some("token") => { token_map.insert(id, item); },
+                    Some("dex") => { dex_map.insert(id, item); },
+                    _ => {}
+                }
+            }
+        }
+    }
+    if let Some(pools) = data.get("data").and_then(|d| d.as_array()) {
+        if pools.is_empty() {
+            result.push_str("No pools found for this query.\n");
+        } else {
+            for (index, pool) in pools.iter().enumerate() {
+                if let Some(attributes) = pool.get("attributes") {
+                    let name = attributes.get("name").and_then(|v| v.as_str()).unwrap_or("Unknown Pool");
+                    let pool_address = attributes.get("address").and_then(|v| v.as_str()).unwrap_or("");
+                    let pool_created_at = attributes.get("pool_created_at").and_then(|v| v.as_str()).unwrap_or("Unknown");
+                    let reserve_usd = attributes.get("reserve_in_usd").and_then(|v| v.as_str()).unwrap_or("0");
+                    let base_token_price = attributes.get("base_token_price_usd").and_then(|v| v.as_str()).unwrap_or("0");
+                    let quote_token_price = attributes.get("quote_token_price_usd").and_then(|v| v.as_str()).unwrap_or("0");
+                    // --- ENRICH WITH TOKEN & DEX INFO ---
+                    let (base_token_info, quote_token_info, dex_info) = if let Some(relationships) = pool.get("relationships") {
+                        let base_token_id = relationships.get("base_token").and_then(|r| r.get("data")).and_then(|d| d.get("id")).and_then(|v| v.as_str());
+                        let quote_token_id = relationships.get("quote_token").and_then(|r| r.get("data")).and_then(|d| d.get("id")).and_then(|v| v.as_str());
+                        let dex_id = relationships.get("dex").and_then(|r| r.get("data")).and_then(|d| d.get("id")).and_then(|v| v.as_str());
+                        (
+                            base_token_id.and_then(|id| token_map.get(id)),
+                            quote_token_id.and_then(|id| token_map.get(id)),
+                            dex_id.and_then(|id| dex_map.get(id)),
+                        )
+                    } else { (None, None, None) };
+                    // Base token details
+                    let (base_name, base_symbol, base_addr) = if let Some(token) = base_token_info {
+                        let attr = token.get("attributes").unwrap_or(&serde_json::Value::Null);
+                        (
+                            attr.get("name").and_then(|v| v.as_str()).unwrap_or("?"),
+                            attr.get("symbol").and_then(|v| v.as_str()).unwrap_or("?"),
+                            attr.get("address").and_then(|v| v.as_str()).unwrap_or("?")
+                        )
+                    } else { ("?", "?", "?") };
+                    // Quote token details
+                    let (quote_name, quote_symbol, quote_addr) = if let Some(token) = quote_token_info {
+                        let attr = token.get("attributes").unwrap_or(&serde_json::Value::Null);
+                        (
+                            attr.get("name").and_then(|v| v.as_str()).unwrap_or("?"),
+                            attr.get("symbol").and_then(|v| v.as_str()).unwrap_or("?"),
+                            attr.get("address").and_then(|v| v.as_str()).unwrap_or("?")
+                        )
+                    } else { ("?", "?", "?") };
+                    // DEX details
+                    let dex_name = if let Some(dex) = dex_info {
+                        dex.get("attributes").and_then(|a| a.get("name")).and_then(|v| v.as_str()).unwrap_or("Unknown DEX")
+                    } else { attributes.get("dex_id").and_then(|v| v.as_str()).unwrap_or("Unknown DEX") };
+                    let created_date = if pool_created_at != "Unknown" {
+                        pool_created_at.split('T').next().unwrap_or(pool_created_at)
+                    } else { "Unknown" };
+                    let liquidity_formatted = format_large_number(reserve_usd);
+                    let base_price_formatted = format_price(base_token_price);
+                    let quote_price_formatted = format_price(quote_token_price);
+                    result.push_str(&format!(
+                        "**{}. {} ({})**\n\
+🔹 **Base Token:** {} ({})\n  - Address: `{}`\n🔹 **Quote Token:** {} ({})\n  - Address: `{}`\n💧 **Liquidity:** ${}\n💰 **Base Price:** ${} | **Quote Price:** ${}\n📅 **Created:** {}\n🏊 **Pool:** `{}`\n\
+🔗 [View on GeckoTerminal](https://www.geckoterminal.com/{}/pools/{})\n\n",
+                        index + 1,
+                        name,
+                        dex_name,
+                        base_name, base_symbol, base_addr,
+                        quote_name, quote_symbol, quote_addr,
+                        liquidity_formatted,
+                        base_price_formatted, quote_price_formatted,
+                        created_date,
+                        pool_address,
+                        network.unwrap_or("?"),
+                        pool_address
+                    ));
+                }
+            }
+            result.push_str(&format!("🌐 Network: {} • Showing {}/{} pools",
+                network.map(|n| n.to_uppercase()).unwrap_or_default(),
+                pools.len(),
+                pools.len()
+            ));
+        }
+    } else {
+        result.push_str("❌ No pool data found in API response.");
+    }
+    result
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -531,7 +733,7 @@ mod tests {
     #[test]
     fn test_get_all_custom_tools() {
         let tools = get_all_custom_tools();
-        assert_eq!(tools.len(), 4); // Now includes image generation and trending pools tools
+        assert_eq!(tools.len(), 5); // Now includes image generation, trending pools, and search pools tools
         // Test that tools were created successfully - the exact Tool structure is SDK-internal
     }
 } 
