@@ -49,10 +49,14 @@ async fn main() {
             if let Some(text) = msg.text() {
                 if (text == "/login_user" || text == format!("/login_user@{}", bot_username)) && msg.chat.is_private() {
                     crate::commands::handle_login_user(bot.clone(), msg.clone(), db.clone()).await?;
-                } else if let Some(_stripped) = text.strip_prefix(&format!("/chat@{} ", bot_username)).or_else(|| text.strip_prefix("/chat ")) {
+                } else if let Some(_stripped) = text.strip_prefix(&format!("/chat@{} ", bot_username))
+                    .or_else(|| text.strip_prefix("/chat "))
+                    .or_else(|| text.strip_prefix(&format!("/c@{} ", bot_username)))
+                    .or_else(|| text.strip_prefix("/c "))
+                {
                     crate::commands::handle_chat(bot.clone(), msg.clone(), db.clone(), openai_api_key.clone()).await?;
-                } else if text == "/chat" || text == format!("/chat@{}", bot_username) {
-                    bot.send_message(msg.chat.id, "Usage: /chat <your message>").await?;
+                } else if text == "/chat" || text == format!("/chat@{}", bot_username) || text == "/c" || text == format!("/c@{}", bot_username) {
+                    bot.send_message(msg.chat.id, "Usage: /chat <your message> or /c <your message>").await?;
                 }
                 if (text == "/add_files" || text == format!("/add_files@{}", bot_username)) && msg.chat.is_private() {
                     crate::commands::handle_add_files(bot.clone(), msg.clone()).await?;
