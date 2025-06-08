@@ -1,24 +1,28 @@
 [package]
 name = "quark_backend"
 version = "0.1.0"
-edition = "2024"
+edition = "2021"
 
 [dependencies]
-open-ai-rust-responses-by-sshift = "0.1.8"
-sled = "0.34.7"
-bincode = "1.3"
-anyhow = "1.0"
+open-ai-rust-responses-by-sshift = "0.2.0"
+tokio = { version = "1.38.0", features = ["full"] }
+anyhow = "1.0.86"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 contracts = { path = "../contracts" }
-# Google Cloud Storage dependencies - using simpler cloud-storage crate
-cloud-storage = "0.11"
-# Image processing dependencies  
-base64 = "0.22"
-tokio = { version = "1.0", features = ["full"] }
-uuid = { version = "1.0", features = ["v4"] }
-# Environment variables
-dotenv = "0.15"
-# HTTP client for downloading images
-reqwest = { version = "0.11", features = ["json"] }
+sled = "0.34.7"
+reqwest = { version = "0.12.5", features = ["json"] }
+base64 = "0.22.1"
 urlencoding = "2.1.3"
+bincode = "1.3.3"
+log = "0.4.22"
+env_logger = "0.11.3"
+dotenv = "0.15.0"
+thiserror = "1.0.62"
+
+[dev-dependencies]
+mockito = "1.4.0"
+serial_test = "3.0.0"
+futures = "0.3.30"
+wiremock = "0.6.1"
+async-trait = "0.1.81"
