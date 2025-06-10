@@ -1,47 +1,54 @@
 // AI logic module for quark_backend
 
 use open_ai_rust_responses_by_sshift::{Client as OAIClient, Request, Model, Response};
-use open_ai_rust_responses_by_sshift::types::{Tool, ToolChoice, Include};
+use open_ai_rust_responses_by_sshift::types::{Tool, ToolChoice, Include, ResponseItem};
 use sled::Db;
 use crate::db::UserConversations;
 use contracts::aptos::simulate_aptos_contract_call;
+use base64::{engine::general_purpose, Engine as _};
 
 mod vector_store;
 mod tools;
-mod gcs;
 
 pub use vector_store::upload_files_to_vector_store;
 pub use vector_store::{list_vector_store_files, list_user_files_local, list_user_files_with_names, delete_file_from_vector_store, delete_vector_store, delete_all_files_from_vector_store};
-pub use tools::{get_balance_tool, withdraw_funds_tool, generate_image_tool, execute_custom_tool, get_all_custom_tools, handle_parallel_tool_calls};
-pub use gcs::GcsImageUploader;
+pub use tools::{get_balance_tool, withdraw_funds_tool, execute_custom_tool, get_all_custom_tools, handle_parallel_tool_calls};
+
 
 const SYSTEM_PROMPT: &str = "You are Quark, the high imperial arcon of the western universe. You are helpful yet authoritative overlord for Telegram users. Respond conversationally, in charecter, accurately, and maintain context.";
+
+/// Represents the AI's response, which can include text and/or an image.
+#[derive(Debug)]
+pub struct AIResponse {
+    pub text: String,
+    pub image_data: Option<Vec<u8>>,
+}
 
 pub async fn generate_response(
     user_id: i64,
     input: &str,
     db: &Db,
     openai_api_key: &str,
-    storage_credentials: &str,
-    bucket_name: &str,
-) -> Result<String, anyhow::Error> {
+) -> Result<AIResponse, anyhow::Error> {
     let user_convos = UserConversations::new(db)?;
     let previous_response_id = user_convos.get_response_id(user_id);
     let vector_store_id = user_convos.get_vector_store_id(user_id);
     let client = OAIClient::new(openai_api_key)?;
     
-    // Initialize GCS uploader
-    let gcs_uploader = GcsImageUploader::new(storage_credentials, bucket_name.to_string()).await?;
+
 
     // Simulate contract call (logging is handled in the contract module)
     let _ = simulate_aptos_contract_call(user_id);
 
     // Enhanced tools: built-in tools + custom function tools
-    let mut tools = vec![Tool::web_search_preview()];
+    let mut tools = vec![
+        Tool::web_search_preview(),
+        Tool::image_generation(),
+    ];
     if let Some(vs_id) = vector_store_id.clone() {
         tools.push(Tool::file_search(vec![vs_id]));
     }
-    // Add custom function tools (get_balance, withdraw_funds, generate_image)
+    // Add custom function tools (get_balance, withdraw_funds, etc.)
     tools.extend(get_all_custom_tools());
 
     let mut request_builder = Request::builder()
@@ -71,11 +78,10 @@ pub async fn generate_response(
     while !current_response.tool_calls().is_empty() && iteration <= MAX_ITERATIONS {
         let tool_calls = current_response.tool_calls();
         
-        // Filter for custom function calls (get_balance, withdraw_funds, generate_image, get_trending_pools, search_pools, get_current_time, get_fear_and_greed_index)
+        // Filter for custom function calls (get_balance, withdraw_funds, get_trending_pools, search_pools, get_current_time, get_fear_and_greed_index)
         let custom_tool_calls: Vec<_> = tool_calls.iter()
             .filter(|tc| tc.name == "get_balance"
                 || tc.name == "withdraw_funds"
-                || tc.name == "generate_image"
                 || tc.name == "get_trending_pools"
                 || tc.name == "search_pools"
                 || tc.name == "get_new_pools"
@@ -90,7 +96,7 @@ pub async fn generate_response(
                 // Parse arguments as JSON Value for execute_custom_tool
                 let args_value: serde_json::Value = serde_json::from_str(&tool_call.arguments)
                     .unwrap_or_else(|_| serde_json::json!({}));
-                let result = execute_custom_tool(&tool_call.name, &args_value, &client, &gcs_uploader).await;
+                let result = execute_custom_tool(&tool_call.name, &args_value).await;
                 function_outputs.push((tool_call.call_id.clone(), result));
             }
             
@@ -118,8 +124,31 @@ pub async fn generate_response(
         iteration += 1;
     }
     
+    // Extract text and potentially image data from the final response
     let reply = current_response.output_text();
     let response_id = current_response.id().to_string();
     user_convos.set_response_id(user_id, &response_id)?;
-    Ok(reply)
+
+    let mut image_data: Option<Vec<u8>> = None;
+    for item in &current_response.output {
+        if let ResponseItem::ImageGenerationCall { result, .. } = item {
+            // Decode the base64 string to image bytes
+            match general_purpose::STANDARD.decode(result) {
+                Ok(bytes) => {
+                    image_data = Some(bytes);
+                    // We found our image, no need to look further
+                    break; 
+                }
+                Err(e) => {
+                    // Log the error but don't fail the entire response
+                    eprintln!("Error decoding base64 image: {}", e);
+                }
+            }
+        }
+    }
+
+    Ok(AIResponse {
+        text: reply,
+        image_data,
+    })
 } 
