@@ -4,11 +4,14 @@ use teloxide::prelude::*;
 use teloxide::types::ChatAction;
 use sled::Db;
 use teloxide::net::Download;
+use std::time::Duration;
+use tokio::time::sleep;
 
 pub async fn handle_file_upload(bot: Bot, msg: Message, db: Db, openai_api_key: String) -> Result<(), teloxide::RequestError> {
     use quark_backend::ai::upload_files_to_vector_store;
     use tokio::fs::File;
     let user_id = msg.from.as_ref().map(|u| u.id.0).unwrap_or(0) as i64;
+    let chat_id = msg.chat.id;
     let mut file_paths = Vec::new();
     // Handle document
     if let Some(document) = msg.document() {
@@ -52,17 +55,31 @@ pub async fn handle_file_upload(bot: Bot, msg: Message, db: Db, openai_api_key: 
         file_paths.push(file_path);
     }
     if !file_paths.is_empty() {
-        // Show typing indicator while processing files
-        bot.send_chat_action(msg.chat.id, ChatAction::Typing).await?;
-        
-        match upload_files_to_vector_store(user_id, &db, &openai_api_key, file_paths.clone()).await {
+        // --- Typing Indicator Task ---
+        let bot_clone = bot.clone();
+        let typing_indicator_handle = tokio::spawn(async move {
+            loop {
+                if let Err(e) = bot_clone.send_chat_action(chat_id, ChatAction::Typing).await {
+                    log::warn!("Failed to send typing action: {}", e);
+                    break;
+                }
+                sleep(Duration::from_secs(5)).await;
+            }
+        });
+
+        let upload_result = upload_files_to_vector_store(user_id, &db, &openai_api_key, file_paths.clone()).await;
+
+        // Stop the typing indicator task
+        typing_indicator_handle.abort();
+
+        match upload_result {
             Ok(vector_store_id) => {
                 let file_count = file_paths.len();
                 let files_text = if file_count == 1 { "file" } else { "files" };
-                bot.send_message(msg.chat.id, format!("✅ {} {} uploaded and indexed! Your vector store ID: {}", file_count, files_text, vector_store_id)).await?;
+                bot.send_message(chat_id, format!("✅ {} {} uploaded and indexed! Your vector store ID: {}", file_count, files_text, vector_store_id)).await?;
             },
             Err(e) => {
-                bot.send_message(msg.chat.id, format!("[Upload error]: {}", e)).await?;
+                bot.send_message(chat_id, format!("[Upload error]: {}", e)).await?;
             }
         }
     } else {
