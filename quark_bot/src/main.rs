@@ -5,6 +5,7 @@ mod commands;
 mod file_handling;
 mod callbacks;
 mod utils;
+mod media_aggregator;
 
 #[derive(BotCommands, Clone)]
 #[command(description = "These commands are supported:")]
@@ -40,13 +41,22 @@ async fn main() {
     let openai_api_key_for_messages = openai_api_key.clone();
     let db_for_callbacks = db.clone();
     let openai_api_key_for_callbacks = openai_api_key.clone();
+    use std::sync::Arc;
+    let media_aggregator = Arc::new(media_aggregator::MediaGroupAggregator::new(bot.clone(), db.clone(), openai_api_key.clone()));
 
     let handler = Update::filter_message().endpoint(move |bot: Bot, msg: Message| {
         let bot_username = bot_username.clone();
         let db = db_for_messages.clone();
         let openai_api_key = openai_api_key_for_messages.clone();
+        let media_aggregator = media_aggregator.clone();
         async move {
-            if let Some(text) = msg.text() {
+            if msg.media_group_id().is_some() && msg.photo().is_some() {
+                media_aggregator.add_message(msg).await;
+                return respond(());
+            }
+
+            let maybe_text = msg.text().or_else(|| msg.caption());
+            if let Some(text) = maybe_text {
                 if (text == "/login_user" || text == format!("/login_user@{}", bot_username)) && msg.chat.is_private() {
                     crate::commands::handle_login_user(bot.clone(), msg.clone(), db.clone()).await?;
                 } else if let Some(_stripped) = text.strip_prefix(&format!("/chat@{} ", bot_username))
@@ -56,7 +66,11 @@ async fn main() {
                 {
                     crate::commands::handle_chat(bot.clone(), msg.clone(), db.clone(), openai_api_key.clone()).await?;
                 } else if text == "/chat" || text == format!("/chat@{}", bot_username) || text == "/c" || text == format!("/c@{}", bot_username) {
-                    bot.send_message(msg.chat.id, "Usage: /chat <your message> or /c <your message>").await?;
+                    if msg.photo().is_some() {
+                        crate::commands::handle_chat(bot.clone(), msg.clone(), db.clone(), openai_api_key.clone()).await?;
+                    } else {
+                        bot.send_message(msg.chat.id, "Usage: /chat <your message> or /c <your message>").await?;
+                    }
                 }
                 if (text == "/add_files" || text == format!("/add_files@{}", bot_username)) && msg.chat.is_private() {
                     crate::commands::handle_add_files(bot.clone(), msg.clone()).await?;
@@ -74,7 +88,7 @@ async fn main() {
                     crate::commands::handle_new_chat(bot.clone(), msg.clone(), db.clone()).await?;
                 }
             }
-            if msg.chat.is_private() && (msg.document().is_some() || msg.photo().is_some() || msg.video().is_some() || msg.audio().is_some()) {
+            if msg.caption().is_none() && msg.chat.is_private() && (msg.document().is_some() || msg.photo().is_some() || msg.video().is_some() || msg.audio().is_some()) {
                 crate::file_handling::handle_file_upload(bot.clone(), msg.clone(), db.clone(), openai_api_key.clone()).await?;
             }
             respond(())

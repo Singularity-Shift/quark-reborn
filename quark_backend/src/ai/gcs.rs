@@ -34,12 +34,13 @@ impl GcsImageUploader {
         &self,
         base64_data: &str,
         image_format: &str, // "png", "jpg", "webp"
+        folder: &str,       // e.g. "quark/images"
     ) -> Result<String> {
         // Decode base64 to bytes
         let image_bytes = general_purpose::STANDARD.decode(base64_data)?;
         
-        // Generate unique filename in the quark folder
-        let filename = format!("quark/images/{}.{}", Uuid::new_v4(), image_format);
+        // Generate unique filename in the specified folder
+        let filename = format!("{}/{}.{}", folder, Uuid::new_v4(), image_format);
         
         // Determine content type
         let content_type = match image_format {

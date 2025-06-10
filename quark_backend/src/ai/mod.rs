@@ -6,13 +6,17 @@ use sled::Db;
 use crate::db::UserConversations;
 use contracts::aptos::simulate_aptos_contract_call;
 use base64::{engine::general_purpose, Engine as _};
+use std::env;
+use serde_json;
 
 mod vector_store;
 mod tools;
+mod gcs;
 
 pub use vector_store::upload_files_to_vector_store;
 pub use vector_store::{list_vector_store_files, list_user_files_local, list_user_files_with_names, delete_file_from_vector_store, delete_vector_store, delete_all_files_from_vector_store};
 pub use tools::{get_balance_tool, withdraw_funds_tool, execute_custom_tool, get_all_custom_tools, handle_parallel_tool_calls};
+use crate::ai::gcs::GcsImageUploader;
 
 
 const SYSTEM_PROMPT: &str = "You are Quark, the high imperial arcon of the western universe. You are helpful yet authoritative overlord for Telegram users. Respond conversationally, in charecter, accurately, and maintain context.";
@@ -24,14 +28,44 @@ pub struct AIResponse {
     pub image_data: Option<Vec<u8>>,
 }
 
+pub async fn upload_user_images(
+    image_paths: Vec<(String, String)>,
+) -> Result<Vec<String>, anyhow::Error> {
+    if image_paths.is_empty() {
+        return Ok(vec![]);
+    }
+
+    let gcs_creds = env::var("STORAGE_CREDENTIALS")?;
+    let bucket_name = env::var("GCS_BUCKET_NAME")?;
+    
+    let uploader = GcsImageUploader::new(&gcs_creds, bucket_name).await?;
+    
+    let mut urls = Vec::new();
+
+    for (path, extension) in image_paths {
+        let bytes = tokio::fs::read(&path).await?;
+        let base64_data = general_purpose::STANDARD.encode(&bytes);
+        match uploader.upload_base64_image(&base64_data, &extension, "quark/user_uploads").await {
+            Ok(url) => urls.push(url),
+            Err(e) => log::error!("Failed to upload a user image {}: {}", path, e),
+        }
+        let _ = tokio::fs::remove_file(&path).await;
+    }
+    
+    Ok(urls)
+}
+
 pub async fn generate_response(
     user_id: i64,
     input: &str,
     db: &Db,
     openai_api_key: &str,
+    image_url_from_reply: Option<String>,
+    user_uploaded_image_urls: Vec<String>,
 ) -> Result<AIResponse, anyhow::Error> {
     let user_convos = UserConversations::new(db)?;
     let previous_response_id = user_convos.get_response_id(user_id);
+
     let vector_store_id = user_convos.get_vector_store_id(user_id);
     let client = OAIClient::new(openai_api_key)?;
     
@@ -53,7 +87,6 @@ pub async fn generate_response(
 
     let mut request_builder = Request::builder()
         .model(Model::GPT4o)
-        .input(input)
         .instructions(SYSTEM_PROMPT)
         .tools(tools.clone())
         .tool_choice(ToolChoice::auto())
@@ -63,6 +96,25 @@ pub async fn generate_response(
         .temperature(0.5)
         .user(&format!("user-{}", user_id))
         .store(true);
+
+    let mut input_content: Vec<serde_json::Value> = vec![
+        serde_json::json!({"type": "input_text", "text": input})
+    ];
+
+    if let Some(url) = image_url_from_reply {
+        input_content.push(serde_json::json!({"type": "input_image", "image_url": url}));
+    }
+
+    for url in user_uploaded_image_urls {
+        input_content.push(serde_json::json!({"type": "input_image", "image_url": url}));
+    }
+
+    if input_content.len() > 1 {
+        let input_str = serde_json::to_string(&input_content)?;
+        request_builder = request_builder.input(&input_str);
+    } else {
+        request_builder = request_builder.input(input);
+    }
 
     if let Some(prev_id) = previous_response_id.clone() {
         request_builder = request_builder.previous_response_id(prev_id);
@@ -125,7 +177,7 @@ pub async fn generate_response(
     }
     
     // Extract text and potentially image data from the final response
-    let reply = current_response.output_text();
+    let mut reply = current_response.output_text();
     let response_id = current_response.id().to_string();
     user_convos.set_response_id(user_id, &response_id)?;
 
@@ -136,6 +188,21 @@ pub async fn generate_response(
             match general_purpose::STANDARD.decode(result) {
                 Ok(bytes) => {
                     image_data = Some(bytes);
+                    
+                    // Upload to GCS and append URL to reply
+                    if let (Ok(gcs_creds), Ok(bucket_name)) = (env::var("STORAGE_CREDENTIALS"), env::var("GCS_BUCKET_NAME")) {
+                        if let Ok(uploader) = GcsImageUploader::new(&gcs_creds, bucket_name).await {
+                            match uploader.upload_base64_image(result, "png", "quark/images").await {
+                                Ok(url) => {
+                                    reply = format!("{}\n\nImage URL: {}", reply, url);
+                                }
+                                Err(e) => log::error!("Failed to upload image to GCS: {}", e),
+                            }
+                        }
+                    } else {
+                        log::warn!("STORAGE_CREDENTIALS or GCS_BUCKET_NAME not set. Skipping image upload.");
+                    }
+
                     // We found our image, no need to look further
                     break; 
                 }
