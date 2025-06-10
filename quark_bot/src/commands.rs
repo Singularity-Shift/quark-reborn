@@ -5,6 +5,8 @@ use teloxide::types::{ChatAction, InputFile};
 use sled::Db;
 use crate::utils;
 use contracts::aptos::simulate_aptos_contract_call;
+use std::time::Duration;
+use tokio::time::sleep;
 
 pub async fn handle_login_user(bot: Bot, msg: Message, db: Db) -> Result<(), teloxide::RequestError> {
     let _db = db;
@@ -115,33 +117,49 @@ pub async fn handle_list_files(bot: Bot, msg: Message, db: Db, openai_api_key: S
 pub async fn handle_chat(bot: Bot, msg: Message, db: Db, openai_api_key: String) -> Result<(), teloxide::RequestError> {
     if let Some(text) = msg.text() {
         let user_id = msg.from.as_ref().map(|u| u.id.0).unwrap_or(0) as i64;
-        
-        // Show typing indicator while processing
-        bot.send_chat_action(msg.chat.id, ChatAction::Typing).await?;
-        
-        match quark_backend::ai::generate_response(
-            user_id, 
-            text, 
-            &db, 
+        let chat_id = msg.chat.id;
+
+        // --- Typing Indicator Task ---
+        let bot_clone = bot.clone();
+        let typing_indicator_handle = tokio::spawn(async move {
+            loop {
+                if let Err(e) = bot_clone.send_chat_action(chat_id, ChatAction::Typing).await {
+                    log::warn!("Failed to send typing action: {}", e);
+                    break;
+                }
+                sleep(Duration::from_secs(5)).await;
+            }
+        });
+
+        let ai_response_result = quark_backend::ai::generate_response(
+            user_id,
+            text,
+            &db,
             &openai_api_key
-        ).await {
+        ).await;
+
+        // Stop the typing indicator task
+        typing_indicator_handle.abort();
+
+        // --- Handle AI Response ---
+        match ai_response_result {
             Ok(ai_response) => {
                 if let Some(image_bytes) = ai_response.image_data {
                     let photo = InputFile::memory(image_bytes);
-                    let mut request = bot.send_photo(msg.chat.id, photo);
+                    let mut request = bot.send_photo(chat_id, photo);
                     if !ai_response.text.is_empty() {
                         request = request.caption(ai_response.text);
                     }
                     request.await?;
                 } else {
                     if !ai_response.text.is_empty() {
-                        bot.send_message(msg.chat.id, ai_response.text).await?;
+                        bot.send_message(chat_id, ai_response.text).await?;
                     }
                 }
             },
             Err(e) => {
                 let error_message = format!("[AI error]: {}", e);
-                bot.send_message(msg.chat.id, error_message).await?;
+                bot.send_message(chat_id, error_message).await?;
             },
         };
     } else {
