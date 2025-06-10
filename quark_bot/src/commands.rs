@@ -7,6 +7,9 @@ use crate::utils;
 use contracts::aptos::simulate_aptos_contract_call;
 use std::time::Duration;
 use tokio::time::sleep;
+use regex;
+use tokio::fs::File;
+use teloxide::net::Download;
 
 pub async fn handle_login_user(bot: Bot, msg: Message, db: Db) -> Result<(), teloxide::RequestError> {
     let _db = db;
@@ -115,56 +118,202 @@ pub async fn handle_list_files(bot: Bot, msg: Message, db: Db, openai_api_key: S
 }
 
 pub async fn handle_chat(bot: Bot, msg: Message, db: Db, openai_api_key: String) -> Result<(), teloxide::RequestError> {
-    if let Some(text) = msg.text() {
-        let user_id = msg.from.as_ref().map(|u| u.id.0).unwrap_or(0) as i64;
-        let chat_id = msg.chat.id;
+    let text = msg.text().or_else(|| msg.caption()).unwrap_or("");
+    let user_id = msg.from.as_ref().map(|u| u.id.0).unwrap_or(0) as i64;
+    let chat_id = msg.chat.id;
 
-        // --- Typing Indicator Task ---
-        let bot_clone = bot.clone();
-        let typing_indicator_handle = tokio::spawn(async move {
-            loop {
-                if let Err(e) = bot_clone.send_chat_action(chat_id, ChatAction::Typing).await {
-                    log::warn!("Failed to send typing action: {}", e);
-                    break;
+    // --- Extract image URL from reply ---
+    let mut image_url_from_reply: Option<String> = None;
+    if let Some(reply) = msg.reply_to_message() {
+        if let Some(from) = reply.from.as_ref() {
+            if from.is_bot {
+                let reply_text = reply.text().or_else(|| reply.caption());
+                if let Some(text) = reply_text {
+                    // A simple regex to find the GCS URL
+                    if let Ok(re) = regex::Regex::new(r"https://storage\.googleapis\.com/sshift-gpt-bucket/[^\s]+") {
+                        if let Some(mat) = re.find(text) {
+                            image_url_from_reply = Some(mat.as_str().to_string());
+                        }
+                    }
                 }
-                sleep(Duration::from_secs(5)).await;
             }
-        });
-
-        let ai_response_result = quark_backend::ai::generate_response(
-            user_id,
-            text,
-            &db,
-            &openai_api_key
-        ).await;
-
-        // Stop the typing indicator task
-        typing_indicator_handle.abort();
-
-        // --- Handle AI Response ---
-        match ai_response_result {
-            Ok(ai_response) => {
-                if let Some(image_bytes) = ai_response.image_data {
-                    let photo = InputFile::memory(image_bytes);
-                    let mut request = bot.send_photo(chat_id, photo);
-                    if !ai_response.text.is_empty() {
-                        request = request.caption(ai_response.text);
-                    }
-                    request.await?;
-                } else {
-                    if !ai_response.text.is_empty() {
-                        bot.send_message(chat_id, ai_response.text).await?;
-                    }
-                }
-            },
-            Err(e) => {
-                let error_message = format!("[AI error]: {}", e);
-                bot.send_message(chat_id, error_message).await?;
-            },
-        };
-    } else {
-        bot.send_message(msg.chat.id, "Usage: /chat <your message>").await?;
+        }
     }
+
+    // --- Download user-attached images ---
+    let mut user_uploaded_image_paths: Vec<(String, String)> = Vec::new();
+    if let Some(photos) = msg.photo() {
+        if let Some(photo) = photos.last() { // Largest photo
+            let file_id = &photo.file.id;
+            let file_info = bot.get_file(file_id).await?;
+            let extension = file_info.path.split('.').last().unwrap_or("jpg").to_string();
+            let temp_path = format!("/tmp/{}_{}.{}", user_id, photo.file.unique_id, extension);
+            let mut file = File::create(&temp_path).await.map_err(|e| teloxide::RequestError::from(std::sync::Arc::new(e)))?;
+            bot.download_file(&file_info.path, &mut file).await.map_err(|e| teloxide::RequestError::from(e))?;
+            user_uploaded_image_paths.push((temp_path, extension));
+        }
+    }
+
+    // --- Upload user images to GCS ---
+    let mut user_uploaded_image_urls: Vec<String> = Vec::new();
+    if !user_uploaded_image_paths.is_empty() {
+        match quark_backend::ai::upload_user_images(user_uploaded_image_paths).await {
+            Ok(urls) => {
+                user_uploaded_image_urls = urls;
+            }
+            Err(e) => {
+                log::error!("Failed to upload user images: {}", e);
+                bot.send_message(chat_id, "Sorry, I couldn't upload your image. Please try again.").await?;
+                // We should probably stop execution here
+                return Ok(());
+            }
+        }
+    }
+
+    // --- Typing Indicator Task ---
+    let bot_clone = bot.clone();
+    let typing_indicator_handle = tokio::spawn(async move {
+        loop {
+            if let Err(e) = bot_clone.send_chat_action(chat_id, ChatAction::Typing).await {
+                log::warn!("Failed to send typing action: {}", e);
+                break;
+            }
+            sleep(Duration::from_secs(5)).await;
+        }
+    });
+
+    let ai_response_result = quark_backend::ai::generate_response(
+        user_id,
+        text,
+        &db,
+        &openai_api_key,
+        image_url_from_reply,
+        user_uploaded_image_urls,
+    ).await;
+
+    // Stop the typing indicator task
+    typing_indicator_handle.abort();
+
+    // --- Handle AI Response ---
+    match ai_response_result {
+        Ok(ai_response) => {
+            if let Some(image_bytes) = ai_response.image_data {
+                let photo = InputFile::memory(image_bytes);
+                let mut request = bot.send_photo(chat_id, photo);
+                if !ai_response.text.is_empty() {
+                    request = request.caption(ai_response.text);
+                }
+                request.await?;
+            } else {
+                if !ai_response.text.is_empty() {
+                    bot.send_message(chat_id, ai_response.text).await?;
+                }
+            }
+        },
+        Err(e) => {
+            let error_message = format!("[AI error]: {}", e);
+            bot.send_message(chat_id, error_message).await?;
+        },
+    };
+    Ok(())
+}
+
+pub async fn handle_grouped_chat(bot: Bot, messages: Vec<Message>, db: Db, openai_api_key: String) -> Result<(), teloxide::RequestError> {
+    // Assumption: all messages have the same chat_id and from user.
+    let first_msg = if let Some(msg) = messages.first() {
+        msg
+    } else {
+        return Ok(()); // Should not happen
+    };
+    
+    let user_id = first_msg.from.as_ref().map(|u| u.id.0).unwrap_or(0) as i64;
+    let chat_id = first_msg.chat.id;
+
+    // Find the caption from any of the messages
+    let caption = messages
+        .iter()
+        .find_map(|m| m.caption())
+        .unwrap_or("");
+
+    // --- Download all user-attached images ---
+    let mut user_uploaded_image_paths: Vec<(String, String)> = Vec::new();
+    for msg in &messages {
+        if let Some(photos) = msg.photo() {
+            if let Some(photo) = photos.last() { // Largest photo
+                let file_id = &photo.file.id;
+                let file_info = bot.get_file(file_id).await?;
+                let extension = file_info.path.split('.').last().unwrap_or("jpg").to_string();
+                let temp_path = format!("/tmp/{}_{}.{}", user_id, photo.file.unique_id, extension);
+                let mut file = File::create(&temp_path).await.map_err(|e| teloxide::RequestError::from(std::sync::Arc::new(e)))?;
+                bot.download_file(&file_info.path, &mut file).await.map_err(|e| teloxide::RequestError::from(e))?;
+                user_uploaded_image_paths.push((temp_path, extension));
+            }
+        }
+    }
+
+    // --- Upload user images to GCS ---
+    let mut user_uploaded_image_urls: Vec<String> = Vec::new();
+    if !user_uploaded_image_paths.is_empty() {
+        match quark_backend::ai::upload_user_images(user_uploaded_image_paths).await {
+            Ok(urls) => {
+                user_uploaded_image_urls = urls;
+            }
+            Err(e) => {
+                log::error!("Failed to upload user images: {}", e);
+                bot.send_message(chat_id, "Sorry, I couldn't upload your images. Please try again.").await?;
+                return Ok(());
+            }
+        }
+    }
+
+    // No need to check for replies in a media group context.
+    let image_url_from_reply: Option<String> = None;
+
+    // --- Typing Indicator Task ---
+    let bot_clone = bot.clone();
+    let typing_indicator_handle = tokio::spawn(async move {
+        loop {
+            if let Err(e) = bot_clone.send_chat_action(chat_id, ChatAction::Typing).await {
+                log::warn!("Failed to send typing action: {}", e);
+                break;
+            }
+            sleep(Duration::from_secs(5)).await;
+        }
+    });
+
+    let ai_response_result = quark_backend::ai::generate_response(
+        user_id,
+        caption,
+        &db,
+        &openai_api_key,
+        image_url_from_reply,
+        user_uploaded_image_urls,
+    ).await;
+
+    typing_indicator_handle.abort();
+
+    // --- Handle AI Response ---
+    match ai_response_result {
+        Ok(ai_response) => {
+            if let Some(image_bytes) = ai_response.image_data {
+                let photo = InputFile::memory(image_bytes);
+                let mut request = bot.send_photo(chat_id, photo);
+                if !ai_response.text.is_empty() {
+                    request = request.caption(ai_response.text);
+                }
+                request.await?;
+            } else {
+                if !ai_response.text.is_empty() {
+                    bot.send_message(chat_id, ai_response.text).await?;
+                }
+            }
+        },
+        Err(e) => {
+            let error_message = format!("[AI error]: {}", e);
+            bot.send_message(chat_id, error_message).await?;
+        },
+    };
+
     Ok(())
 }
 
