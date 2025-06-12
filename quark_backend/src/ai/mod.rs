@@ -104,6 +104,12 @@ pub async fn generate_response(
     }
     image_urls.extend(user_uploaded_image_urls);
 
+    // Also include any previously generated images that haven't been used yet
+    {
+        let mut cached = user_convos.take_last_image_urls(user_id);
+        image_urls.append(&mut cached);
+    }
+
     if !image_urls.is_empty() {
         // New helper in v0.2.2 supports multiple images in one call
         request_builder = request_builder.input_image_urls(&image_urls);
@@ -197,6 +203,7 @@ pub async fn generate_response(
                             match uploader.upload_base64_image(result, "png", "quark/images").await {
                                 Ok(url) => {
                                     reply = format!("{}\n\nImage URL: {}", reply, url);
+                                    let _ = user_convos.set_last_image_urls(user_id, &[url.clone()]);
                                 }
                                 Err(e) => log::error!("Failed to upload image to GCS: {}", e),
                             }
