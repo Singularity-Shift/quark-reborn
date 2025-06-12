@@ -15,6 +15,7 @@ pub struct UserData {
     pub vector_store_id: Option<String>,
     pub wallet_address: Option<String>,
     pub files: Vec<FileInfo>,
+    pub last_image_urls: Vec<String>,
 }
 
 pub struct UserConversations {
@@ -108,5 +109,20 @@ impl UserConversations {
         let mut data = self.get_user_data(user_id).unwrap_or_default();
         data.response_id = None;
         self.set_user_data(user_id, &data)
+    }
+
+    // --- New image URL helpers ---
+    pub fn set_last_image_urls(&self, user_id: i64, urls: &[String]) -> sled::Result<()> {
+        let mut data = self.get_user_data(user_id).unwrap_or_default();
+        data.last_image_urls = urls.to_vec();
+        self.set_user_data(user_id, &data)
+    }
+
+    /// Retrieve and clear stored image URLs (so they are used only once)
+    pub fn take_last_image_urls(&self, user_id: i64) -> Vec<String> {
+        let mut data = self.get_user_data(user_id).unwrap_or_default();
+        let urls = std::mem::take(&mut data.last_image_urls);
+        let _ = self.set_user_data(user_id, &data);
+        urls
     }
 } 

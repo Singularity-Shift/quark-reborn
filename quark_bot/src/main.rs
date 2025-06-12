@@ -6,6 +6,7 @@ mod file_handling;
 mod callbacks;
 mod utils;
 mod media_aggregator;
+mod command_image_collector;
 
 #[derive(BotCommands, Clone)]
 #[command(description = "These commands are supported:")]
@@ -43,15 +44,23 @@ async fn main() {
     let openai_api_key_for_callbacks = openai_api_key.clone();
     use std::sync::Arc;
     let media_aggregator = Arc::new(media_aggregator::MediaGroupAggregator::new(bot.clone(), db.clone(), openai_api_key.clone()));
+    let cmd_collector = Arc::new(command_image_collector::CommandImageCollector::new(bot.clone(), db.clone(), openai_api_key.clone()));
 
     let handler = Update::filter_message().endpoint(move |bot: Bot, msg: Message| {
         let bot_username = bot_username.clone();
         let db = db_for_messages.clone();
         let openai_api_key = openai_api_key_for_messages.clone();
         let media_aggregator = media_aggregator.clone();
+        let cmd_collector = cmd_collector.clone();
         async move {
             if msg.media_group_id().is_some() && msg.photo().is_some() {
                 media_aggregator.add_message(msg).await;
+                return respond(());
+            }
+
+            // Photo-only message (no text/caption) may belong to a pending command
+            if msg.text().is_none() && msg.caption().is_none() && msg.photo().is_some() {
+                cmd_collector.clone().try_attach_photo(msg).await;
                 return respond(());
             }
 
@@ -67,7 +76,7 @@ async fn main() {
                     crate::commands::handle_chat(bot.clone(), msg.clone(), db.clone(), openai_api_key.clone()).await?;
                 } else if text == "/chat" || text == format!("/chat@{}", bot_username) || text == "/c" || text == format!("/c@{}", bot_username) {
                     if msg.photo().is_some() {
-                        crate::commands::handle_chat(bot.clone(), msg.clone(), db.clone(), openai_api_key.clone()).await?;
+                        cmd_collector.clone().add_command(msg.clone()).await;
                     } else {
                         bot.send_message(msg.chat.id, "Usage: /chat <your message> or /c <your message>").await?;
                     }

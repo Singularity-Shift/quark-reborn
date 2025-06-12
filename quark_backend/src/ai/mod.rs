@@ -91,29 +91,38 @@ pub async fn generate_response(
         .tools(tools.clone())
         .tool_choice(ToolChoice::auto())
         .parallel_tool_calls(true) // Enable parallel execution for efficiency
-        .include(vec![Include::FileSearchResults])
         .max_output_tokens(1000)
         .temperature(0.5)
         .user(&format!("user-{}", user_id))
         .store(true);
 
-    let mut input_content: Vec<serde_json::Value> = vec![
-        serde_json::json!({"type": "input_text", "text": input})
-    ];
-
+    // ---- Attach vision inputs using the SDK helper (0.2.1) ----
+    // Collect all image URLs we want GPT-4o to see
+    let mut image_urls: Vec<String> = Vec::new();
     if let Some(url) = image_url_from_reply {
-        input_content.push(serde_json::json!({"type": "input_image", "image_url": url}));
+        image_urls.push(url);
+    }
+    image_urls.extend(user_uploaded_image_urls);
+
+    // Also include any previously generated images that haven't been used yet
+    {
+        let mut cached = user_convos.take_last_image_urls(user_id);
+        image_urls.append(&mut cached);
     }
 
-    for url in user_uploaded_image_urls {
-        input_content.push(serde_json::json!({"type": "input_image", "image_url": url}));
-    }
+    if !image_urls.is_empty() {
+        // New helper in v0.2.2 supports multiple images in one call
+        request_builder = request_builder.input_image_urls(&image_urls);
 
-    if input_content.len() > 1 {
-        let input_str = serde_json::to_string(&input_content)?;
-        request_builder = request_builder.input(&input_str);
+        // Include accompanying text (if any) as instructions
+        if !input.trim().is_empty() {
+            request_builder = request_builder.instructions(input);
+        }
     } else {
+        // No images ⇒ plain text input as before
         request_builder = request_builder.input(input);
+        // With no vision payload we can safely include file-search results
+        request_builder = request_builder.include(vec![Include::FileSearchResults]);
     }
 
     if let Some(prev_id) = previous_response_id.clone() {
@@ -159,7 +168,6 @@ pub async fn generate_response(
                 .tools(tools.clone()) // Keep tools available for follow-ups
                 .instructions(SYSTEM_PROMPT)
                 .parallel_tool_calls(true)
-                .include(vec![Include::FileSearchResults])
                 .max_output_tokens(1000)
                 .temperature(0.5)
                 .user(&format!("user-{}", user_id))
@@ -195,6 +203,7 @@ pub async fn generate_response(
                             match uploader.upload_base64_image(result, "png", "quark/images").await {
                                 Ok(url) => {
                                     reply = format!("{}\n\nImage URL: {}", reply, url);
+                                    let _ = user_convos.set_last_image_urls(user_id, &[url.clone()]);
                                 }
                                 Err(e) => log::error!("Failed to upload image to GCS: {}", e),
                             }
