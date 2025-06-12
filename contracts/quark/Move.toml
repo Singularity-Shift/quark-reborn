@@ -1,0 +1,17 @@
+[package]
+name = "quark_test"
+version = "1.0.0"
+authors = []
+
+[addresses]
+quark_test="0x02033b72957c2f0b66cf5be479a2aa098d5bf18c36477907eba8be39435f2811"
+sshift_gpt="0x02033b72957c2f0b66cf5be479a2aa098d5bf18c36477907eba8be39435f2811"
+
+[dev-addresses]
+
+[dependencies]
+AptosFramework = { git = "https://github.com/aptos-labs/aptos-core.git", rev = "mainnet", subdir = "aptos-move/framework/aptos-framework" }
+AptosTokenObjects = { git = "https://github.com/aptos-labs/aptos-core.git", rev = "mainnet", subdir = "aptos-move/framework/aptos-token-objects" }
+sshift_gpt = { git = "git@github.com:Singularity-Shift/sshift-gpt.git", rev = "main", subdir = "contracts/sshift_gpt/aptos"}
+
+[dev-dependencies]
