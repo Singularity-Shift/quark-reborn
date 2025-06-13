@@ -1,5 +1,6 @@
-use crate::commands;
+use crate::bot::handler::handle_grouped_chat;
 use dashmap::DashMap;
+use quark_core::ai::handler::AI;
 use sled::Db;
 use std::sync::Arc;
 use std::time::Duration;
@@ -11,20 +12,18 @@ pub struct MediaGroupAggregator {
     groups: DashMap<String, (Vec<Message>, tokio::task::JoinHandle<()>)>,
     bot: Bot,
     db: Db,
-    openai_api_key: String,
 }
 
 impl MediaGroupAggregator {
-    pub fn new(bot: Bot, db: Db, openai_api_key: String) -> Self {
+    pub fn new(bot: Bot, db: Db) -> Self {
         Self {
             groups: DashMap::new(),
             bot,
             db,
-            openai_api_key,
         }
     }
 
-    pub async fn add_message(self: Arc<Self>, msg: Message) {
+    pub async fn add_message(self: Arc<Self>, msg: Message, ai: AI) {
         let media_group_id = if let Some(id) = msg.media_group_id() {
             id.to_string()
         } else {
@@ -52,8 +51,13 @@ impl MediaGroupAggregator {
 
             // The timer has elapsed, so we can now process the group.
             if let Some((_, (messages, _))) = aggregator_clone.groups.remove(&media_group_id) {
-                if let Err(e) =
-                    commands::handle_grouped_chat(aggregator_clone.bot.clone(), messages, aggregator_clone.db.clone(), aggregator_clone.openai_api_key.clone()).await
+                if let Err(e) = handle_grouped_chat(
+                    aggregator_clone.bot.clone(),
+                    messages,
+                    aggregator_clone.db.clone(),
+                    ai,
+                )
+                .await
                 {
                     log::error!("Error handling grouped chat for {}: {}", media_group_id, e);
                 }
@@ -63,4 +67,4 @@ impl MediaGroupAggregator {
         // Store the new task's handle.
         entry.value_mut().1 = handle;
     }
-} 
+}

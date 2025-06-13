@@ -1,17 +1,19 @@
-use open_ai_rust_responses_by_sshift::{Client as OAIClient};
+use crate::ai::handler::AI;
+use crate::user_conversation::{dto::FileInfo, handler::UserConversations};
 use open_ai_rust_responses_by_sshift::files::FilePurpose;
-use open_ai_rust_responses_by_sshift::vector_stores::{AddFileToVectorStoreRequest, CreateVectorStoreRequest};
+use open_ai_rust_responses_by_sshift::vector_stores::{
+    AddFileToVectorStoreRequest, CreateVectorStoreRequest,
+};
+use open_ai_rust_responses_by_sshift::Client as OAIClient;
 use sled::Db;
-use crate::db::UserConversations;
 
 pub async fn upload_files_to_vector_store(
     user_id: i64,
     db: &Db,
-    openai_api_key: &str,
+    ai: AI,
     file_paths: Vec<String>,
 ) -> Result<String, anyhow::Error> {
     let user_convos = UserConversations::new(db)?;
-    let client = OAIClient::new(openai_api_key)?;
     let mut file_ids = Vec::new();
 
     // Check if user has invalid vector store ID and clear stale data upfront
@@ -21,6 +23,8 @@ pub async fn upload_files_to_vector_store(
             user_convos.clear_files(user_id)?;
         }
     }
+
+    let client = ai.get_client();
 
     // Upload each file to OpenAI
     for path in &file_paths {
@@ -49,10 +53,10 @@ pub async fn upload_files_to_vector_store(
             };
             let vector_store = client.vector_stores.create(vs_request).await?;
             let new_vs_id = vector_store.id.clone();
-            
+
             // Store the new vector_store_id in the user's db record
             user_convos.set_vector_store_id(user_id, &new_vs_id)?;
-            
+
             new_vs_id
         } else {
             // User has existing valid vector store, add files to it
@@ -76,10 +80,10 @@ pub async fn upload_files_to_vector_store(
         };
         let vector_store = client.vector_stores.create(vs_request).await?;
         let new_vs_id = vector_store.id.clone();
-        
+
         // Store the new vector_store_id in the user's db record
         user_convos.set_vector_store_id(user_id, &new_vs_id)?;
-        
+
         new_vs_id
     };
 
@@ -88,20 +92,14 @@ pub async fn upload_files_to_vector_store(
 
 /// List files with names from user's local database (reliable, immediate)
 /// This bypasses the unreliable OpenAI vector store file listing API
-pub fn list_user_files_with_names(
-    user_id: i64,
-    db: &Db,
-) -> Result<Vec<crate::db::FileInfo>, anyhow::Error> {
+pub fn list_user_files_with_names(user_id: i64, db: &Db) -> Result<Vec<FileInfo>, anyhow::Error> {
     let user_convos = UserConversations::new(db)?;
     let files = user_convos.get_files(user_id);
     Ok(files)
 }
 
 /// List file IDs only from user's local database (for backward compatibility)
-pub fn list_user_files_local(
-    user_id: i64,
-    db: &Db,
-) -> Result<Vec<String>, anyhow::Error> {
+pub fn list_user_files_local(user_id: i64, db: &Db) -> Result<Vec<String>, anyhow::Error> {
     let user_convos = UserConversations::new(db)?;
     let file_ids = user_convos.get_file_ids(user_id);
     Ok(file_ids)
@@ -115,16 +113,13 @@ pub async fn list_vector_store_files(
     openai_api_key: &str,
 ) -> Result<Vec<String>, anyhow::Error> {
     let client = OAIClient::new(openai_api_key)?;
-    
+
     // List files in the vector store using the files API
-    let vector_store = client
-        .vector_stores
-        .get(vector_store_id)
-        .await?;
-        
+    let vector_store = client.vector_stores.get(vector_store_id).await?;
+
     // If file_ids is available in the vector store response, use it
     let file_ids = vector_store.file_ids.unwrap_or_else(Vec::new);
-    
+
     Ok(file_ids)
 }
 
@@ -136,49 +131,42 @@ pub async fn delete_file_from_vector_store(
     db: &Db,
     vector_store_id: &str,
     file_id: &str,
-    openai_api_key: &str,
+    ai: &AI,
 ) -> Result<(), anyhow::Error> {
-    let client = OAIClient::new(openai_api_key)?;
+    let client = ai.get_client();
     let user_convos = UserConversations::new(db)?;
-    
+
     // Remove file from vector store - now returns VectorStoreFileDeleteResponse
     let _delete_response = client
         .vector_stores
         .delete_file(vector_store_id, file_id)
         .await?;
-        
+
     // Remove from local tracking
     user_convos.remove_file_id(user_id, file_id)?;
-    
+
     Ok(())
 }
 
 /// Delete an entire vector store
 /// Note: This does not delete the underlying files from OpenAI's file storage
 /// The files remain in storage and can be used in other vector stores
-pub async fn delete_vector_store(
-    user_id: i64,
-    db: &Db,
-    openai_api_key: &str,
-) -> Result<(), anyhow::Error> {
+pub async fn delete_vector_store(user_id: i64, db: &Db, ai: &AI) -> Result<(), anyhow::Error> {
     let user_convos = UserConversations::new(db)?;
-    let client = OAIClient::new(openai_api_key)?;
-    
+    let client = ai.get_client();
+
     // Get the user's vector store ID
     if let Some(vector_store_id) = user_convos.get_vector_store_id(user_id) {
         // Delete the vector store
-        let _deleted_store = client
-            .vector_stores
-            .delete(&vector_store_id)
-            .await?;
-            
+        let _deleted_store = client.vector_stores.delete(&vector_store_id).await?;
+
         // Clear the vector store ID from user's record
         user_convos.set_vector_store_id(user_id, "")?;
-        
+
         // Clear all file IDs from local tracking
         user_convos.clear_files(user_id)?;
     }
-    
+
     Ok(())
 }
 
@@ -190,29 +178,26 @@ pub async fn delete_all_files_from_vector_store(
 ) -> Result<u32, anyhow::Error> {
     let client = OAIClient::new(openai_api_key)?;
     let mut deleted_count = 0;
-    
+
     // Get vector store and its file IDs
-    let vector_store = client
-        .vector_stores
-        .get(vector_store_id)
-        .await?;
-    
+    let vector_store = client.vector_stores.get(vector_store_id).await?;
+
     let file_ids = vector_store.file_ids.unwrap_or_else(Vec::new);
-        
+
     for file_id in file_ids {
         // Remove from vector store - now returns VectorStoreFileDeleteResponse
         let _delete_response = client
             .vector_stores
             .delete_file(vector_store_id, &file_id)
             .await?;
-            
+
         // Optionally delete the file completely from OpenAI storage
         if also_delete_files {
             let _deleted = client.files.delete(&file_id).await?;
         }
-        
+
         deleted_count += 1;
     }
-    
+
     Ok(deleted_count)
-} 
+}
