@@ -1,58 +1,92 @@
 //! Command handlers for quark_bot Telegram bot.
 
+use crate::assets::command_image_collector::CommandImageCollector;
+use crate::credentials::dto::Credentials;
+use crate::credentials::helpers::save_credentials;
+use crate::utils;
+use anyhow::Result as AnyResult;
+use quark_core::helpers::jwt::JwtManager;
+use quark_core::{
+    ai::{handler::AI, vector_store::list_user_files_with_names},
+    helpers::bot_commands::Command,
+    user_conversation::handler::UserConversations,
+};
+use regex;
+use sled::{Db, Tree};
+use std::sync::Arc;
+use std::time::Duration;
 use teloxide::prelude::*;
 use teloxide::types::{ChatAction, InputFile};
-use sled::Db;
-use crate::utils;
-use contracts::aptos::simulate_aptos_contract_call;
-use std::time::Duration;
-use tokio::time::sleep;
-use regex;
+use teloxide::{net::Download, utils::command::BotCommands};
 use tokio::fs::File;
-use teloxide::net::Download;
+use tokio::time::sleep;
 
-pub async fn handle_login_user(bot: Bot, msg: Message, db: Db) -> Result<(), teloxide::RequestError> {
-    let _db = db;
-    let user_id = msg.from.as_ref().map(|u| u.id.0).unwrap_or(0) as i64;
-    let mention = if let Some(user) = msg.from.as_ref() {
-        format!("<a href=\"tg://user?id={}\">{}</a>", user.id.0, user.first_name)
+pub async fn handle_login_user(bot: Bot, msg: Message, db: Tree) -> AnyResult<()> {
+    let user = msg.from.clone();
+
+    if let Some(user) = user {
+        let username = user.username;
+
+        if username.is_none() {
+            return Err(anyhow::anyhow!("Username not found"));
+        }
+
+        let username = username.unwrap();
+
+        // Generate JWT token
+        let jwt_manager = JwtManager::new();
+        match jwt_manager.generate_token(user.id) {
+            Ok(token) => {
+                let credentials = Credentials::from((token, user.id));
+
+                let saved = save_credentials(&username, credentials, db);
+
+                if saved.is_err() {
+                    bot.send_message(msg.chat.id, "❌ Failed to save credentials")
+                        .await?;
+                }
+
+                bot.send_message(
+                    msg.chat.id,
+                    "✅ Successfully logged in! You can now use commands like /c.",
+                )
+                .await?;
+            }
+            Err(e) => {
+                bot.send_message(msg.chat.id, &format!("❌ Login failed: {}", e))
+                    .await?;
+            }
+        }
     } else {
-        format!("<a href=\"tg://user?id={}\">{}</a>", user_id, user_id)
-    };
-    let fake_address = format!("fake_address_{}", user_id);
-    let _ = simulate_aptos_contract_call(user_id); // log only
-    let reply = format!(
-        "logged in as {}, please add 📒 token to address <code>{}</code> to use the bot",
-        mention, fake_address
-    );
-    bot.send_message(msg.chat.id, reply)
-        .parse_mode(teloxide::types::ParseMode::Html)
-        .await?;
+        bot.send_message(msg.chat.id, "❌ Unable to identify user for login.")
+            .await?;
+    }
     Ok(())
 }
 
-pub async fn handle_login_group(bot: Bot, msg: Message) -> Result<(), teloxide::RequestError> {
+pub async fn handle_login_group(bot: Bot, msg: Message) -> AnyResult<()> {
     bot.send_message(msg.chat.id, "under development").await?;
     Ok(())
 }
 
-pub async fn handle_help(bot: Bot, msg: Message) -> Result<(), teloxide::RequestError> {
-    use teloxide::utils::command::BotCommands;
-    use crate::Command;
-    bot.send_message(msg.chat.id, Command::descriptions().to_string()).await?;
+pub async fn handle_help(bot: Bot, msg: Message) -> AnyResult<()> {
+    bot.send_message(msg.chat.id, Command::descriptions().to_string())
+        .await?;
     Ok(())
 }
 
-pub async fn handle_add_files(bot: Bot, msg: Message) -> Result<(), teloxide::RequestError> {
+pub async fn handle_add_files(bot: Bot, msg: Message) -> AnyResult<()> {
     bot.send_message(msg.chat.id, "📎 Please attach the files you wish to upload in your next message.\n\n✅ Supported: Documents, Photos, Videos, Audio files\n💡 You can send multiple files in one message!").await?;
     Ok(())
 }
 
-pub async fn handle_list_files(bot: Bot, msg: Message, db: Db, openai_api_key: String) -> Result<(), teloxide::RequestError> {
-    let _openai_api_key = openai_api_key;
-    use quark_backend::ai::list_user_files_with_names;
+pub async fn handle_list_files(
+    bot: Bot,
+    msg: Message,
+    db: Db,
+    user_convos: UserConversations,
+) -> AnyResult<()> {
     let user_id = msg.from.as_ref().map(|u| u.id.0).unwrap_or(0) as i64;
-    let user_convos = quark_backend::db::UserConversations::new(&db).unwrap();
     if let Some(_vector_store_id) = user_convos.get_vector_store_id(user_id) {
         match list_user_files_with_names(user_id, &db) {
             Ok(files) => {
@@ -61,7 +95,8 @@ pub async fn handle_list_files(bot: Bot, msg: Message, db: Db, openai_api_key: S
                         .parse_mode(teloxide::types::ParseMode::Html)
                         .await?;
                 } else {
-                    let file_list = files.iter()
+                    let file_list = files
+                        .iter()
                         .map(|file| {
                             let icon = utils::get_file_icon(&file.name);
                             let clean_name = utils::clean_filename(&file.name);
@@ -74,7 +109,7 @@ pub async fn handle_list_files(bot: Bot, msg: Message, db: Db, openai_api_key: S
                         files.len(),
                         file_list
                     );
-                    use teloxide::types::{InlineKeyboardMarkup, InlineKeyboardButton};
+                    use teloxide::types::{InlineKeyboardButton, InlineKeyboardMarkup};
                     let mut keyboard_rows = Vec::new();
                     for file in &files {
                         let clean_name = utils::clean_filename(&file.name);
@@ -85,15 +120,13 @@ pub async fn handle_list_files(bot: Bot, msg: Message, db: Db, openai_api_key: S
                         };
                         let delete_button = InlineKeyboardButton::callback(
                             button_text,
-                            format!("delete_file:{}", file.id)
+                            format!("delete_file:{}", file.id),
                         );
                         keyboard_rows.push(vec![delete_button]);
                     }
                     if files.len() > 1 {
-                        let clear_all_button = InlineKeyboardButton::callback(
-                            "🗑️ Clear All Files",
-                            "clear_all_files"
-                        );
+                        let clear_all_button =
+                            InlineKeyboardButton::callback("🗑️ Clear All Files", "clear_all_files");
                         keyboard_rows.push(vec![clear_all_button]);
                     }
                     let keyboard = InlineKeyboardMarkup::new(keyboard_rows);
@@ -102,11 +135,17 @@ pub async fn handle_list_files(bot: Bot, msg: Message, db: Db, openai_api_key: S
                         .reply_markup(keyboard)
                         .await?;
                 }
-            },
+            }
             Err(e) => {
-                bot.send_message(msg.chat.id, format!("❌ <b>Error accessing your files</b>\n\n<i>Technical details:</i> {}", e))
-                    .parse_mode(teloxide::types::ParseMode::Html)
-                    .await?;
+                bot.send_message(
+                    msg.chat.id,
+                    format!(
+                        "❌ <b>Error accessing your files</b>\n\n<i>Technical details:</i> {}",
+                        e
+                    ),
+                )
+                .parse_mode(teloxide::types::ParseMode::Html)
+                .await?;
             }
         }
     } else {
@@ -117,8 +156,7 @@ pub async fn handle_list_files(bot: Bot, msg: Message, db: Db, openai_api_key: S
     Ok(())
 }
 
-pub async fn handle_chat(bot: Bot, msg: Message, db: Db, openai_api_key: String) -> Result<(), teloxide::RequestError> {
-    let text = msg.text().or_else(|| msg.caption()).unwrap_or("");
+pub async fn handle_chat(bot: Bot, msg: Message, ai: AI, db: Db, prompt: String) -> AnyResult<()> {
     let user_id = msg.from.as_ref().map(|u| u.id.0).unwrap_or(0) as i64;
     let chat_id = msg.chat.id;
 
@@ -130,7 +168,9 @@ pub async fn handle_chat(bot: Bot, msg: Message, db: Db, openai_api_key: String)
                 let reply_text = reply.text().or_else(|| reply.caption());
                 if let Some(text) = reply_text {
                     // A simple regex to find the GCS URL
-                    if let Ok(re) = regex::Regex::new(r"https://storage\.googleapis\.com/sshift-gpt-bucket/[^\s]+") {
+                    if let Ok(re) = regex::Regex::new(
+                        r"https://storage\.googleapis\.com/sshift-gpt-bucket/[^\s]+",
+                    ) {
                         if let Some(mat) = re.find(text) {
                             image_url_from_reply = Some(mat.as_str().to_string());
                         }
@@ -143,13 +183,23 @@ pub async fn handle_chat(bot: Bot, msg: Message, db: Db, openai_api_key: String)
     // --- Download user-attached images ---
     let mut user_uploaded_image_paths: Vec<(String, String)> = Vec::new();
     if let Some(photos) = msg.photo() {
-        if let Some(photo) = photos.last() { // Largest photo
+        if let Some(photo) = photos.last() {
+            // Largest photo
             let file_id = &photo.file.id;
             let file_info = bot.get_file(file_id).await?;
-            let extension = file_info.path.split('.').last().unwrap_or("jpg").to_string();
+            let extension = file_info
+                .path
+                .split('.')
+                .last()
+                .unwrap_or("jpg")
+                .to_string();
             let temp_path = format!("/tmp/{}_{}.{}", user_id, photo.file.unique_id, extension);
-            let mut file = File::create(&temp_path).await.map_err(|e| teloxide::RequestError::from(std::sync::Arc::new(e)))?;
-            bot.download_file(&file_info.path, &mut file).await.map_err(|e| teloxide::RequestError::from(e))?;
+            let mut file = File::create(&temp_path)
+                .await
+                .map_err(|e| teloxide::RequestError::from(std::sync::Arc::new(e)))?;
+            bot.download_file(&file_info.path, &mut file)
+                .await
+                .map_err(|e| teloxide::RequestError::from(e))?;
             user_uploaded_image_paths.push((temp_path, extension));
         }
     }
@@ -157,13 +207,17 @@ pub async fn handle_chat(bot: Bot, msg: Message, db: Db, openai_api_key: String)
     // --- Upload user images to GCS ---
     let mut user_uploaded_image_urls: Vec<String> = Vec::new();
     if !user_uploaded_image_paths.is_empty() {
-        match quark_backend::ai::upload_user_images(user_uploaded_image_paths).await {
+        match ai.upload_user_images(user_uploaded_image_paths).await {
             Ok(urls) => {
                 user_uploaded_image_urls = urls;
             }
             Err(e) => {
                 log::error!("Failed to upload user images: {}", e);
-                bot.send_message(chat_id, "Sorry, I couldn't upload your image. Please try again.").await?;
+                bot.send_message(
+                    chat_id,
+                    "Sorry, I couldn't upload your image. Please try again.",
+                )
+                .await?;
                 // We should probably stop execution here
                 return Ok(());
             }
@@ -174,7 +228,10 @@ pub async fn handle_chat(bot: Bot, msg: Message, db: Db, openai_api_key: String)
     let bot_clone = bot.clone();
     let typing_indicator_handle = tokio::spawn(async move {
         loop {
-            if let Err(e) = bot_clone.send_chat_action(chat_id, ChatAction::Typing).await {
+            if let Err(e) = bot_clone
+                .send_chat_action(chat_id, ChatAction::Typing)
+                .await
+            {
                 log::warn!("Failed to send typing action: {}", e);
                 break;
             }
@@ -182,14 +239,15 @@ pub async fn handle_chat(bot: Bot, msg: Message, db: Db, openai_api_key: String)
         }
     });
 
-    let ai_response_result = quark_backend::ai::generate_response(
-        user_id,
-        text,
-        &db,
-        &openai_api_key,
-        image_url_from_reply,
-        user_uploaded_image_urls,
-    ).await;
+    let ai_response_result = ai
+        .generate_response(
+            user_id,
+            &prompt,
+            &db,
+            image_url_from_reply,
+            user_uploaded_image_urls,
+        )
+        .await;
 
     // Stop the typing indicator task
     typing_indicator_handle.abort();
@@ -209,43 +267,55 @@ pub async fn handle_chat(bot: Bot, msg: Message, db: Db, openai_api_key: String)
                     bot.send_message(chat_id, ai_response.text).await?;
                 }
             }
-        },
+        }
         Err(e) => {
             let error_message = format!("[AI error]: {}", e);
             bot.send_message(chat_id, error_message).await?;
-        },
+        }
     };
     Ok(())
 }
 
-pub async fn handle_grouped_chat(bot: Bot, messages: Vec<Message>, db: Db, openai_api_key: String) -> Result<(), teloxide::RequestError> {
+pub async fn handle_grouped_chat(
+    bot: Bot,
+    messages: Vec<Message>,
+    db: Db,
+    ai: AI,
+) -> AnyResult<()> {
     // Assumption: all messages have the same chat_id and from user.
     let first_msg = if let Some(msg) = messages.first() {
         msg
     } else {
         return Ok(()); // Should not happen
     };
-    
+
     let user_id = first_msg.from.as_ref().map(|u| u.id.0).unwrap_or(0) as i64;
     let chat_id = first_msg.chat.id;
 
     // Find the caption from any of the messages
-    let caption = messages
-        .iter()
-        .find_map(|m| m.caption())
-        .unwrap_or("");
+    let caption = messages.iter().find_map(|m| m.caption()).unwrap_or("");
 
     // --- Download all user-attached images ---
     let mut user_uploaded_image_paths: Vec<(String, String)> = Vec::new();
     for msg in &messages {
         if let Some(photos) = msg.photo() {
-            if let Some(photo) = photos.last() { // Largest photo
+            if let Some(photo) = photos.last() {
+                // Largest photo
                 let file_id = &photo.file.id;
                 let file_info = bot.get_file(file_id).await?;
-                let extension = file_info.path.split('.').last().unwrap_or("jpg").to_string();
+                let extension = file_info
+                    .path
+                    .split('.')
+                    .last()
+                    .unwrap_or("jpg")
+                    .to_string();
                 let temp_path = format!("/tmp/{}_{}.{}", user_id, photo.file.unique_id, extension);
-                let mut file = File::create(&temp_path).await.map_err(|e| teloxide::RequestError::from(std::sync::Arc::new(e)))?;
-                bot.download_file(&file_info.path, &mut file).await.map_err(|e| teloxide::RequestError::from(e))?;
+                let mut file = File::create(&temp_path)
+                    .await
+                    .map_err(|e| teloxide::RequestError::from(std::sync::Arc::new(e)))?;
+                bot.download_file(&file_info.path, &mut file)
+                    .await
+                    .map_err(|e| teloxide::RequestError::from(e))?;
                 user_uploaded_image_paths.push((temp_path, extension));
             }
         }
@@ -254,13 +324,17 @@ pub async fn handle_grouped_chat(bot: Bot, messages: Vec<Message>, db: Db, opena
     // --- Upload user images to GCS ---
     let mut user_uploaded_image_urls: Vec<String> = Vec::new();
     if !user_uploaded_image_paths.is_empty() {
-        match quark_backend::ai::upload_user_images(user_uploaded_image_paths).await {
+        match ai.upload_user_images(user_uploaded_image_paths).await {
             Ok(urls) => {
                 user_uploaded_image_urls = urls;
             }
             Err(e) => {
                 log::error!("Failed to upload user images: {}", e);
-                bot.send_message(chat_id, "Sorry, I couldn't upload your images. Please try again.").await?;
+                bot.send_message(
+                    chat_id,
+                    "Sorry, I couldn't upload your images. Please try again.",
+                )
+                .await?;
                 return Ok(());
             }
         }
@@ -273,7 +347,10 @@ pub async fn handle_grouped_chat(bot: Bot, messages: Vec<Message>, db: Db, opena
     let bot_clone = bot.clone();
     let typing_indicator_handle = tokio::spawn(async move {
         loop {
-            if let Err(e) = bot_clone.send_chat_action(chat_id, ChatAction::Typing).await {
+            if let Err(e) = bot_clone
+                .send_chat_action(chat_id, ChatAction::Typing)
+                .await
+            {
                 log::warn!("Failed to send typing action: {}", e);
                 break;
             }
@@ -281,14 +358,15 @@ pub async fn handle_grouped_chat(bot: Bot, messages: Vec<Message>, db: Db, opena
         }
     });
 
-    let ai_response_result = quark_backend::ai::generate_response(
-        user_id,
-        caption,
-        &db,
-        &openai_api_key,
-        image_url_from_reply,
-        user_uploaded_image_urls,
-    ).await;
+    let ai_response_result = ai
+        .generate_response(
+            user_id,
+            caption,
+            &db,
+            image_url_from_reply,
+            user_uploaded_image_urls,
+        )
+        .await;
 
     typing_indicator_handle.abort();
 
@@ -307,31 +385,40 @@ pub async fn handle_grouped_chat(bot: Bot, messages: Vec<Message>, db: Db, opena
                     bot.send_message(chat_id, ai_response.text).await?;
                 }
             }
-        },
+        }
         Err(e) => {
             let error_message = format!("[AI error]: {}", e);
             bot.send_message(chat_id, error_message).await?;
-        },
+        }
     };
 
     Ok(())
 }
 
-pub async fn handle_new_chat(bot: Bot, msg: Message, db: Db) -> Result<(), teloxide::RequestError> {
+pub async fn handle_new_chat(
+    bot: Bot,
+    msg: Message,
+    user_convos: UserConversations,
+) -> AnyResult<()> {
     let user_id = msg.from.as_ref().map(|u| u.id.0).unwrap_or(0) as i64;
-    let user_convos = quark_backend::db::UserConversations::new(&db).unwrap();
-    
+
     match user_convos.clear_response_id(user_id) {
         Ok(_) => {
             bot.send_message(msg.chat.id, "🆕 <b>New conversation started!</b>\n\n✨ Your previous chat history has been cleared. Your next /chat command will start a fresh conversation thread.\n\n💡 <i>Your uploaded files and settings remain intact</i>")
                 .parse_mode(teloxide::types::ParseMode::Html)
                 .await?;
-        },
+        }
         Err(e) => {
-            bot.send_message(msg.chat.id, format!("❌ <b>Error starting new chat</b>\n\n<i>Technical details:</i> {}", e))
-                .parse_mode(teloxide::types::ParseMode::Html)
-                .await?;
+            bot.send_message(
+                msg.chat.id,
+                format!(
+                    "❌ <b>Error starting new chat</b>\n\n<i>Technical details:</i> {}",
+                    e
+                ),
+            )
+            .parse_mode(teloxide::types::ParseMode::Html)
+            .await?;
         }
     }
     Ok(())
-} 
+}
