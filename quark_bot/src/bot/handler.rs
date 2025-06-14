@@ -20,6 +20,7 @@ use teloxide::types::{ChatAction, InputFile};
 use teloxide::{net::Download, utils::command::BotCommands};
 use tokio::fs::File;
 use tokio::time::sleep;
+use teloxide::types::ParseMode;
 
 pub async fn handle_login_user(bot: Bot, msg: Message, db: Tree) -> AnyResult<()> {
     // Ensure this command is used in a private chat (DM)
@@ -301,12 +302,14 @@ pub async fn handle_chat(bot: Bot, msg: Message, ai: AI, db: Db, prompt: String)
                 let photo = InputFile::memory(image_bytes);
                 let mut request = bot.send_photo(chat_id, photo);
                 if !ai_response.text.is_empty() {
-                    request = request.caption(ai_response.text);
+                    let formatted = crate::utils::markdown_to_html(&ai_response.text);
+                    request = request.caption(formatted).parse_mode(ParseMode::Html);
                 }
                 request.await?;
             } else {
                 if !ai_response.text.is_empty() {
-                    bot.send_message(chat_id, ai_response.text).await?;
+                    let formatted = crate::utils::markdown_to_html(&ai_response.text);
+                    bot.send_message(chat_id, formatted).parse_mode(ParseMode::Html).await?;
                 }
             }
         }
@@ -419,12 +422,14 @@ pub async fn handle_grouped_chat(
                 let photo = InputFile::memory(image_bytes);
                 let mut request = bot.send_photo(chat_id, photo);
                 if !ai_response.text.is_empty() {
-                    request = request.caption(ai_response.text);
+                    let formatted = crate::utils::markdown_to_html(&ai_response.text);
+                    request = request.caption(formatted).parse_mode(ParseMode::Html);
                 }
                 request.await?;
             } else {
                 if !ai_response.text.is_empty() {
-                    bot.send_message(chat_id, ai_response.text).await?;
+                    let formatted = crate::utils::markdown_to_html(&ai_response.text);
+                    bot.send_message(chat_id, formatted).parse_mode(ParseMode::Html).await?;
                 }
             }
         }
