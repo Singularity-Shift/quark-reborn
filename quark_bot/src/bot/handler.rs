@@ -22,6 +22,12 @@ use tokio::fs::File;
 use tokio::time::sleep;
 
 pub async fn handle_login_user(bot: Bot, msg: Message, db: Tree) -> AnyResult<()> {
+    // Ensure this command is used in a private chat (DM)
+    if !msg.chat.is_private() {
+        bot.send_message(msg.chat.id, "❌ This command can only be used in a private chat with the bot.")
+            .await?;
+        return Ok(());
+    }
     let user = msg.from.clone();
 
     if let Some(user) = user {
@@ -65,6 +71,11 @@ pub async fn handle_login_user(bot: Bot, msg: Message, db: Tree) -> AnyResult<()
 }
 
 pub async fn handle_login_group(bot: Bot, msg: Message) -> AnyResult<()> {
+    if !msg.chat.is_private() {
+        bot.send_message(msg.chat.id, "❌ This command can only be used in a private chat with the bot.")
+            .await?;
+        return Ok(());
+    }
     bot.send_message(msg.chat.id, "under development").await?;
     Ok(())
 }
@@ -76,6 +87,11 @@ pub async fn handle_help(bot: Bot, msg: Message) -> AnyResult<()> {
 }
 
 pub async fn handle_add_files(bot: Bot, msg: Message) -> AnyResult<()> {
+    if !msg.chat.is_private() {
+        bot.send_message(msg.chat.id, "❌ Please DM the bot to upload files.")
+            .await?;
+        return Ok(());
+    }
     bot.send_message(msg.chat.id, "📎 Please attach the files you wish to upload in your next message.\n\n✅ Supported: Documents, Photos, Videos, Audio files\n💡 You can send multiple files in one message!").await?;
     Ok(())
 }
@@ -86,6 +102,11 @@ pub async fn handle_list_files(
     db: Db,
     user_convos: UserConversations,
 ) -> AnyResult<()> {
+    if !msg.chat.is_private() {
+        bot.send_message(msg.chat.id, "❌ Please DM the bot to list your files.")
+            .await?;
+        return Ok(());
+    }
     let user_id = msg.from.as_ref().map(|u| u.id.0).unwrap_or(0) as i64;
     if let Some(_vector_store_id) = user_convos.get_vector_store_id(user_id) {
         match list_user_files_with_names(user_id, &db) {
