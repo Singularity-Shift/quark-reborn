@@ -30,6 +30,17 @@ Please use `/login` to authenticate.",
 pub fn handler_tree() -> Handler<'static, DependencyMap, Result<()>, DpHandlerDescription> {
     Update::filter_message()
         .enter_dialogue::<Message, InMemStorage<QuarkState>, QuarkState>()
+        // 0. Intercept media-group photo messages early so we can aggregate
+        //    all images (important for multi-image vision prompts). This
+        //    branch must be first so it runs before command parsing.
+        .branch(
+            dptree::entry()
+                .filter(|msg: Message| msg.media_group_id().is_some() && msg.photo().is_some())
+                .endpoint(|media_aggregator: std::sync::Arc<crate::assets::media_aggregator::MediaGroupAggregator>, ai: quark_core::ai::handler::AI, msg: Message| async move {
+                    media_aggregator.add_message(msg, ai).await;
+                    Ok(())
+                }),
+        )
         .branch(
             // 2. Branch for public commands for new users
             dptree::entry()
