@@ -71,12 +71,33 @@ pub async fn handle_login_user(bot: Bot, msg: Message, db: Tree) -> AnyResult<()
 }
 
 pub async fn handle_login_group(bot: Bot, msg: Message) -> AnyResult<()> {
-    if !msg.chat.is_private() {
-        bot.send_message(msg.chat.id, "❌ This command can only be used in a private chat with the bot.")
+    // Ensure this command is used in a group chat
+    if msg.chat.is_private() {
+        bot.send_message(msg.chat.id, "❌ This command must be used in a group chat.")
             .await?;
         return Ok(());
     }
-    bot.send_message(msg.chat.id, "under development").await?;
+
+    // Allow only group administrators to invoke
+    let admins = bot.get_chat_administrators(msg.chat.id).await?;
+    let requester_id = msg.from.as_ref().map(|u| u.id);
+    if let Some(uid) = requester_id {
+        let is_admin = admins.iter().any(|member| member.user.id == uid);
+        if !is_admin {
+            bot.send_message(msg.chat.id, "❌ Only group administrators can use this command.")
+                .await?;
+            return Ok(());
+        }
+    } else {
+        // Cannot identify sender; deny action
+        bot.send_message(msg.chat.id, "❌ Unable to verify permissions.")
+            .await?;
+        return Ok(());
+    }
+
+    // TODO: implement actual group login flow
+    bot.send_message(msg.chat.id, "👍 Group login acknowledged (feature under development).")
+        .await?;
     Ok(())
 }
 
