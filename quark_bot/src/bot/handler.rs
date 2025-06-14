@@ -225,8 +225,8 @@ pub async fn handle_chat(bot: Bot, msg: Message, ai: AI, db: Db, prompt: String)
     // --- Download user-attached images ---
     let mut user_uploaded_image_paths: Vec<(String, String)> = Vec::new();
     if let Some(photos) = msg.photo() {
-        if let Some(photo) = photos.last() {
-            // Largest photo
+        // Process all photos, not just the last one
+        for photo in photos {
             let file_id = &photo.file.id;
             let file_info = bot.get_file(file_id).await?;
             let extension = file_info
@@ -341,8 +341,8 @@ pub async fn handle_grouped_chat(
     let mut user_uploaded_image_paths: Vec<(String, String)> = Vec::new();
     for msg in &messages {
         if let Some(photos) = msg.photo() {
-            if let Some(photo) = photos.last() {
-                // Largest photo
+            // Process all photos in each message, not just the last one
+            for photo in photos {
                 let file_id = &photo.file.id;
                 let file_info = bot.get_file(file_id).await?;
                 let extension = file_info

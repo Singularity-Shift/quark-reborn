@@ -36,9 +36,10 @@ pub async fn handle_file_upload(
             .map_err(|e| teloxide::RequestError::from(e))?;
         file_paths.push(file_path);
     }
-    // Handle photo (largest size)
+    // Handle all photos, not just the largest size
     if let Some(photos) = msg.photo() {
-        if let Some(photo) = photos.last() {
+        // Process all photos in the message
+        for photo in photos {
             let file_id = &photo.file.id;
             let file_info = bot.get_file(file_id).await?;
             let file_path = format!("/tmp/{}_photo_{}.jpg", user_id, photo.file.id);
