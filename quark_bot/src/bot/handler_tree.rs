@@ -59,9 +59,11 @@ pub fn handler_tree() -> Handler<'static, DependencyMap, Result<()>, DpHandlerDe
                 .filter_async(auth)
                 .endpoint(answers),
         )
+        // Fallback for any other message that isn't a recognized slash-command.
+        // This lets us capture plain attachments (documents, photos, etc.) that
+        // are required for the /addfiles flow.
         .branch(
             dptree::entry()
-                .filter_command::<Command>()
                 .endpoint(handle_message),
         )
         .branch(
