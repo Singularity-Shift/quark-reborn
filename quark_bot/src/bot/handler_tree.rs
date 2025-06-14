@@ -59,11 +59,12 @@ pub fn handler_tree() -> Handler<'static, DependencyMap, Result<()>, DpHandlerDe
                 .filter_async(auth)
                 .endpoint(answers),
         )
-        // Fallback for any other message that isn't a recognized slash-command.
-        // This lets us capture plain attachments (documents, photos, etc.) that
-        // are required for the /addfiles flow.
+        // Fallback for any non-command message in PRIVATE CHATS.
+        // This ensures we still capture file uploads (documents, photos, etc.)
+        // sent via DM while ignoring non-command chatter in groups.
         .branch(
             dptree::entry()
+                .filter(|msg: Message| msg.chat.is_private())
                 .endpoint(handle_message),
         )
         .branch(
