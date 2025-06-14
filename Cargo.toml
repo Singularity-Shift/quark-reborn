@@ -1,6 +1,27 @@
 [workspace]
 resolver = "3"
-members = [ "contracts",
-    "quark_backend",
-    "quark_bot"
-]
+members = [
+    "quark_core",
+    "quark_bot",
+    "quark_server"]
+
+[workspace.dependencies]
+teloxide = { version = "0.15.0", features = ["macros"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
+log = "0.4"
+tracing-subscriber = "0.3"
+dotenvy = "0.15"
+sled = "0.34.7"
+quark_core = { path = "./quark_core" }
+regex = "1.10.5"
+dashmap = "5.5.3"
+reqwest = { version = "0.12.5", features = ["json"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+anyhow = "1.0"
+axum = {version = "0.8.4", features = ["macros"] }
+tower = "0.5.2"
+tower-http = {version="0.6.4", features = ["trace"]}
+jsonwebtoken = "9.3.1"
+utoipa = "5.3.1"
+utoipa-redoc = {version = "6.0.0", features = ["axum"]}

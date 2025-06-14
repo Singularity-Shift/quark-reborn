@@ -1,13 +1,8 @@
+use super::dto::FileInfo;
+use serde::{Deserialize, Serialize};
 use sled::{Db, IVec};
-use serde::{Serialize, Deserialize};
 
 const TREE_NAME: &str = "user_conversations";
-
-#[derive(Serialize, Deserialize, Debug, Clone)]
-pub struct FileInfo {
-    pub id: String,
-    pub name: String,
-}
 
 #[derive(Serialize, Deserialize, Debug, Default, Clone)]
 pub struct UserData {
@@ -18,6 +13,7 @@ pub struct UserData {
     pub last_image_urls: Vec<String>,
 }
 
+#[derive(Clone)]
 pub struct UserConversations {
     tree: sled::Tree,
 }
@@ -37,9 +33,11 @@ impl UserConversations {
 
     pub fn get_user_data(&self, user_id: i64) -> Option<UserData> {
         let key = user_id.to_be_bytes();
-        self.tree.get(key).ok().flatten().and_then(|ivec: IVec| {
-            bincode::deserialize(&ivec).ok()
-        })
+        self.tree
+            .get(key)
+            .ok()
+            .flatten()
+            .and_then(|ivec: IVec| bincode::deserialize(&ivec).ok())
     }
 
     pub fn set_response_id(&self, user_id: i64, response_id: &str) -> sled::Result<()> {
@@ -49,7 +47,8 @@ impl UserConversations {
     }
 
     pub fn get_response_id(&self, user_id: i64) -> Option<String> {
-        self.get_user_data(user_id).and_then(|data| data.response_id)
+        self.get_user_data(user_id)
+            .and_then(|data| data.response_id)
     }
 
     pub fn set_vector_store_id(&self, user_id: i64, vector_store_id: &str) -> sled::Result<()> {
@@ -59,7 +58,8 @@ impl UserConversations {
     }
 
     pub fn get_vector_store_id(&self, user_id: i64) -> Option<String> {
-        self.get_user_data(user_id).and_then(|data| data.vector_store_id)
+        self.get_user_data(user_id)
+            .and_then(|data| data.vector_store_id)
     }
 
     pub fn set_wallet_address(&self, user_id: i64, wallet_address: &str) -> sled::Result<()> {
@@ -69,7 +69,8 @@ impl UserConversations {
     }
 
     pub fn get_wallet_address(&self, user_id: i64) -> Option<String> {
-        self.get_user_data(user_id).and_then(|data| data.wallet_address)
+        self.get_user_data(user_id)
+            .and_then(|data| data.wallet_address)
     }
 
     pub fn add_file(&self, user_id: i64, file_id: &str, filename: &str) -> sled::Result<()> {
@@ -125,4 +126,4 @@ impl UserConversations {
         let _ = self.set_user_data(user_id, &data);
         urls
     }
-} 
+}
