@@ -59,9 +59,12 @@ pub fn handler_tree() -> Handler<'static, DependencyMap, Result<()>, DpHandlerDe
                 .filter_async(auth)
                 .endpoint(answers),
         )
+        // Fallback for any non-command message in PRIVATE CHATS.
+        // This ensures we still capture file uploads (documents, photos, etc.)
+        // sent via DM while ignoring non-command chatter in groups.
         .branch(
             dptree::entry()
-                .filter_command::<Command>()
+                .filter(|msg: Message| msg.chat.is_private())
                 .endpoint(handle_message),
         )
         .branch(
