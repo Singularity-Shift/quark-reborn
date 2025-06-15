@@ -203,29 +203,47 @@ pub async fn handle_chat(bot: Bot, msg: Message, ai: AI, db: Db, prompt: String)
     let user_id = msg.from.as_ref().map(|u| u.id.0).unwrap_or(0) as i64;
     let chat_id = msg.chat.id;
 
+    log::info!("=== HANDLE_CHAT START for user {} ===", user_id);
+    log::info!("Message text: '{}'", msg.text().unwrap_or(""));
+    log::info!("Message caption: '{}'", msg.caption().unwrap_or(""));
+    log::info!("Has reply_to_message: {}", msg.reply_to_message().is_some());
+
     // --- Extract image URL from reply ---
     let mut image_url_from_reply: Option<String> = None;
     if let Some(reply) = msg.reply_to_message() {
+        log::info!("Processing reply_to_message...");
         if let Some(from) = reply.from.as_ref() {
+            log::info!("Reply from bot: {}", from.is_bot);
             if from.is_bot {
                 let reply_text = reply.text().or_else(|| reply.caption());
                 if let Some(text) = reply_text {
+                    log::info!("Reply text content: '{}'", text);
                     // A simple regex to find the GCS URL
                     if let Ok(re) = regex::Regex::new(
                         r"https://storage\.googleapis\.com/sshift-gpt-bucket/[^\s]+",
                     ) {
                         if let Some(mat) = re.find(text) {
                             image_url_from_reply = Some(mat.as_str().to_string());
+                            log::info!("EXTRACTED URL FROM REPLY: {}", mat.as_str());
+                        } else {
+                            log::info!("No GCS URL found in reply text");
                         }
+                    } else {
+                        log::error!("Failed to compile regex for URL extraction");
                     }
+                } else {
+                    log::info!("Reply has no text or caption");
                 }
             }
         }
+    } else {
+        log::info!("No reply_to_message present");
     }
 
     // --- Download user-attached images ---
     let mut user_uploaded_image_paths: Vec<(String, String)> = Vec::new();
     if let Some(photos) = msg.photo() {
+        log::info!("Processing {} photos from message", photos.len());
         // Process all photos, not just the last one
         for photo in photos {
             let file_id = &photo.file.id;
@@ -243,16 +261,21 @@ pub async fn handle_chat(bot: Bot, msg: Message, ai: AI, db: Db, prompt: String)
             bot.download_file(&file_info.path, &mut file)
                 .await
                 .map_err(|e| teloxide::RequestError::from(e))?;
+            log::info!("Downloaded photo to: {}", temp_path);
             user_uploaded_image_paths.push((temp_path, extension));
         }
+    } else {
+        log::info!("No photos in message");
     }
 
     // --- Upload user images to GCS ---
     let mut user_uploaded_image_urls: Vec<String> = Vec::new();
     if !user_uploaded_image_paths.is_empty() {
+        log::info!("Uploading {} user images to GCS", user_uploaded_image_paths.len());
         match ai.upload_user_images(user_uploaded_image_paths).await {
             Ok(urls) => {
                 user_uploaded_image_urls = urls;
+                log::info!("Successfully uploaded {} user images", user_uploaded_image_urls.len());
             }
             Err(e) => {
                 log::error!("Failed to upload user images: {}", e);
@@ -282,6 +305,7 @@ pub async fn handle_chat(bot: Bot, msg: Message, ai: AI, db: Db, prompt: String)
         }
     });
 
+    log::info!("Calling AI generate_response...");
     let ai_response_result = ai
         .generate_response(
             user_id,
@@ -298,26 +322,33 @@ pub async fn handle_chat(bot: Bot, msg: Message, ai: AI, db: Db, prompt: String)
     // --- Handle AI Response ---
     match ai_response_result {
         Ok(ai_response) => {
+            log::info!("AI response received, has image: {}", ai_response.image_data.is_some());
             if let Some(image_bytes) = ai_response.image_data {
+                log::info!("Sending photo response with {} bytes", image_bytes.len());
                 let photo = InputFile::memory(image_bytes);
                 let mut request = bot.send_photo(chat_id, photo);
                 if !ai_response.text.is_empty() {
                     let formatted = crate::utils::markdown_to_html(&ai_response.text);
+                    log::info!("Photo caption length: {} chars", formatted.len());
                     request = request.caption(formatted).parse_mode(ParseMode::Html);
                 }
                 request.await?;
             } else {
                 if !ai_response.text.is_empty() {
                     let formatted = crate::utils::markdown_to_html(&ai_response.text);
+                    log::info!("Sending text response, length: {} chars", formatted.len());
                     bot.send_message(chat_id, formatted).parse_mode(ParseMode::Html).await?;
                 }
             }
         }
         Err(e) => {
             let error_message = format!("[AI error]: {}", e);
+            log::error!("AI error: {}", e);
             bot.send_message(chat_id, error_message).await?;
         }
     };
+    
+    log::info!("=== HANDLE_CHAT END for user {} ===", user_id);
     Ok(())
 }
 
