@@ -26,14 +26,17 @@ pub async fn handle_callback_query(
 ) -> Result<()> {
     if let Some(data) = &query.data {
         let user_id = query.from.id.0 as i64;
+        
         if data.starts_with("delete_file:") {
             let file_id = data.strip_prefix("delete_file:").unwrap();
+            
             if let Some(vector_store_id) = user_convos.get_vector_store_id(user_id) {
                 match delete_file_from_vector_store(user_id, &db, &vector_store_id, file_id, &ai)
                     .await
                 {
                     Ok(_) => {
                         bot.answer_callback_query(&query.id).await?;
+                        
                         match list_user_files_with_names(user_id, &db) {
                             Ok(files) => {
                                 if files.is_empty() {
@@ -83,6 +86,7 @@ pub async fn handle_callback_query(
                                         keyboard_rows.push(vec![clear_all_button]);
                                     }
                                     let keyboard = InlineKeyboardMarkup::new(keyboard_rows);
+                                    
                                     if let Some(
                                         teloxide::types::MaybeInaccessibleMessage::Regular(message),
                                     ) = &query.message
@@ -98,7 +102,8 @@ pub async fn handle_callback_query(
                                     }
                                 }
                             }
-                            Err(_) => {
+                            Err(e) => {
+                                log::error!("Failed to list files after deletion: {}", e);
                                 bot.answer_callback_query(&query.id)
                                     .text("❌ Error refreshing file list. Please try /list_files again.")
                                     .await?;
@@ -106,11 +111,16 @@ pub async fn handle_callback_query(
                         }
                     }
                     Err(e) => {
+                        log::error!("File deletion failed: {}", e);
                         bot.answer_callback_query(&query.id)
                             .text(&format!("❌ Failed to delete file. Error: {}", e))
                             .await?;
                     }
                 }
+            } else {
+                bot.answer_callback_query(&query.id)
+                    .text("❌ No document library found. Please try /list_files again.")
+                    .await?;
             }
         } else if data == "clear_all_files" {
             match delete_vector_store(user_id, &db, &ai).await {
@@ -126,12 +136,22 @@ pub async fn handle_callback_query(
                     }
                 }
                 Err(e) => {
+                    log::error!("Failed to clear all files: {}", e);
                     bot.answer_callback_query(&query.id)
                         .text(&format!("❌ Failed to clear files. Error: {}", e))
                         .await?;
                 }
             }
+        } else {
+            bot.answer_callback_query(&query.id)
+                .text("❌ Unknown action")
+                .await?;
         }
+    } else {
+        bot.answer_callback_query(&query.id)
+            .text("❌ No action specified")
+            .await?;
     }
+    
     Ok(())
 }
