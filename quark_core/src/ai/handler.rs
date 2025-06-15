@@ -69,11 +69,6 @@ impl AI {
         image_url_from_reply: Option<String>,
         user_uploaded_image_urls: Vec<String>,
     ) -> Result<AIResponse, anyhow::Error> {
-        log::info!("=== GENERATE_RESPONSE START for user {} ===", user_id);
-        log::info!("Input text: '{}'", input);
-        log::info!("Image URL from reply: {:?}", image_url_from_reply);
-        log::info!("User uploaded image URLs: {:?}", user_uploaded_image_urls);
-
         let user_convos = UserConversations::new(db)?;
         let previous_response_id = user_convos.get_response_id(user_id);
 
@@ -102,29 +97,18 @@ impl AI {
         // Collect all image URLs we want GPT-4o to see
         let mut image_urls: Vec<String> = Vec::new();
         if let Some(url) = image_url_from_reply {
-            log::info!("Adding image URL from reply: {}", url);
             image_urls.push(url);
         }
         image_urls.extend(user_uploaded_image_urls.clone());
-        if !user_uploaded_image_urls.is_empty() {
-            log::info!("Added {} user uploaded image URLs", user_uploaded_image_urls.len());
-        }
 
         // Also include any previously generated images that haven't been used yet
         let cached_images = {
             let cached = user_convos.take_last_image_urls(user_id);
-            log::info!("Retrieved {} cached image URLs from storage: {:?}", cached.len(), cached);
-            if !cached.is_empty() {
-                log::info!("CACHE CLEARED: URLs have been removed from storage after retrieval");
-            }
             cached
         };
         image_urls.extend(cached_images.clone());
 
-        log::info!("Final image_urls vector: {:?} (total: {})", image_urls, image_urls.len());
-
         if !image_urls.is_empty() {
-            log::info!("VISION MODE: Using input_image_urls with {} images", image_urls.len());
             // New helper in v0.2.2 supports multiple images in one call
             request_builder = request_builder.input_image_urls(&image_urls);
 
@@ -141,29 +125,21 @@ impl AI {
                 // Combine system prompt with user context
                 let combined_instructions = format!("{}\n\n{}", self.system_prompt, user_context);
                 
-                log::info!("Adding contextual instructions: '{}'", user_context);
                 request_builder = request_builder.instructions(combined_instructions);
-            } else {
-                log::info!("No text input provided with images");
             }
         } else {
-            log::info!("TEXT MODE: No images present, using plain text input");
             // No images ⇒ plain text input as before
             request_builder = request_builder.input(input);
             // With no vision payload we can safely include file-search results
             request_builder = request_builder.include(vec![Include::FileSearchResults]);
-            log::info!("Added FileSearchResults to request");
         }
 
         if let Some(prev_id) = previous_response_id.clone() {
-            log::info!("Using previous response ID: {}", prev_id);
             request_builder = request_builder.previous_response_id(prev_id);
         }
 
         let request = request_builder.build();
-        log::info!("Request built, sending to OpenAI...");
         let mut current_response: Response = self.openai_client.responses.create(request).await?;
-        log::info!("Received response from OpenAI, ID: {}", current_response.id());
 
         // Enhanced function calling loop (following demo script pattern)
         let mut iteration = 1;
@@ -171,7 +147,6 @@ impl AI {
 
         while !current_response.tool_calls().is_empty() && iteration <= MAX_ITERATIONS {
             let tool_calls = current_response.tool_calls();
-            log::info!("Processing {} tool calls in iteration {}", tool_calls.len(), iteration);
 
             // Filter for custom function calls (get_balance, withdraw_funds, get_trending_pools, search_pools, get_current_time, get_fear_and_greed_index)
             let custom_tool_calls: Vec<_> = tool_calls
@@ -188,11 +163,9 @@ impl AI {
                 .collect();
 
             if !custom_tool_calls.is_empty() {
-                log::info!("Executing {} custom function calls", custom_tool_calls.len());
                 // Handle parallel custom function calls
                 let mut function_outputs = Vec::new();
                 for tool_call in &custom_tool_calls {
-                    log::info!("Executing custom tool: {}", tool_call.name);
                     // Parse arguments as JSON Value for execute_custom_tool
                     let args_value: serde_json::Value = serde_json::from_str(&tool_call.arguments)
                         .unwrap_or_else(|_| serde_json::json!({}));
@@ -218,11 +191,9 @@ impl AI {
                     .responses
                     .create(continuation_request)
                     .await?;
-                log::info!("Received continuation response, ID: {}", current_response.id());
             } else {
                 // No custom function calls, break the loop
                 // (Built-in tools like web_search and file_search are handled automatically by OpenAI)
-                log::info!("No custom function calls found, ending tool execution loop");
                 break;
             }
 
@@ -232,18 +203,14 @@ impl AI {
         // Extract text and potentially image data from the final response
         let mut reply = current_response.output_text();
         let response_id = current_response.id().to_string();
-        log::info!("Final response text length: {} chars", reply.len());
-        log::info!("Storing response ID: {}", response_id);
         user_convos.set_response_id(user_id, &response_id)?;
 
         let mut image_data: Option<Vec<u8>> = None;
         for item in &current_response.output {
             if let ResponseItem::ImageGenerationCall { result, .. } = item {
-                log::info!("Found image generation in response, processing...");
                 // Decode the base64 string to image bytes
                 match general_purpose::STANDARD.decode(result) {
                     Ok(bytes) => {
-                        log::info!("Successfully decoded image bytes: {} bytes", bytes.len());
                         image_data = Some(bytes);
 
                         // Upload to GCS and append URL to reply
@@ -253,17 +220,10 @@ impl AI {
                             .await
                         {
                             Ok(url) => {
-                                log::info!("Successfully uploaded image to GCS: {}", url);
                                 reply = format!("{}\n\nImage URL: {}", reply, url);
-                                let cache_result = user_convos.set_last_image_urls(user_id, &[url.clone()]);
-                                match cache_result {
-                                    Ok(_) => log::info!("CACHE STORED: Image URL cached for user {}: {}", user_id, url),
-                                    Err(e) => log::error!("CACHE ERROR: Failed to store image URL: {}", e),
-                                }
+                                let _ = user_convos.set_last_image_urls(user_id, &[url.clone()]);
                             }
-                            Err(e) => {
-                                log::error!("Failed to upload image to GCS: {}", e);
-                            }
+                            Err(e) => log::error!("Failed to upload image to GCS: {}", e),
                         }
 
                         // We found our image, no need to look further
@@ -277,7 +237,6 @@ impl AI {
             }
         }
 
-        log::info!("=== GENERATE_RESPONSE END for user {} ===", user_id);
         Ok(AIResponse::from((reply, image_data)))
     }
 }
