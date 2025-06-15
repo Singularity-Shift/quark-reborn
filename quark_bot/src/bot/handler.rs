@@ -349,6 +349,7 @@ pub async fn handle_chat(bot: Bot, msg: Message, ai: AI, db: Db, prompt: String)
             bot.send_message(chat_id, error_message).await?;
         }
     };
+    
     Ok(())
 }
 
