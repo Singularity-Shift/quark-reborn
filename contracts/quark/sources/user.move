@@ -1,4 +1,4 @@
-module quark_test::user {
+module quark_test::user_v2 {
     use std::signer;
     use std::option::{Self, Option};
     use std::account::{Self, SignerCapability};
@@ -11,7 +11,7 @@ module quark_test::user {
     use aptos_framework::fungible_asset::Metadata;
     use aptos_framework::primary_fungible_store;
     use sshift_gpt::fees;
-    use quark_test::admin;
+    use quark_test::admin_v2;
 
     const EONLY_ADMIN_CAN_CALL: u64 = 1;
     const ENOT_ENOUGH_FUNDS: u64 = 2;
@@ -35,7 +35,7 @@ module quark_test::user {
 
     public entry fun set_coin_address<CoinType>(sender: &signer) acquires Config {
         let admin_address = signer::address_of(sender);
-        assert!(admin::is_admin(admin_address), EONLY_ADMIN_CAN_CALL);
+        assert!(admin_v2::is_admin(admin_address), EONLY_ADMIN_CAN_CALL);
 
         let config = borrow_global_mut<Config>(@quark_test);
 
@@ -79,14 +79,14 @@ module quark_test::user {
 
     public entry fun pay_ai<CoinType>(sender: &signer, user: address, amount: u64) acquires Account, Config {
         let admin_address = signer::address_of(sender);
-        assert!(admin::is_admin(admin_address), EONLY_ADMIN_CAN_CALL);
+        assert!(admin_v2::is_admin(admin_address), EONLY_ADMIN_CAN_CALL);
 
         pay_ai_fee<CoinType>(user, amount);
     }
 
     public entry fun pay_to_users_v1<CoinType>(sender: &signer, user: address, amount: u64, recipients: vector<address>) acquires Account {
         let admin_address = signer::address_of(sender);
-        assert!(admin::is_admin(admin_address), EONLY_ADMIN_CAN_CALL);
+        assert!(admin_v2::is_admin(admin_address), EONLY_ADMIN_CAN_CALL);
 
         let user_account = borrow_global<Account>(user);
         let resource_account = account::create_signer_with_capability(&user_account.signer_cap);
@@ -98,7 +98,7 @@ module quark_test::user {
 
     public entry fun pay_to_users_v2<CoinType>(sender: &signer, user: address, amount: u64, currency: address, recipients: vector<address>) acquires Account {
         let admin_address = signer::address_of(sender);
-        assert!(admin::is_admin(admin_address), EONLY_ADMIN_CAN_CALL);
+        assert!(admin_v2::is_admin(admin_address), EONLY_ADMIN_CAN_CALL);
 
         let user_account = borrow_global<Account>(user);
         let resource_account = account::create_signer_with_capability(&user_account.signer_cap);
@@ -134,7 +134,12 @@ module quark_test::user {
         aptos_account::transfer_coins<CoinType>(&resource_account, resource_account_fees, amount);        
     }
 
+    #[view]
+    public fun exists_resource_account(user: address): bool {
+        exists<Account>(user)
+    }
 
+    #[view]
     public fun get_resource_account(user: address): address acquires Account {
         let user_account = borrow_global<Account>(user);
         let resource_account = account::create_signer_with_capability(&user_account.signer_cap);

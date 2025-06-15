@@ -9,10 +9,10 @@ use teloxide::{
 };
 
 use crate::{
-    bot::answers::handle_message, callbacks::handle_callback_query, middleware::auth::auth,
+    bot::{answers::answers, handler::handle_message, handler::handle_web_app_data},
+    callbacks::handle_callback_query,
+    middleware::auth::auth,
 };
-
-use super::answers::answers;
 
 async fn handle_unauthenticated(bot: Bot, msg: Message) -> Result<()> {
     bot.send_message(
@@ -32,16 +32,31 @@ pub fn handler_tree() -> Handler<'static, DependencyMap, Result<()>, DpHandlerDe
         .branch(
             Update::filter_message()
                 .enter_dialogue::<Message, InMemStorage<QuarkState>, QuarkState>()
+                .branch(
+                    dptree::entry()
+                        .filter(|msg: Message| {
+                            msg.web_app_data().is_some() && msg.chat.is_private()
+                        })
+                        .endpoint(handle_web_app_data),
+                )
                 // 0. Intercept media-group photo messages early so we can aggregate
                 //    all images (important for multi-image vision prompts). This
                 //    branch must be first so it runs before command parsing.
                 .branch(
                     dptree::entry()
-                        .filter(|msg: Message| msg.media_group_id().is_some() && msg.photo().is_some())
-                        .endpoint(|media_aggregator: std::sync::Arc<crate::assets::media_aggregator::MediaGroupAggregator>, ai: quark_core::ai::handler::AI, msg: Message| async move {
-                            media_aggregator.add_message(msg, ai).await;
-                            Ok(())
-                        }),
+                        .filter(|msg: Message| {
+                            msg.media_group_id().is_some() && msg.photo().is_some()
+                        })
+                        .endpoint(
+                            |media_aggregator: std::sync::Arc<
+                                crate::assets::media_aggregator::MediaGroupAggregator,
+                            >,
+                             ai: quark_core::ai::handler::AI,
+                             msg: Message| async move {
+                                media_aggregator.add_message(msg, ai).await;
+                                Ok(())
+                            },
+                        ),
                 )
                 .branch(
                     // 2. Branch for public commands for new users
@@ -84,9 +99,15 @@ pub fn handler_tree() -> Handler<'static, DependencyMap, Result<()>, DpHandlerDe
                     dptree::entry()
                         .filter_command::<Command>()
                         .endpoint(handle_unauthenticated),
-                )
+                ),
         )
-        .branch(Update::filter_callback_query().endpoint(|bot: Bot, query: teloxide::types::CallbackQuery, db: sled::Db, user_convos: quark_core::user_conversation::handler::UserConversations, ai: quark_core::ai::handler::AI| async move {
-            handle_callback_query(bot, query, db, user_convos, ai).await
-        }))
+        .branch(Update::filter_callback_query().endpoint(
+            |bot: Bot,
+             query: teloxide::types::CallbackQuery,
+             db: sled::Db,
+             user_convos: quark_core::user_conversation::handler::UserConversations,
+             ai: quark_core::ai::handler::AI| async move {
+                handle_callback_query(bot, query, db, user_convos, ai).await
+            },
+        ))
 }

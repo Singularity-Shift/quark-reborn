@@ -5,12 +5,17 @@ use teloxide::types::UserId;
 pub struct Credentials {
     pub jwt: String,
     pub user_id: UserId,
+    pub account_address: String,
 }
 
-impl From<(String, UserId)> for Credentials {
-    fn from(value: (String, UserId)) -> Self {
-        let (jwt, user_id) = value;
+impl From<(String, UserId, String)> for Credentials {
+    fn from(value: (String, UserId, String)) -> Self {
+        let (jwt, user_id, account_address) = value;
 
-        Credentials { jwt, user_id }
+        Credentials {
+            jwt,
+            user_id,
+            account_address,
+        }
     }
 }

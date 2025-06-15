@@ -51,6 +51,7 @@ async fn main() {
     let auth_db = db.open_tree("auth").unwrap();
 
     let commands = vec![
+        BotCommand::new("aptosconnect", "Open the Aptos Connect app."),
         BotCommand::new("help", "Display this text."),
         BotCommand::new("loginuser", "Log in as a user (DM only)."),
         BotCommand::new("logingroup", "Group login (under development)."),
