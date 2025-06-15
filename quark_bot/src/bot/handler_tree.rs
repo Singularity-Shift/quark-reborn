@@ -9,7 +9,9 @@ use teloxide::{
 };
 
 use crate::{
-    bot::answers::handle_message, callbacks::handle_callback_query, middleware::auth::auth,
+    bot::answers::{handle_message, handle_web_app_data},
+    callbacks::handle_callback_query,
+    middleware::auth::auth,
 };
 
 use super::answers::answers;
@@ -30,16 +32,24 @@ Please use `/login` to authenticate.",
 pub fn handler_tree() -> Handler<'static, DependencyMap, Result<()>, DpHandlerDescription> {
     Update::filter_message()
         .enter_dialogue::<Message, InMemStorage<QuarkState>, QuarkState>()
-        // 0. Intercept media-group photo messages early so we can aggregate
-        //    all images (important for multi-image vision prompts). This
-        //    branch must be first so it runs before command parsing.
+        .branch(
+            dptree::entry()
+                .filter(|msg: Message| msg.web_app_data().is_some() && msg.chat.is_private())
+                .endpoint(handle_web_app_data),
+        )
         .branch(
             dptree::entry()
                 .filter(|msg: Message| msg.media_group_id().is_some() && msg.photo().is_some())
-                .endpoint(|media_aggregator: std::sync::Arc<crate::assets::media_aggregator::MediaGroupAggregator>, ai: quark_core::ai::handler::AI, msg: Message| async move {
-                    media_aggregator.add_message(msg, ai).await;
-                    Ok(())
-                }),
+                .endpoint(
+                    |media_aggregator: std::sync::Arc<
+                        crate::assets::media_aggregator::MediaGroupAggregator,
+                    >,
+                     ai: quark_core::ai::handler::AI,
+                     msg: Message| async move {
+                        media_aggregator.add_message(msg, ai).await;
+                        Ok(())
+                    },
+                ),
         )
         .branch(
             // 2. Branch for public commands for new users
@@ -48,7 +58,10 @@ pub fn handler_tree() -> Handler<'static, DependencyMap, Result<()>, DpHandlerDe
                 .filter(|cmd| {
                     matches!(
                         cmd,
-                        Command::Help | Command::LoginUser | Command::LoginGroup
+                        Command::Help
+                            | Command::LoginUser
+                            | Command::LoginGroup
+                            | Command::AptosConnect
                     )
                 })
                 .endpoint(answers),
@@ -70,18 +83,15 @@ pub fn handler_tree() -> Handler<'static, DependencyMap, Result<()>, DpHandlerDe
                 .filter_async(auth)
                 .endpoint(answers),
         )
-        // Fallback for any non-command message in PRIVATE CHATS.
-        // This ensures we still capture file uploads (documents, photos, etc.)
-        // sent via DM while ignoring non-command chatter in groups.
-        .branch(
-            dptree::entry()
-                .filter(|msg: Message| msg.chat.is_private())
-                .endpoint(handle_message),
-        )
         .branch(
             dptree::entry()
                 .filter_command::<Command>()
                 .endpoint(handle_unauthenticated),
         )
         .branch(Update::filter_callback_query().endpoint(handle_callback_query))
+        .branch(
+            dptree::entry()
+                .filter(|msg: Message| msg.chat.is_private())
+                .endpoint(handle_message),
+        )
 }

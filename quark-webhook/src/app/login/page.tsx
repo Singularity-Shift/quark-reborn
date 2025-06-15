@@ -3,7 +3,7 @@
 import { QuarkUserAbi } from "@/aptos";
 import { useAbiClient } from "@/context/AbiProvider";
 import { useWallet } from "@aptos-labs/wallet-adapter-react";
-import { useLaunchParams, sendData } from "@telegram-apps/sdk-react";
+import { sendData } from "@telegram-apps/sdk-react";
 import { useEffect, useState } from "react";
 import { useWalletClient } from "@thalalabs/surf/hooks";
 import toast from "react-hot-toast";
@@ -11,20 +11,24 @@ import { EXPLORER_URL } from "@/config/env";
 import { AccountStatus } from "./components/AccountStatus";
 import { Toaster } from "react-hot-toast";
 import { Section } from "@telegram-apps/telegram-ui";
+import { useSearchParams } from "next/navigation";
 
 const LoginPage = () => {
   const { abi } = useAbiClient();
-  const { tgWebAppData } = useLaunchParams();
   const { account } = useWallet();
   const { client } = useWalletClient();
+  const searchParams = useSearchParams();
   const [resourceAccount, setResourceAccount] = useState<string>("");
   const [txHash, setTxHash] = useState<string>();
 
-  useEffect(() => {
-    if (!tgWebAppData || !abi || !account?.address) return;
+  // Get user ID from URL parameters
+  const userId = searchParams.get("userId") || searchParams.get("user_id");
 
-    handleLogin(tgWebAppData.user?.id as number);
-  }, [tgWebAppData, abi]);
+  useEffect(() => {
+    if (!userId || !abi || !account?.address) return;
+
+    handleLogin(parseInt(userId));
+  }, [userId, abi, account?.address]);
 
   const handleLogin = async (userId: number) => {
     const resourceAccount = await abi
@@ -74,7 +78,10 @@ const LoginPage = () => {
 
     const resourceAccountAddress = resourceAccountResponse?.[0] as string;
 
-    sendData(resourceAccountAddress);
+    if (sendData.isAvailable()) {
+      console.log("Sending Data");
+      sendData(resourceAccountAddress);
+    }
 
     setResourceAccount(resourceAccountAddress);
   };
