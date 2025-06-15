@@ -114,16 +114,28 @@ impl UserConversations {
 
     // --- New image URL helpers ---
     pub fn set_last_image_urls(&self, user_id: i64, urls: &[String]) -> sled::Result<()> {
+        log::info!("CACHE SET: Storing {} image URLs for user {}: {:?}", urls.len(), user_id, urls);
         let mut data = self.get_user_data(user_id).unwrap_or_default();
         data.last_image_urls = urls.to_vec();
-        self.set_user_data(user_id, &data)
+        let result = self.set_user_data(user_id, &data);
+        match &result {
+            Ok(_) => log::info!("CACHE SET SUCCESS: URLs stored for user {}", user_id),
+            Err(e) => log::error!("CACHE SET ERROR: Failed to store URLs for user {}: {}", user_id, e),
+        }
+        result
     }
 
     /// Retrieve and clear stored image URLs (so they are used only once)
     pub fn take_last_image_urls(&self, user_id: i64) -> Vec<String> {
+        log::info!("CACHE TAKE: Retrieving and clearing image URLs for user {}", user_id);
         let mut data = self.get_user_data(user_id).unwrap_or_default();
         let urls = std::mem::take(&mut data.last_image_urls);
-        let _ = self.set_user_data(user_id, &data);
+        log::info!("CACHE TAKE: Found {} URLs for user {}: {:?}", urls.len(), user_id, urls);
+        let save_result = self.set_user_data(user_id, &data);
+        match save_result {
+            Ok(_) => log::info!("CACHE TAKE SUCCESS: URLs cleared for user {}", user_id),
+            Err(e) => log::error!("CACHE TAKE ERROR: Failed to clear URLs for user {}: {}", user_id, e),
+        }
         urls
     }
 }
