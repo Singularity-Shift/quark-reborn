@@ -10,7 +10,6 @@ pub async fn auth(msg: Message, db: Tree) -> bool {
     let user = msg.from;
 
     if user.is_none() {
-        println!("❌ User not found");
         return false;
     }
 
@@ -19,7 +18,6 @@ pub async fn auth(msg: Message, db: Tree) -> bool {
     let username = user.username;
 
     if username.is_none() {
-        println!("❌ Username not found");
         return false;
     }
 
@@ -35,13 +33,12 @@ pub async fn auth(msg: Message, db: Tree) -> bool {
             credentials.account_address.clone(),
         ) {
             Ok(_updated_storage) => {
-                println!("✅ JWT token validated/generated for user {}", user.id);
                 // Note: The updated storage with the new JWT would need to be
                 // persisted back to the dialogue storage in the calling code
                 return true;
             }
             Err(e) => {
-                println!("❌ Failed to validate/generate JWT: {}", e);
+                log::warn!("AUTH: Failed to validate/generate JWT: {}", e);
             }
         }
 
@@ -55,6 +52,38 @@ pub async fn auth(msg: Message, db: Tree) -> bool {
         .await;
     }
 
+<<<<<<< HEAD
     println!("❌ No credentials found for user {}", username);
     return false;
+=======
+    return generate_new_jwt(username, user.id, jwt_manager, db).await;
+}
+
+async fn generate_new_jwt(
+    username: String,
+    user_id: UserId,
+    jwt_manager: JwtManager,
+    db: Tree,
+) -> bool {
+    match jwt_manager.generate_token(user_id) {
+        Ok(token) => {
+            let jwt = token;
+
+            let credentials = Credentials::from((jwt, user_id));
+
+            let saved = save_credentials(&username, credentials, db);
+
+            if saved.is_err() {
+                println!("❌ Failed to save credentials: {}", saved.err().unwrap());
+                return false;
+            }
+
+            return true;
+        }
+        Err(e) => {
+            println!("❌ Failed to generate JWT token: {}", e);
+            return false;
+        }
+    }
+>>>>>>> main
 }
