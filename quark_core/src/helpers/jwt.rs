@@ -9,6 +9,7 @@ pub struct Claims {
     pub telegram_id: UserId,
     pub exp: i64, // Expiration time
     pub iat: i64, // Issued at
+    pub account_address: String,
 }
 
 pub struct JwtManager {
@@ -24,6 +25,7 @@ impl JwtManager {
     pub fn generate_token(
         &self,
         telegram_id: UserId,
+        account_address: String,
     ) -> Result<String, jsonwebtoken::errors::Error> {
         let now = Utc::now();
         let expiration = now + Duration::days(7);
@@ -32,6 +34,7 @@ impl JwtManager {
             telegram_id,
             exp: expiration.timestamp(),
             iat: now.timestamp(),
+            account_address,
         };
 
         encode(
@@ -65,6 +68,7 @@ impl JwtManager {
         &self,
         existing_token: Option<&str>,
         telegram_id: UserId,
+        account_address: String,
     ) -> Result<String, Box<dyn std::error::Error>> {
         if let Some(token) = existing_token {
             if self.is_token_valid(token) {
@@ -73,7 +77,7 @@ impl JwtManager {
         }
 
         // Generate new token if none exists or current one is invalid
-        self.generate_token(telegram_id)
+        self.generate_token(telegram_id, account_address)
             .map_err(|e| Box::new(e) as Box<dyn std::error::Error>)
     }
 
@@ -81,6 +85,7 @@ impl JwtManager {
         &self,
         mut jwt: String,
         telegram_id: UserId,
+        account_address: String,
     ) -> Result<String, Box<dyn std::error::Error>> {
         let existing_token = if jwt.is_empty() {
             None
@@ -88,7 +93,7 @@ impl JwtManager {
             Some(jwt.as_str())
         };
 
-        let token = self.get_or_generate_token(existing_token, telegram_id)?;
+        let token = self.get_or_generate_token(existing_token, telegram_id, account_address)?;
         jwt = token;
 
         Ok(jwt)

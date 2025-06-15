@@ -1,9 +1,8 @@
 use quark_core::helpers::jwt::JwtManager;
 use sled::Tree;
-use teloxide::{prelude::*, types::Message};
+use teloxide::types::Message;
 
-use crate::credentials::dto::Credentials;
-use crate::credentials::helpers::{get_credentials, save_credentials};
+use crate::credentials::helpers::{generate_new_jwt, get_credentials};
 
 pub async fn auth(msg: Message, db: Tree) -> bool {
     let jwt_manager = JwtManager::new();
@@ -30,7 +29,11 @@ pub async fn auth(msg: Message, db: Tree) -> bool {
 
     if let Some(credentials) = credentials_opt {
         // Initialize JWT manager and validate/update storage
-        match jwt_manager.validate_and_update_jwt(credentials.jwt, credentials.user_id) {
+        match jwt_manager.validate_and_update_jwt(
+            credentials.jwt,
+            credentials.user_id,
+            credentials.account_address.clone(),
+        ) {
             Ok(_updated_storage) => {
                 println!("✅ JWT token validated/generated for user {}", user.id);
                 // Note: The updated storage with the new JWT would need to be
@@ -42,38 +45,16 @@ pub async fn auth(msg: Message, db: Tree) -> bool {
             }
         }
 
-        return generate_new_jwt(username, user.id, jwt_manager, db).await;
+        return generate_new_jwt(
+            username,
+            user.id,
+            credentials.account_address,
+            jwt_manager,
+            db,
+        )
+        .await;
     }
 
     println!("❌ No credentials found for user {}", username);
-    return generate_new_jwt(username, user.id, jwt_manager, db).await;
-}
-
-async fn generate_new_jwt(
-    username: String,
-    user_id: UserId,
-    jwt_manager: JwtManager,
-    db: Tree,
-) -> bool {
-    match jwt_manager.generate_token(user_id) {
-        Ok(token) => {
-            let jwt = token;
-
-            let credentials = Credentials::from((jwt, user_id));
-
-            let saved = save_credentials(&username, credentials, db);
-
-            if saved.is_err() {
-                println!("❌ Failed to save credentials: {}", saved.err().unwrap());
-                return false;
-            }
-
-            println!("✅ Generated new JWT token for user {}", user_id);
-            return true;
-        }
-        Err(e) => {
-            println!("❌ Failed to generate JWT token: {}", e);
-            return false;
-        }
-    }
+    return false;
 }

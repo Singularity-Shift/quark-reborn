@@ -11,15 +11,43 @@ use reqwest::Url;
 use sled::Db;
 use std::env;
 use std::time::Duration;
-use teloxide::prelude::*;
 use teloxide::types::{
-    ChatAction, InlineKeyboardButton, InlineKeyboardButtonKind, InlineKeyboardMarkup, InputFile,
-    WebAppInfo,
+    ChatAction, InlineKeyboardButton, InlineKeyboardMarkup, InputFile, WebAppInfo,
 };
+use teloxide::types::{KeyboardMarkup, ParseMode};
 use teloxide::{net::Download, utils::command::BotCommands};
+use teloxide::{
+    prelude::*,
+    types::{ButtonRequest, KeyboardButton},
+};
 use tokio::fs::File;
 use tokio::time::sleep;
-use teloxide::types::ParseMode;
+
+pub async fn handle_aptos_connect(bot: Bot, msg: Message) -> AnyResult<()> {
+    if !msg.chat.is_private() {
+        bot.send_message(
+            msg.chat.id,
+            "❌ This command can only be used in a private chat with the bot.",
+        )
+        .await?;
+    }
+
+    let aptos_connect_url = "https://aptosconnect.app";
+
+    let url = Url::parse(&aptos_connect_url).expect("Invalid URL");
+    let web_app_info = WebAppInfo { url };
+
+    let aptos_connect_button = InlineKeyboardButton::web_app("Open Aptos Connect", web_app_info);
+
+    bot.send_message(
+        msg.chat.id,
+        "Click the button below to login to your quark account",
+    )
+    .reply_markup(InlineKeyboardMarkup::new(vec![vec![aptos_connect_button]]))
+    .await?;
+
+    return Ok(());
+}
 
 pub async fn handle_login_user(bot: Bot, msg: Message) -> AnyResult<()> {
     if !msg.chat.is_private() {
@@ -31,23 +59,36 @@ pub async fn handle_login_user(bot: Bot, msg: Message) -> AnyResult<()> {
         return Ok(());
     }
 
+    let user = msg.from;
+
+    if user.is_none() {
+        bot.send_message(msg.chat.id, "❌ Unable to verify permissions.")
+            .await?;
+        return Ok(());
+    }
+
+    let user_id = user.unwrap().id;
+
     let app_url = env::var("APP_URL").expect("APP_URL must be set");
-    let url_to_build = format!("{}/login", app_url);
+    let url_to_build = format!("{}/login?userId={}", app_url, user_id);
 
     let url = Url::parse(&url_to_build).expect("Invalid URL");
 
     let web_app_info = WebAppInfo { url };
 
-    let login_button = vec![vec![InlineKeyboardButton::new(
-        "Login to your quark account",
-        InlineKeyboardButtonKind::WebApp(web_app_info),
-    )]];
+    let request = ButtonRequest::WebApp(web_app_info);
+
+    let login_button = KeyboardButton::new("Login to your Quark account");
+
+    let login_button = login_button.request(request);
+
+    let login_markup = KeyboardMarkup::new(vec![vec![login_button]]);
 
     bot.send_message(
         msg.chat.id,
         "Click the button below to login to your quark account",
     )
-    .reply_markup(InlineKeyboardMarkup::new(login_button))
+    .reply_markup(login_markup)
     .await?;
 
     return Ok(());
@@ -297,7 +338,9 @@ pub async fn handle_chat(bot: Bot, msg: Message, ai: AI, db: Db, prompt: String)
             } else {
                 if !ai_response.text.is_empty() {
                     let formatted = crate::utils::markdown_to_html(&ai_response.text);
-                    bot.send_message(chat_id, formatted).parse_mode(ParseMode::Html).await?;
+                    bot.send_message(chat_id, formatted)
+                        .parse_mode(ParseMode::Html)
+                        .await?;
                 }
             }
         }
@@ -417,7 +460,9 @@ pub async fn handle_grouped_chat(
             } else {
                 if !ai_response.text.is_empty() {
                     let formatted = crate::utils::markdown_to_html(&ai_response.text);
-                    bot.send_message(chat_id, formatted).parse_mode(ParseMode::Html).await?;
+                    bot.send_message(chat_id, formatted)
+                        .parse_mode(ParseMode::Html)
+                        .await?;
                 }
             }
         }
