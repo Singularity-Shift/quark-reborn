@@ -9,12 +9,10 @@ use teloxide::{
 };
 
 use crate::{
-    bot::answers::{handle_message, handle_web_app_data},
+    bot::{answers::answers, handler::handle_message, handler::handle_web_app_data},
     callbacks::handle_callback_query,
     middleware::auth::auth,
 };
-
-use super::answers::answers;
 
 async fn handle_unauthenticated(bot: Bot, msg: Message) -> Result<()> {
     bot.send_message(

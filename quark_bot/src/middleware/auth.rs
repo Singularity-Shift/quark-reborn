@@ -52,38 +52,6 @@ pub async fn auth(msg: Message, db: Tree) -> bool {
         .await;
     }
 
-<<<<<<< HEAD
     println!("❌ No credentials found for user {}", username);
     return false;
-=======
-    return generate_new_jwt(username, user.id, jwt_manager, db).await;
-}
-
-async fn generate_new_jwt(
-    username: String,
-    user_id: UserId,
-    jwt_manager: JwtManager,
-    db: Tree,
-) -> bool {
-    match jwt_manager.generate_token(user_id) {
-        Ok(token) => {
-            let jwt = token;
-
-            let credentials = Credentials::from((jwt, user_id));
-
-            let saved = save_credentials(&username, credentials, db);
-
-            if saved.is_err() {
-                println!("❌ Failed to save credentials: {}", saved.err().unwrap());
-                return false;
-            }
-
-            return true;
-        }
-        Err(e) => {
-            println!("❌ Failed to generate JWT token: {}", e);
-            return false;
-        }
-    }
->>>>>>> main
 }

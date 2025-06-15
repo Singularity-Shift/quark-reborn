@@ -1,16 +1,23 @@
 //! Command handlers for quark_bot Telegram bot.
-use crate::utils;
+use crate::{
+    assets::{
+        command_image_collector::CommandImageCollector, handler::handle_file_upload,
+        media_aggregator::MediaGroupAggregator,
+    },
+    credentials::helpers::generate_new_jwt,
+    utils,
+};
 use anyhow::Result as AnyResult;
 use quark_core::{
     ai::{handler::AI, vector_store::list_user_files_with_names},
-    helpers::bot_commands::Command,
+    helpers::{bot_commands::Command, jwt::JwtManager},
     user_conversation::handler::UserConversations,
 };
 use regex;
 use reqwest::Url;
-use sled::Db;
-use std::env;
+use sled::{Db, Tree};
 use std::time::Duration;
+use std::{env, sync::Arc};
 use teloxide::types::{
     ChatAction, InlineKeyboardButton, InlineKeyboardMarkup, InputFile, WebAppInfo,
 };
@@ -349,7 +356,7 @@ pub async fn handle_chat(bot: Bot, msg: Message, ai: AI, db: Db, prompt: String)
             bot.send_message(chat_id, error_message).await?;
         }
     };
-    
+
     Ok(())
 }
 
@@ -500,6 +507,69 @@ pub async fn handle_new_chat(
             .parse_mode(teloxide::types::ParseMode::Html)
             .await?;
         }
+    }
+    Ok(())
+}
+
+pub async fn handle_web_app_data(bot: Bot, msg: Message, tree: Tree) -> AnyResult<()> {
+    let web_app_data = msg.web_app_data().unwrap();
+    let account_address = web_app_data.data.clone();
+
+    let user = msg.from;
+
+    if user.is_none() {
+        bot.send_message(msg.chat.id, "❌ User not found").await?;
+        return Ok(());
+    }
+
+    let user = user.unwrap();
+
+    let username = user.username;
+
+    if username.is_none() {
+        bot.send_message(msg.chat.id, "❌ Username not found, required for login")
+            .await?;
+        return Ok(());
+    }
+
+    let username = username.unwrap();
+
+    let user_id = user.id;
+
+    let jwt_manager = JwtManager::new();
+
+    generate_new_jwt(username, user_id, account_address, jwt_manager, tree).await;
+
+    return Ok(());
+}
+
+pub async fn handle_message(
+    bot: Bot,
+    msg: Message,
+    ai: AI,
+    media_aggregator: Arc<MediaGroupAggregator>,
+    cmd_collector: Arc<CommandImageCollector>,
+    db: Db,
+) -> AnyResult<()> {
+    if msg.media_group_id().is_some() && msg.photo().is_some() {
+        media_aggregator.add_message(msg, ai).await;
+        return Ok(());
+    }
+
+    // Photo-only message (no text/caption) may belong to a pending command
+    if msg.text().is_none() && msg.caption().is_none() && msg.photo().is_some() {
+        cmd_collector.try_attach_photo(msg, ai).await;
+        return Ok(());
+    }
+
+    if msg.caption().is_none()
+        && msg.chat.is_private()
+        && (msg.document().is_some()
+            || msg.photo().is_some()
+            || msg.video().is_some()
+            || msg.audio().is_some())
+    {
+        handle_file_upload(bot, msg, db, ai).await?;
     }
     Ok(())
 }
