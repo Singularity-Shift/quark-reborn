@@ -79,7 +79,6 @@ const LoginPage = () => {
     const resourceAccountAddress = resourceAccountResponse?.[0] as string;
 
     if (sendData.isAvailable()) {
-      console.log("Sending Data");
       sendData(resourceAccountAddress);
     }
 
