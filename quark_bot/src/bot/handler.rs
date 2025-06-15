@@ -1,73 +1,55 @@
 //! Command handlers for quark_bot Telegram bot.
-
-use crate::assets::command_image_collector::CommandImageCollector;
-use crate::credentials::dto::Credentials;
-use crate::credentials::helpers::save_credentials;
 use crate::utils;
 use anyhow::Result as AnyResult;
-use quark_core::helpers::jwt::JwtManager;
 use quark_core::{
     ai::{handler::AI, vector_store::list_user_files_with_names},
     helpers::bot_commands::Command,
     user_conversation::handler::UserConversations,
 };
 use regex;
-use sled::{Db, Tree};
-use std::sync::Arc;
+use reqwest::Url;
+use sled::Db;
+use std::env;
 use std::time::Duration;
 use teloxide::prelude::*;
-use teloxide::types::{ChatAction, InputFile};
+use teloxide::types::{
+    ChatAction, InlineKeyboardButton, InlineKeyboardButtonKind, InlineKeyboardMarkup, InputFile,
+    WebAppInfo,
+};
 use teloxide::{net::Download, utils::command::BotCommands};
 use tokio::fs::File;
 use tokio::time::sleep;
 
-pub async fn handle_login_user(bot: Bot, msg: Message, db: Tree) -> AnyResult<()> {
-    // Ensure this command is used in a private chat (DM)
+pub async fn handle_login_user(bot: Bot, msg: Message) -> AnyResult<()> {
     if !msg.chat.is_private() {
-        bot.send_message(msg.chat.id, "❌ This command can only be used in a private chat with the bot.")
-            .await?;
+        bot.send_message(
+            msg.chat.id,
+            "❌ This command can only be used in a private chat with the bot.",
+        )
+        .await?;
         return Ok(());
     }
-    let user = msg.from.clone();
 
-    if let Some(user) = user {
-        let username = user.username;
+    let app_url = env::var("APP_URL").expect("APP_URL must be set");
+    let url_to_build = format!("{}/login", app_url);
 
-        if username.is_none() {
-            return Err(anyhow::anyhow!("Username not found"));
-        }
+    let url = Url::parse(&url_to_build).expect("Invalid URL");
 
-        let username = username.unwrap();
+    let web_app_info = WebAppInfo { url };
 
-        // Generate JWT token
-        let jwt_manager = JwtManager::new();
-        match jwt_manager.generate_token(user.id) {
-            Ok(token) => {
-                let credentials = Credentials::from((token, user.id));
+    let login_button = vec![vec![InlineKeyboardButton::new(
+        "Login to your quark account",
+        InlineKeyboardButtonKind::WebApp(web_app_info),
+    )]];
 
-                let saved = save_credentials(&username, credentials, db);
+    bot.send_message(
+        msg.chat.id,
+        "Click the button below to login to your quark account",
+    )
+    .reply_markup(InlineKeyboardMarkup::new(login_button))
+    .await?;
 
-                if saved.is_err() {
-                    bot.send_message(msg.chat.id, "❌ Failed to save credentials")
-                        .await?;
-                }
-
-                bot.send_message(
-                    msg.chat.id,
-                    "✅ Successfully logged in! You can now use commands like /c.",
-                )
-                .await?;
-            }
-            Err(e) => {
-                bot.send_message(msg.chat.id, &format!("❌ Login failed: {}", e))
-                    .await?;
-            }
-        }
-    } else {
-        bot.send_message(msg.chat.id, "❌ Unable to identify user for login.")
-            .await?;
-    }
-    Ok(())
+    return Ok(());
 }
 
 pub async fn handle_login_group(bot: Bot, msg: Message) -> AnyResult<()> {
@@ -84,8 +66,11 @@ pub async fn handle_login_group(bot: Bot, msg: Message) -> AnyResult<()> {
     if let Some(uid) = requester_id {
         let is_admin = admins.iter().any(|member| member.user.id == uid);
         if !is_admin {
-            bot.send_message(msg.chat.id, "❌ Only group administrators can use this command.")
-                .await?;
+            bot.send_message(
+                msg.chat.id,
+                "❌ Only group administrators can use this command.",
+            )
+            .await?;
             return Ok(());
         }
     } else {
@@ -96,8 +81,11 @@ pub async fn handle_login_group(bot: Bot, msg: Message) -> AnyResult<()> {
     }
 
     // TODO: implement actual group login flow
-    bot.send_message(msg.chat.id, "👍 Group login acknowledged (feature under development).")
-        .await?;
+    bot.send_message(
+        msg.chat.id,
+        "👍 Group login acknowledged (feature under development).",
+    )
+    .await?;
     Ok(())
 }
 

@@ -14,6 +14,7 @@ tracing-subscriber = "0.3"
 dotenvy = { workspace = true }
 sled = { workspace = true }
 quark_core = { workspace = true }
+reqwest = { workspace = true }
 regex = "1.10.5"
 dashmap = "5.5.3"
 tracing = "0.1.41"
