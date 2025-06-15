@@ -11,7 +11,6 @@ pub async fn auth(msg: Message, db: Tree) -> bool {
     let user = msg.from;
 
     if user.is_none() {
-        println!("❌ User not found");
         return false;
     }
 
@@ -20,7 +19,6 @@ pub async fn auth(msg: Message, db: Tree) -> bool {
     let username = user.username;
 
     if username.is_none() {
-        println!("❌ Username not found");
         return false;
     }
 
@@ -32,20 +30,18 @@ pub async fn auth(msg: Message, db: Tree) -> bool {
         // Initialize JWT manager and validate/update storage
         match jwt_manager.validate_and_update_jwt(credentials.jwt, credentials.user_id) {
             Ok(_updated_storage) => {
-                println!("✅ JWT token validated/generated for user {}", user.id);
                 // Note: The updated storage with the new JWT would need to be
                 // persisted back to the dialogue storage in the calling code
                 return true;
             }
             Err(e) => {
-                println!("❌ Failed to validate/generate JWT: {}", e);
+                log::warn!("AUTH: Failed to validate/generate JWT: {}", e);
             }
         }
 
         return generate_new_jwt(username, user.id, jwt_manager, db).await;
     }
 
-    println!("❌ No credentials found for user {}", username);
     return generate_new_jwt(username, user.id, jwt_manager, db).await;
 }
 
@@ -68,7 +64,6 @@ async fn generate_new_jwt(
                 return false;
             }
 
-            println!("✅ Generated new JWT token for user {}", user_id);
             return true;
         }
         Err(e) => {

@@ -102,7 +102,11 @@ impl AI {
         image_urls.extend(user_uploaded_image_urls.clone());
 
         // Also include any previously generated images that haven't been used yet
-        let cached_images = {
+        // But only for actual chat interactions, not for commands or system operations
+        let cached_images = if input.starts_with('/') {
+            // Skip cached images for commands to avoid state interference
+            Vec::new()
+        } else {
             let cached = user_convos.take_last_image_urls(user_id);
             cached
         };
