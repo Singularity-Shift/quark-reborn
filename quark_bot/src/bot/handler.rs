@@ -1,74 +1,104 @@
 //! Command handlers for quark_bot Telegram bot.
-
-use crate::assets::command_image_collector::CommandImageCollector;
-use crate::credentials::dto::Credentials;
-use crate::credentials::helpers::save_credentials;
-use crate::utils;
+use crate::{
+    assets::{
+        command_image_collector::CommandImageCollector, handler::handle_file_upload,
+        media_aggregator::MediaGroupAggregator,
+    },
+    credentials::helpers::generate_new_jwt,
+    utils,
+};
 use anyhow::Result as AnyResult;
-use quark_core::helpers::jwt::JwtManager;
 use quark_core::{
     ai::{handler::AI, vector_store::list_user_files_with_names},
-    helpers::bot_commands::Command,
+    helpers::{bot_commands::Command, jwt::JwtManager},
     user_conversation::handler::UserConversations,
 };
 use regex;
+use reqwest::Url;
 use sled::{Db, Tree};
-use std::sync::Arc;
 use std::time::Duration;
-use teloxide::prelude::*;
-use teloxide::types::{ChatAction, InputFile};
+use std::{env, sync::Arc};
+use teloxide::types::{
+    ChatAction, InlineKeyboardButton, InlineKeyboardMarkup, InputFile, WebAppInfo,
+};
+use teloxide::types::{KeyboardMarkup, ParseMode};
 use teloxide::{net::Download, utils::command::BotCommands};
+use teloxide::{
+    prelude::*,
+    types::{ButtonRequest, KeyboardButton},
+};
 use tokio::fs::File;
 use tokio::time::sleep;
-use teloxide::types::ParseMode;
 
-pub async fn handle_login_user(bot: Bot, msg: Message, db: Tree) -> AnyResult<()> {
-    // Ensure this command is used in a private chat (DM)
+pub async fn handle_aptos_connect(bot: Bot, msg: Message) -> AnyResult<()> {
     if !msg.chat.is_private() {
-        bot.send_message(msg.chat.id, "❌ This command can only be used in a private chat with the bot.")
+        bot.send_message(
+            msg.chat.id,
+            "❌ This command can only be used in a private chat with the bot.",
+        )
+        .await?;
+    }
+
+    let aptos_connect_url = "https://aptosconnect.app";
+
+    let url = Url::parse(&aptos_connect_url).expect("Invalid URL");
+    let web_app_info = WebAppInfo { url };
+
+    let aptos_connect_button = InlineKeyboardButton::web_app("Open Aptos Connect", web_app_info);
+
+    bot.send_message(
+        msg.chat.id,
+        "Click the button below to login to your quark account",
+    )
+    .reply_markup(InlineKeyboardMarkup::new(vec![vec![aptos_connect_button]]))
+    .await?;
+
+    return Ok(());
+}
+
+pub async fn handle_login_user(bot: Bot, msg: Message) -> AnyResult<()> {
+    if !msg.chat.is_private() {
+        bot.send_message(
+            msg.chat.id,
+            "❌ This command can only be used in a private chat with the bot.",
+        )
+        .await?;
+        return Ok(());
+    }
+
+    let user = msg.from;
+
+    if user.is_none() {
+        bot.send_message(msg.chat.id, "❌ Unable to verify permissions.")
             .await?;
         return Ok(());
     }
-    let user = msg.from.clone();
 
-    if let Some(user) = user {
-        let username = user.username;
+    let user_id = user.unwrap().id;
 
-        if username.is_none() {
-            return Err(anyhow::anyhow!("Username not found"));
-        }
+    let app_url = env::var("APP_URL").expect("APP_URL must be set");
+    let url_to_build = format!("{}/login?userId={}", app_url, user_id);
 
-        let username = username.unwrap();
+    let url = Url::parse(&url_to_build).expect("Invalid URL");
 
-        // Generate JWT token
-        let jwt_manager = JwtManager::new();
-        match jwt_manager.generate_token(user.id) {
-            Ok(token) => {
-                let credentials = Credentials::from((token, user.id));
+    let web_app_info = WebAppInfo { url };
 
-                let saved = save_credentials(&username, credentials, db);
+    let request = ButtonRequest::WebApp(web_app_info);
 
-                if saved.is_err() {
-                    bot.send_message(msg.chat.id, "❌ Failed to save credentials")
-                        .await?;
-                }
+    let login_button = KeyboardButton::new("Login to your Quark account");
 
-                bot.send_message(
-                    msg.chat.id,
-                    "✅ Successfully logged in! You can now use commands like /c.",
-                )
-                .await?;
-            }
-            Err(e) => {
-                bot.send_message(msg.chat.id, &format!("❌ Login failed: {}", e))
-                    .await?;
-            }
-        }
-    } else {
-        bot.send_message(msg.chat.id, "❌ Unable to identify user for login.")
-            .await?;
-    }
-    Ok(())
+    let login_button = login_button.request(request);
+
+    let login_markup = KeyboardMarkup::new(vec![vec![login_button]]);
+
+    bot.send_message(
+        msg.chat.id,
+        "Click the button below to login to your quark account",
+    )
+    .reply_markup(login_markup)
+    .await?;
+
+    return Ok(());
 }
 
 pub async fn handle_login_group(bot: Bot, msg: Message) -> AnyResult<()> {
@@ -85,8 +115,11 @@ pub async fn handle_login_group(bot: Bot, msg: Message) -> AnyResult<()> {
     if let Some(uid) = requester_id {
         let is_admin = admins.iter().any(|member| member.user.id == uid);
         if !is_admin {
-            bot.send_message(msg.chat.id, "❌ Only group administrators can use this command.")
-                .await?;
+            bot.send_message(
+                msg.chat.id,
+                "❌ Only group administrators can use this command.",
+            )
+            .await?;
             return Ok(());
         }
     } else {
@@ -97,8 +130,11 @@ pub async fn handle_login_group(bot: Bot, msg: Message) -> AnyResult<()> {
     }
 
     // TODO: implement actual group login flow
-    bot.send_message(msg.chat.id, "👍 Group login acknowledged (feature under development).")
-        .await?;
+    bot.send_message(
+        msg.chat.id,
+        "👍 Group login acknowledged (feature under development).",
+    )
+    .await?;
     Ok(())
 }
 
@@ -309,7 +345,9 @@ pub async fn handle_chat(bot: Bot, msg: Message, ai: AI, db: Db, prompt: String)
             } else {
                 if !ai_response.text.is_empty() {
                     let formatted = crate::utils::markdown_to_html(&ai_response.text);
-                    bot.send_message(chat_id, formatted).parse_mode(ParseMode::Html).await?;
+                    bot.send_message(chat_id, formatted)
+                        .parse_mode(ParseMode::Html)
+                        .await?;
                 }
             }
         }
@@ -318,7 +356,7 @@ pub async fn handle_chat(bot: Bot, msg: Message, ai: AI, db: Db, prompt: String)
             bot.send_message(chat_id, error_message).await?;
         }
     };
-    
+
     Ok(())
 }
 
@@ -430,7 +468,9 @@ pub async fn handle_grouped_chat(
             } else {
                 if !ai_response.text.is_empty() {
                     let formatted = crate::utils::markdown_to_html(&ai_response.text);
-                    bot.send_message(chat_id, formatted).parse_mode(ParseMode::Html).await?;
+                    bot.send_message(chat_id, formatted)
+                        .parse_mode(ParseMode::Html)
+                        .await?;
                 }
             }
         }
@@ -467,6 +507,69 @@ pub async fn handle_new_chat(
             .parse_mode(teloxide::types::ParseMode::Html)
             .await?;
         }
+    }
+    Ok(())
+}
+
+pub async fn handle_web_app_data(bot: Bot, msg: Message, tree: Tree) -> AnyResult<()> {
+    let web_app_data = msg.web_app_data().unwrap();
+    let account_address = web_app_data.data.clone();
+
+    let user = msg.from;
+
+    if user.is_none() {
+        bot.send_message(msg.chat.id, "❌ User not found").await?;
+        return Ok(());
+    }
+
+    let user = user.unwrap();
+
+    let username = user.username;
+
+    if username.is_none() {
+        bot.send_message(msg.chat.id, "❌ Username not found, required for login")
+            .await?;
+        return Ok(());
+    }
+
+    let username = username.unwrap();
+
+    let user_id = user.id;
+
+    let jwt_manager = JwtManager::new();
+
+    generate_new_jwt(username, user_id, account_address, jwt_manager, tree).await;
+
+    return Ok(());
+}
+
+pub async fn handle_message(
+    bot: Bot,
+    msg: Message,
+    ai: AI,
+    media_aggregator: Arc<MediaGroupAggregator>,
+    cmd_collector: Arc<CommandImageCollector>,
+    db: Db,
+) -> AnyResult<()> {
+    if msg.media_group_id().is_some() && msg.photo().is_some() {
+        media_aggregator.add_message(msg, ai).await;
+        return Ok(());
+    }
+
+    // Photo-only message (no text/caption) may belong to a pending command
+    if msg.text().is_none() && msg.caption().is_none() && msg.photo().is_some() {
+        cmd_collector.try_attach_photo(msg, ai).await;
+        return Ok(());
+    }
+
+    if msg.caption().is_none()
+        && msg.chat.is_private()
+        && (msg.document().is_some()
+            || msg.photo().is_some()
+            || msg.video().is_some()
+            || msg.audio().is_some())
+    {
+        handle_file_upload(bot, msg, db, ai).await?;
     }
     Ok(())
 }
