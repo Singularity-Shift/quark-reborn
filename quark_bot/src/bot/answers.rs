@@ -19,13 +19,12 @@ pub async fn answers(
     msg: Message,
     cmd: Command,
     db: Db,
-    auth_db: Tree,
     user_convos: UserConversations,
     ai: AI,
 ) -> Result<()> {
     match cmd {
         Command::Help => handle_help(bot, msg).await?,
-        Command::LoginUser => handle_login_user(bot, msg, auth_db).await?,
+        Command::LoginUser => handle_login_user(bot, msg).await?,
         Command::LoginGroup => handle_login_group(bot, msg).await?,
         Command::AddFiles => handle_add_files(bot, msg).await?,
         Command::ListFiles => handle_list_files(bot, msg, db, user_convos).await?,

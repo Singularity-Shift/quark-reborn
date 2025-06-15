@@ -1,4 +1,4 @@
-module quark_test::admin {
+module quark_test::admin_v2 {
     use std::signer;
     use std::option::{Self, Option};
 
@@ -10,7 +10,7 @@ module quark_test::admin {
     const ONLY_ADMIN_CAN_CALL: u64 = 1;
     const ONLY_PENDING_ADMIN_CAN_CALL: u64 = 2;
 
-    fun init_admin(sender: &signer) {
+    fun init_module(sender: &signer) {
         let account = signer::address_of(sender);
         move_to(sender, Admin { account, pending_admin: option::none() });
     }
@@ -30,7 +30,7 @@ module quark_test::admin {
         admin.pending_admin = option::none();
     }
 
-
+    #[view]
     public fun is_admin(account: address): bool acquires Admin {
         let admin = borrow_global<Admin>(@quark_test);
         if (account == admin.account) {
@@ -39,6 +39,7 @@ module quark_test::admin {
         false
     }
 
+    #[view]
     public fun is_pending_admin(account: address): bool acquires Admin {
         let admin = borrow_global<Admin>(@quark_test);
         if (option::is_some(&admin.pending_admin)) {
@@ -50,11 +51,13 @@ module quark_test::admin {
         false
     }
 
+    #[view]
     public fun get_pending_admin(): address acquires Admin {
         let admin = borrow_global<Admin>(@quark_test);
         *option::borrow(&admin.pending_admin)
     }
 
+    #[view]
     public fun get_admin(): address acquires Admin {
         let admin = borrow_global<Admin>(@quark_test);
         admin.account
@@ -62,6 +65,6 @@ module quark_test::admin {
 
     #[test_only]
     public fun test_init_admin(sender: &signer) {
-        init_admin(sender);
+        init_module(sender);
     }
 }
