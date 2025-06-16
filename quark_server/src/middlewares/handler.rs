@@ -1,0 +1,33 @@
+use axum::{extract::Request, middleware::Next, response::Response};
+use quark_core::helpers::{dto::UserPayload, jwt::JwtManager};
+
+use crate::error::ErrorServer;
+
+pub async fn auth(mut req: Request, next: Next) -> Result<Response, ErrorServer> {
+    let headers = req.headers();
+    let token = headers.get("Authorization").and_then(|h| h.to_str().ok());
+
+    if let Some(token) = token {
+        let jwt_manager = JwtManager::new();
+        let token = token.replace("Bearer ", "");
+        let claims = jwt_manager
+            .validate_token(&token)
+            .map_err(|e| ErrorServer {
+                message: e.to_string(),
+                status: 401,
+            })?;
+
+        let account_address = claims.account_address;
+
+        let user = UserPayload { account_address };
+
+        req.extensions_mut().insert(user);
+    } else {
+        return Err(ErrorServer {
+            message: "Unauthorized".to_string(),
+            status: 401,
+        });
+    }
+
+    Ok(next.run(req).await)
+}
