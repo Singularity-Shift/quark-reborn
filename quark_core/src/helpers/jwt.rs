@@ -1,16 +1,8 @@
+use super::dto::Claims;
 use chrono::{Duration, Utc};
 use jsonwebtoken::{decode, encode, DecodingKey, EncodingKey, Header, TokenData, Validation};
-use serde::{Deserialize, Serialize};
 use std::env;
 use teloxide::types::UserId;
-
-#[derive(Debug, Serialize, Deserialize)]
-pub struct Claims {
-    pub telegram_id: UserId,
-    pub exp: i64, // Expiration time
-    pub iat: i64, // Issued at
-    pub account_address: String,
-}
 
 pub struct JwtManager {
     secret: String,

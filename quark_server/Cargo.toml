@@ -14,3 +14,9 @@ tokio = { workspace = true }
 utoipa = { workspace = true }
 utoipa-redoc = { workspace = true }
 dotenvy = { workspace = true }
+quark_core = { workspace = true }
+aptos-rust-sdk = { workspace = true }
+aptos-rust-sdk-types = { workspace = true }
+aptos-crypto = { workspace = true }
+aptos-crypto-derive = { workspace = true }
+hex = "0.4.3"
