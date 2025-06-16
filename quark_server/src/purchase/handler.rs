@@ -19,6 +19,16 @@ use quark_core::helpers::dto::{PurchaseRequest, UserPayload};
 
 use crate::{admin::handler::get_admin, error::ErrorServer, state::ServerState};
 
+#[utoipa::path(
+    post,
+    path = "/purchase",
+    request_body = [PurchaseRequest],
+    description = "Purchase",
+    responses(
+        (status = 200, description = "Success"),
+        (status = 400, description = "Bad Request"),
+    )
+)]
 #[axum::debug_handler]
 pub async fn purchase(
     State(server_state): State<Arc<ServerState>>,
