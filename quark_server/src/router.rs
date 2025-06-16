@@ -11,8 +11,12 @@ use utoipa::OpenApi;
 use utoipa_redoc::{Redoc, Servable};
 
 use crate::{
-    docs::dto::ApiDoc, info::handler::info, middlewares::handler::auth,
-    pay_users::handler::pay_users, purchase::handler::purchase, state::ServerState,
+    docs::{dto::ApiDoc, handler::api_docs},
+    info::handler::info,
+    middlewares::handler::auth,
+    pay_users::handler::pay_users,
+    purchase::handler::purchase,
+    state::ServerState,
 };
 
 pub async fn router() -> Router {
@@ -47,9 +51,6 @@ pub async fn router() -> Router {
     let contract_address = AccountAddress::from_str(&contract_address)
         .expect("CONTRACT_ADDRESS is not a valid account address");
 
-    let token_payment_address = AccountAddress::from_str(&token_payment_address)
-        .expect("TOKEN_PAYMENT_ADDRESS is not a valid account address");
-
     let state = Arc::new(ServerState::from((
         node,
         chain_id,
@@ -68,6 +69,7 @@ pub async fn router() -> Router {
         .merge(Redoc::with_url("/redoc", doc))
         .merge(auth_router)
         .route("/", get(info))
+        .route("/docs", get(api_docs))
         .layer(TraceLayer::new_for_http())
         .with_state(state)
 }
