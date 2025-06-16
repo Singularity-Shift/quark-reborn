@@ -1,6 +1,12 @@
+mod admin;
 mod docs;
+mod error;
 mod info;
+mod middlewares;
+mod pay_users;
+mod purchase;
 mod router;
+mod state;
 
 use std::env;
 

@@ -1,10 +1,11 @@
-'use client';
-import { useWallet } from '@aptos-labs/wallet-adapter-react';
-import { AgentRuntime, WalletSigner } from 'move-agent-kit-fullstack';
-import { createContext, useContext, useEffect, useState } from 'react';
-import { PANORA_API_KEY } from '../config/env';
-import { Account, Network } from '@aptos-labs/ts-sdk';
-import { getAptosClient } from '../aptos';
+"use client";
+import { useWallet } from "@aptos-labs/wallet-adapter-react";
+import { AgentRuntime, WalletSigner } from "move-agent-kit-fullstack";
+import { createContext, useContext, useEffect, useState } from "react";
+import { PANORA_API_KEY } from "../config/env";
+import { Account, Network } from "@aptos-labs/ts-sdk";
+import { useChain } from "./ChainProvider";
+import { getAptosClient } from "../aptos";
 
 type Agent = {
   agent: AgentRuntime;
@@ -15,7 +16,7 @@ const AgentContext = createContext<Agent>({} as Agent);
 export const AgentProvider = ({ children }: { children: React.ReactNode }) => {
   const [agent, setAgent] = useState<AgentRuntime>({} as AgentRuntime);
   const wallet = useWallet();
-  const { aptos } = getAptosClient();
+  const { aptos } = useChain();
 
   useEffect(() => {
     if (!aptos) return;
