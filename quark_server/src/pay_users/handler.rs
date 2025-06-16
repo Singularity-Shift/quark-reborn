@@ -19,6 +19,16 @@ use quark_core::helpers::dto::{PayUsersRequest, PayUsersVersion, UserPayload};
 
 use crate::{admin::handler::get_admin, error::ErrorServer, state::ServerState};
 
+#[utoipa::path(
+    post,
+    path = "/pay-users",
+    request_body = [PayUsersRequest],
+    description = "Pay users",
+    responses(
+        (status = 200, description = "Success"),
+        (status = 400, description = "Bad Request"),
+    )
+)]
 #[axum::debug_handler]
 pub async fn pay_users(
     State(server_state): State<Arc<ServerState>>,
