@@ -6,11 +6,11 @@ pub struct ServerState {
     node: AptosFullnodeClient,
     chain_id: ChainId,
     contract_address: AccountAddress,
-    token_payment_address: AccountAddress,
+    token_payment_address: String,
 }
 
-impl From<(AptosFullnodeClient, ChainId, AccountAddress, AccountAddress)> for ServerState {
-    fn from(states: (AptosFullnodeClient, ChainId, AccountAddress, AccountAddress)) -> Self {
+impl From<(AptosFullnodeClient, ChainId, AccountAddress, String)> for ServerState {
+    fn from(states: (AptosFullnodeClient, ChainId, AccountAddress, String)) -> Self {
         let (node, chain_id, contract_address, token_payment_address) = states;
         Self {
             node,
@@ -34,7 +34,7 @@ impl ServerState {
         self.contract_address
     }
 
-    pub fn token_payment_address(&self) -> AccountAddress {
-        self.token_payment_address
+    pub fn token_payment_address(&self) -> String {
+        self.token_payment_address.clone()
     }
 }
