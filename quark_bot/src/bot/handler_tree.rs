@@ -1,3 +1,5 @@
+use crate::ai::handler::AI;
+use crate::user_conversation::handler::UserConversations;
 use anyhow::Result;
 use quark_core::helpers::bot_commands::{Command, QuarkState};
 use teloxide::{
@@ -51,9 +53,10 @@ pub fn handler_tree() -> Handler<'static, DependencyMap, Result<()>, DpHandlerDe
                             |media_aggregator: std::sync::Arc<
                                 crate::assets::media_aggregator::MediaGroupAggregator,
                             >,
-                             ai: quark_core::ai::handler::AI,
-                             msg: Message| async move {
-                                media_aggregator.add_message(msg, ai).await;
+                             ai: AI,
+                             msg: Message,
+                             tree: sled::Tree| async move {
+                                media_aggregator.add_message(msg, ai, tree).await;
                                 Ok(())
                             },
                         ),
@@ -105,8 +108,8 @@ pub fn handler_tree() -> Handler<'static, DependencyMap, Result<()>, DpHandlerDe
             |bot: Bot,
              query: teloxide::types::CallbackQuery,
              db: sled::Db,
-             user_convos: quark_core::user_conversation::handler::UserConversations,
-             ai: quark_core::ai::handler::AI| async move {
+             user_convos: UserConversations,
+             ai: AI| async move {
                 handle_callback_query(bot, query, db, user_convos, ai).await
             },
         ))

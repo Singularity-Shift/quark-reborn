@@ -15,9 +15,9 @@ use axum::{
     extract::{Json, State},
     http::StatusCode,
 };
-use quark_core::helpers::dto::{PayUsersRequest, PayUsersVersion, UserPayload};
 
 use crate::{admin::handler::get_admin, error::ErrorServer, state::ServerState};
+use quark_core::helpers::dto::{PayUsersRequest, PayUsersVersion, UserPayload};
 
 #[utoipa::path(
     post,

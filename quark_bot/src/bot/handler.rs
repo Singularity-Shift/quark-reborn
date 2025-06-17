@@ -4,15 +4,17 @@ use crate::{
         command_image_collector::CommandImageCollector, handler::handle_file_upload,
         media_aggregator::MediaGroupAggregator,
     },
-    credentials::helpers::generate_new_jwt,
     utils,
 };
 use anyhow::Result as AnyResult;
-use quark_core::{
+
+use crate::{
     ai::{handler::AI, vector_store::list_user_files_with_names},
-    helpers::{bot_commands::Command, jwt::JwtManager},
+    credentials::helpers::generate_new_jwt,
     user_conversation::handler::UserConversations,
 };
+
+use quark_core::helpers::{bot_commands::Command, jwt::JwtManager};
 use regex;
 use reqwest::Url;
 use sled::{Db, Tree};
@@ -235,8 +237,25 @@ pub async fn handle_list_files(
     Ok(())
 }
 
-pub async fn handle_chat(bot: Bot, msg: Message, ai: AI, db: Db, prompt: String) -> AnyResult<()> {
-    let user_id = msg.from.as_ref().map(|u| u.id.0).unwrap_or(0) as i64;
+pub async fn handle_chat(
+    bot: Bot,
+    msg: Message,
+    ai: AI,
+    db: Db,
+    tree: Tree,
+    prompt: String,
+) -> AnyResult<()> {
+    let user = msg.from.as_ref();
+
+    if user.is_none() {
+        bot.send_message(msg.chat.id, "❌ User not found").await?;
+        return Ok(());
+    }
+
+    let user = user.unwrap();
+
+    let user_id = user.id;
+
     let chat_id = msg.chat.id;
 
     // --- Extract image URL from reply ---
@@ -320,9 +339,11 @@ pub async fn handle_chat(bot: Bot, msg: Message, ai: AI, db: Db, prompt: String)
 
     let ai_response_result = ai
         .generate_response(
-            user_id,
+            msg,
+            user_id.0 as i64,
             &prompt,
             &db,
+            tree,
             image_url_from_reply,
             user_uploaded_image_urls,
         )
@@ -365,6 +386,7 @@ pub async fn handle_grouped_chat(
     messages: Vec<Message>,
     db: Db,
     ai: AI,
+    tree: Tree,
 ) -> AnyResult<()> {
     // Assumption: all messages have the same chat_id and from user.
     let first_msg = if let Some(msg) = messages.first() {
@@ -373,7 +395,17 @@ pub async fn handle_grouped_chat(
         return Ok(()); // Should not happen
     };
 
-    let user_id = first_msg.from.as_ref().map(|u| u.id.0).unwrap_or(0) as i64;
+    let user = first_msg.from.as_ref();
+
+    if user.is_none() {
+        bot.send_message(first_msg.chat.id, "❌ User not found")
+            .await?;
+        return Ok(());
+    }
+
+    let user = user.unwrap();
+
+    let user_id = user.id;
     let chat_id = first_msg.chat.id;
 
     // Find the caption from any of the messages
@@ -444,9 +476,11 @@ pub async fn handle_grouped_chat(
 
     let ai_response_result = ai
         .generate_response(
-            user_id,
+            first_msg.clone(),
+            user_id.0 as i64,
             caption,
             &db,
+            tree,
             image_url_from_reply,
             user_uploaded_image_urls,
         )
@@ -550,15 +584,16 @@ pub async fn handle_message(
     media_aggregator: Arc<MediaGroupAggregator>,
     cmd_collector: Arc<CommandImageCollector>,
     db: Db,
+    tree: Tree,
 ) -> AnyResult<()> {
     if msg.media_group_id().is_some() && msg.photo().is_some() {
-        media_aggregator.add_message(msg, ai).await;
+        media_aggregator.add_message(msg, ai, tree).await;
         return Ok(());
     }
 
     // Photo-only message (no text/caption) may belong to a pending command
     if msg.text().is_none() && msg.caption().is_none() && msg.photo().is_some() {
-        cmd_collector.try_attach_photo(msg, ai).await;
+        cmd_collector.try_attach_photo(msg, ai, tree).await;
         return Ok(());
     }
 

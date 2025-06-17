@@ -1,5 +1,6 @@
 use axum::{extract::Request, middleware::Next, response::Response};
-use quark_core::helpers::{dto::UserPayload, jwt::JwtManager};
+use quark_core::helpers::dto::UserPayload;
+use quark_core::helpers::jwt::JwtManager;
 
 use crate::error::ErrorServer;
 

@@ -1,8 +1,7 @@
+use crate::credentials::helpers::{generate_new_jwt, get_credentials};
 use quark_core::helpers::jwt::JwtManager;
 use sled::Tree;
 use teloxide::types::Message;
-
-use crate::credentials::helpers::{generate_new_jwt, get_credentials};
 
 pub async fn auth(msg: Message, db: Tree) -> bool {
     let jwt_manager = JwtManager::new();

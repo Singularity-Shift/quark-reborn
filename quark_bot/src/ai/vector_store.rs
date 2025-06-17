@@ -4,7 +4,6 @@ use open_ai_rust_responses_by_sshift::files::FilePurpose;
 use open_ai_rust_responses_by_sshift::vector_stores::{
     AddFileToVectorStoreRequest, CreateVectorStoreRequest,
 };
-use open_ai_rust_responses_by_sshift::Client as OAIClient;
 use sled::Db;
 
 pub async fn upload_files_to_vector_store(
@@ -98,31 +97,6 @@ pub fn list_user_files_with_names(user_id: i64, db: &Db) -> Result<Vec<FileInfo>
     Ok(files)
 }
 
-/// List file IDs only from user's local database (for backward compatibility)
-pub fn list_user_files_local(user_id: i64, db: &Db) -> Result<Vec<String>, anyhow::Error> {
-    let user_convos = UserConversations::new(db)?;
-    let file_ids = user_convos.get_file_ids(user_id);
-    Ok(file_ids)
-}
-
-/// List all files in a vector store
-/// Note: The vector store get() API often returns file_ids: None even when files exist
-/// This is a known OpenAI API behavior - use this function to actually list files
-pub async fn list_vector_store_files(
-    vector_store_id: &str,
-    openai_api_key: &str,
-) -> Result<Vec<String>, anyhow::Error> {
-    let client = OAIClient::new(openai_api_key)?;
-
-    // List files in the vector store using the files API
-    let vector_store = client.vector_stores.get(vector_store_id).await?;
-
-    // If file_ids is available in the vector store response, use it
-    let file_ids = vector_store.file_ids.unwrap_or_else(Vec::new);
-
-    Ok(file_ids)
-}
-
 /// Delete a specific file from a vector store
 /// Note: This only removes the file from the vector store, not from OpenAI's file storage
 /// To completely delete the file, you must also call client.files.delete()
@@ -168,36 +142,4 @@ pub async fn delete_vector_store(user_id: i64, db: &Db, ai: &AI) -> Result<(), a
     }
 
     Ok(())
-}
-
-/// Delete all files from a vector store and optionally delete the files completely
-pub async fn delete_all_files_from_vector_store(
-    vector_store_id: &str,
-    openai_api_key: &str,
-    also_delete_files: bool,
-) -> Result<u32, anyhow::Error> {
-    let client = OAIClient::new(openai_api_key)?;
-    let mut deleted_count = 0;
-
-    // Get vector store and its file IDs
-    let vector_store = client.vector_stores.get(vector_store_id).await?;
-
-    let file_ids = vector_store.file_ids.unwrap_or_else(Vec::new);
-
-    for file_id in file_ids {
-        // Remove from vector store - now returns VectorStoreFileDeleteResponse
-        let _delete_response = client
-            .vector_stores
-            .delete_file(vector_store_id, &file_id)
-            .await?;
-
-        // Optionally delete the file completely from OpenAI storage
-        if also_delete_files {
-            let _deleted = client.files.delete(&file_id).await?;
-        }
-
-        deleted_count += 1;
-    }
-
-    Ok(deleted_count)
 }
