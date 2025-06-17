@@ -1,8 +1,7 @@
 //! Callback query handlers for quark_bot.
 
 use crate::utils;
-use anyhow::Result;
-use quark_core::{
+use crate::{
     ai::{
         handler::AI,
         vector_store::{
@@ -11,6 +10,8 @@ use quark_core::{
     },
     user_conversation::handler::UserConversations,
 };
+use anyhow::Result;
+
 use sled::Db;
 use teloxide::{
     prelude::*,
@@ -26,17 +27,17 @@ pub async fn handle_callback_query(
 ) -> Result<()> {
     if let Some(data) = &query.data {
         let user_id = query.from.id.0 as i64;
-        
+
         if data.starts_with("delete_file:") {
             let file_id = data.strip_prefix("delete_file:").unwrap();
-            
+
             if let Some(vector_store_id) = user_convos.get_vector_store_id(user_id) {
                 match delete_file_from_vector_store(user_id, &db, &vector_store_id, file_id, &ai)
                     .await
                 {
                     Ok(_) => {
                         bot.answer_callback_query(&query.id).await?;
-                        
+
                         match list_user_files_with_names(user_id, &db) {
                             Ok(files) => {
                                 if files.is_empty() {
@@ -86,7 +87,7 @@ pub async fn handle_callback_query(
                                         keyboard_rows.push(vec![clear_all_button]);
                                     }
                                     let keyboard = InlineKeyboardMarkup::new(keyboard_rows);
-                                    
+
                                     if let Some(
                                         teloxide::types::MaybeInaccessibleMessage::Regular(message),
                                     ) = &query.message
@@ -152,6 +153,6 @@ pub async fn handle_callback_query(
             .text("❌ No action specified")
             .await?;
     }
-    
+
     Ok(())
 }

@@ -1,14 +1,20 @@
+mod ai;
 mod assets;
 mod bot;
 mod callbacks;
 mod credentials;
 mod db;
 mod middleware;
+mod panora;
+mod services;
+mod user_conversation;
 mod utils;
 
-use quark_core::ai::gcs::GcsImageUploader;
+use crate::{
+    ai::{gcs::GcsImageUploader, handler::AI},
+    user_conversation::handler::UserConversations,
+};
 use quark_core::helpers::bot_commands::QuarkState;
-use quark_core::{ai::handler::AI, user_conversation::handler::UserConversations};
 use std::env;
 use std::sync::Arc;
 use teloxide::dispatching::dialogue::InMemStorage;
@@ -30,6 +36,7 @@ async fn main() {
     let openai_api_key = env::var("OPENAI_API_KEY").expect("OPENAI_API_KEY not set");
     let gcs_creds = env::var("STORAGE_CREDENTIALS").expect("STORAGE_CREDENTIALS not set");
     let bucket_name = env::var("GCS_BUCKET_NAME").expect("GCS_BUCKET_NAME not set");
+    let aptos_network = env::var("APTOS_NETWORK").expect("APTOS_NETWORK not set");
 
     let media_aggregator = Arc::new(media_aggregator::MediaGroupAggregator::new(
         bot.clone(),
@@ -44,7 +51,7 @@ async fn main() {
         .await
         .expect("Failed to create GCS image uploader");
 
-    let ai = AI::new(openai_api_key, google_cloud);
+    let ai = AI::new(openai_api_key, google_cloud, aptos_network);
 
     let user_convos = UserConversations::new(&db).unwrap();
 

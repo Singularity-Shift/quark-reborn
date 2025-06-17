@@ -1,3 +1,4 @@
+pub mod actions;
 pub mod dto;
 pub mod gcs;
 pub mod handler;
