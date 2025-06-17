@@ -1,6 +1,7 @@
 //! Utility functions for quark_bot.
 
 use regex::Regex;
+use std::collections::HashMap;
 
 /// Get emoji icon based on file extension
 pub fn get_file_icon(filename: &str) -> &'static str {
@@ -56,8 +57,25 @@ pub fn clean_filename(filename: &str) -> String {
 /// This is intentionally simple and avoids escaping edge-cases; it covers the
 /// patterns we expect GPT-generated content to use.
 pub fn markdown_to_html(md: &str) -> String {
-    let mut html = md.to_string();
+    let mut html = teloxide::utils::html::escape(md);
 
+    // --- Step 1: Isolate code blocks to prevent nested parsing ---
+    // We replace code content with a placeholder and process it last to avoid
+    // issues where markdown (like links) inside a code block is processed,
+    // or a link URL containing special characters is broken.
+    let re_code = Regex::new(r"`(.*?)`").unwrap();
+    let mut code_blocks = HashMap::new();
+    let mut counter = 0;
+
+    html = re_code.replace_all(&html, |caps: &regex::Captures| {
+        let placeholder = format!("__QUARK_CODE_{}__", counter);
+        code_blocks.insert(placeholder.clone(), caps[1].to_string());
+        counter += 1;
+        placeholder
+    }).to_string();
+
+    // --- Step 2: Process standard Markdown on the remaining text ---
+    
     // Horizontal rule --- → plain em-dash line (HTML <hr> not allowed by Telegram)
     let re_hr = Regex::new(r"(?m)^---+").unwrap();
     html = re_hr.replace_all(&html, "———").to_string();
@@ -75,6 +93,11 @@ pub fn markdown_to_html(md: &str) -> String {
     // Links [text](url) → <a href="url">text</a>
     let re_link = Regex::new(r"\[(.*?)\]\((.*?)\)").unwrap();
     html = re_link.replace_all(&html, "<a href=\"$2\">$1</a>").to_string();
+
+    // --- Step 3: Restore code blocks wrapped in <code> tags ---
+    for (placeholder, code_content) in code_blocks {
+        html = html.replace(&placeholder, &format!("<code>{}</code>", code_content));
+    }
 
     html
 } 
