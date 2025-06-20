@@ -248,17 +248,7 @@ pub async fn handle_reasoning_chat(
     tree: Tree,
     prompt: String,
 ) -> AnyResult<()> {
-    let user = msg.from.as_ref();
-
-    if user.is_none() {
-        bot.send_message(msg.chat.id, "❌ Unable to verify permissions.")
-            .await?;
-        return Ok(());
-    }
-
-    let user_id = user.unwrap().id.0 as i64;
-
-    // --- Typing Indicator Task ---
+    // --- Start Typing Indicator Immediately ---
     let bot_clone = bot.clone();
     let typing_indicator_handle = tokio::spawn(async move {
         loop {
@@ -272,6 +262,17 @@ pub async fn handle_reasoning_chat(
             sleep(Duration::from_secs(5)).await;
         }
     });
+
+    let user = msg.from.as_ref();
+
+    if user.is_none() {
+        typing_indicator_handle.abort();
+        bot.send_message(msg.chat.id, "❌ Unable to verify permissions.")
+            .await?;
+        return Ok(());
+    }
+
+    let user_id = user.unwrap().id.0 as i64;
 
     // Asynchronously generate the response
     let response_result = ai
@@ -336,9 +337,25 @@ pub async fn handle_chat(
     tree: Tree,
     prompt: String,
 ) -> AnyResult<()> {
+    // --- Start Typing Indicator Immediately ---
+    let bot_clone = bot.clone();
+    let typing_indicator_handle = tokio::spawn(async move {
+        loop {
+            if let Err(e) = bot_clone
+                .send_chat_action(msg.chat.id, ChatAction::Typing)
+                .await
+            {
+                log::warn!("Failed to send typing action: {}", e);
+                break;
+            }
+            sleep(Duration::from_secs(5)).await;
+        }
+    });
+
     let user = msg.from.as_ref();
 
     if user.is_none() {
+        typing_indicator_handle.abort();
         bot.send_message(msg.chat.id, "❌ Unable to verify permissions.")
             .await?;
         return Ok(());
@@ -395,6 +412,7 @@ pub async fn handle_chat(
         Ok(urls) => urls,
         Err(e) => {
             log::error!("Failed to upload user images: {}", e);
+            typing_indicator_handle.abort();
             bot.send_message(
                 msg.chat.id,
                 "Sorry, I couldn't upload your image. Please try again.",
@@ -404,21 +422,6 @@ pub async fn handle_chat(
             return Ok(());
         }
     };
-
-    // --- Typing Indicator Task ---
-    let bot_clone = bot.clone();
-    let typing_indicator_handle = tokio::spawn(async move {
-        loop {
-            if let Err(e) = bot_clone
-                .send_chat_action(msg.chat.id, ChatAction::Typing)
-                .await
-            {
-                log::warn!("Failed to send typing action: {}", e);
-                break;
-            }
-            sleep(Duration::from_secs(5)).await;
-        }
-    });
 
     // Asynchronously generate the response
     let response_result = ai
@@ -485,8 +488,21 @@ pub async fn handle_grouped_chat(
     let user_id = user.unwrap().id.0 as i64;
     let representative_msg = messages.first().unwrap().clone();
 
-    bot.send_chat_action(representative_msg.chat.id, ChatAction::Typing)
-        .await?;
+    // --- Start Typing Indicator Immediately ---
+    let bot_clone = bot.clone();
+    let chat_id = representative_msg.chat.id;
+    let typing_indicator_handle = tokio::spawn(async move {
+        loop {
+            if let Err(e) = bot_clone
+                .send_chat_action(chat_id, ChatAction::Typing)
+                .await
+            {
+                log::warn!("Failed to send typing action: {}", e);
+                break;
+            }
+            sleep(Duration::from_secs(5)).await;
+        }
+    });
 
     // --- Download all user-attached images ---
     let mut user_uploaded_image_paths: Vec<(String, String)> = Vec::new();
@@ -519,6 +535,7 @@ pub async fn handle_grouped_chat(
         Ok(urls) => urls,
         Err(e) => {
             log::error!("Failed to upload user images: {}", e);
+            typing_indicator_handle.abort();
             bot.send_message(
                 representative_msg.chat.id,
                 "Sorry, I couldn't upload your images. Please try again.",
@@ -597,6 +614,8 @@ pub async fn handle_grouped_chat(
             None,
         )
         .await;
+
+    typing_indicator_handle.abort();
 
     match response_result {
         Ok(response) => {
