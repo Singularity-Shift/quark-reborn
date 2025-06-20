@@ -10,7 +10,7 @@ use aptos_rust_sdk::client::config::AptosNetwork;
 use aptos_rust_sdk::client::rest_api::AptosFullnodeClient;
 use aptos_rust_sdk_types::api_types::chain_id::ChainId;
 use base64::{Engine as _, engine::general_purpose};
-use open_ai_rust_responses_by_sshift::types::{Include, InputItem, Response, ResponseItem, Tool, ToolChoice, ReasoningParams};
+use open_ai_rust_responses_by_sshift::types::{Include, InputItem, Response, ResponseItem, Tool, ToolChoice, ReasoningParams, Container};
 use open_ai_rust_responses_by_sshift::{Client as OAIClient, Model, Request};
 use serde_json;
 use sled::{Db, Tree};
@@ -118,6 +118,10 @@ impl AI {
 
         // Enhanced tools: built-in tools + custom function tools
         let mut tools = vec![Tool::image_generation()];
+
+        // Add code interpreter for Python code execution
+        tools.push(Tool::code_interpreter(Some(Container::auto_type())));
+
         if model != Model::O3 {
             tools.push(Tool::web_search_preview());
         }
@@ -294,6 +298,13 @@ impl AI {
                         log::error!("Error decoding base64 image: {}", e);
                     }
                 }
+            }
+            
+            // Handle code interpreter calls
+            if let ResponseItem::CodeInterpreterCall { id, container_id, status } = item {
+                log::info!("Code interpreter executed: ID={}, Container={}, Status={}", id, container_id, status);
+                // The code execution result is already included in the response text
+                // Additional processing could be added here if needed (e.g., file handling)
             }
         }
 
