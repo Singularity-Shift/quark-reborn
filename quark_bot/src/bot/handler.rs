@@ -410,17 +410,17 @@ pub async fn handle_chat(
     // --- Upload user images to GCS ---
     let user_uploaded_image_urls = match ai.upload_user_images(user_uploaded_image_paths).await {
         Ok(urls) => urls,
-        Err(e) => {
-            log::error!("Failed to upload user images: {}", e);
+            Err(e) => {
+                log::error!("Failed to upload user images: {}", e);
             typing_indicator_handle.abort();
-            bot.send_message(
+                bot.send_message(
                 msg.chat.id,
-                "Sorry, I couldn't upload your image. Please try again.",
-            )
-            .await?;
-            // We should probably stop execution here
-            return Ok(());
-        }
+                    "Sorry, I couldn't upload your image. Please try again.",
+                )
+                .await?;
+                // We should probably stop execution here
+                return Ok(());
+            }
     };
 
     // Asynchronously generate the response
@@ -454,7 +454,7 @@ pub async fn handle_chat(
             } else {
                 bot.send_message(msg.chat.id, response.text)
                     .parse_mode(ParseMode::Markdown)
-                    .await?;
+                        .await?;
             }
         }
         Err(e) => {
@@ -481,7 +481,7 @@ pub async fn handle_grouped_chat(
     if user.is_none() {
         if let Some(first_msg) = messages.first() {
             bot.send_message(first_msg.chat.id, "❌ Unable to identify sender.")
-                .await?;
+            .await?;
         }
         return Ok(());
     }
@@ -533,16 +533,16 @@ pub async fn handle_grouped_chat(
     // --- Upload user images to GCS ---
     let mut all_image_urls = match ai.upload_user_images(user_uploaded_image_paths).await {
         Ok(urls) => urls,
-        Err(e) => {
-            log::error!("Failed to upload user images: {}", e);
+            Err(e) => {
+                log::error!("Failed to upload user images: {}", e);
             typing_indicator_handle.abort();
-            bot.send_message(
+                bot.send_message(
                 representative_msg.chat.id,
-                "Sorry, I couldn't upload your images. Please try again.",
-            )
-            .await?;
-            return Ok(());
-        }
+                    "Sorry, I couldn't upload your images. Please try again.",
+                )
+                .await?;
+                return Ok(());
+            }
     };
 
     // Extract all image URLs from the message group (reply or user-uploaded)
@@ -629,7 +629,7 @@ pub async fn handle_grouped_chat(
             } else {
                 bot.send_message(representative_msg.chat.id, response.text)
                     .parse_mode(ParseMode::Markdown)
-                    .await?;
+                        .await?;
             }
         }
         Err(e) => {
