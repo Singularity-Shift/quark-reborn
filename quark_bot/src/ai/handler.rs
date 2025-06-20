@@ -10,8 +10,8 @@ use aptos_rust_sdk::client::config::AptosNetwork;
 use aptos_rust_sdk::client::rest_api::AptosFullnodeClient;
 use aptos_rust_sdk_types::api_types::chain_id::ChainId;
 use base64::{Engine as _, engine::general_purpose};
-use open_ai_rust_responses_by_sshift::types::{Include, ResponseItem, Tool, ToolChoice};
-use open_ai_rust_responses_by_sshift::{Client as OAIClient, Model, Request, Response};
+use open_ai_rust_responses_by_sshift::types::{Include, InputItem, Response, ResponseItem, Tool, ToolChoice, ReasoningParams};
+use open_ai_rust_responses_by_sshift::{Client as OAIClient, Model, Request};
 use serde_json;
 use sled::{Db, Tree};
 use teloxide::types::Message;
@@ -106,6 +106,10 @@ impl AI {
         tree: Tree,
         image_url_from_reply: Option<String>,
         user_uploaded_image_urls: Vec<String>,
+        model: Model,
+        max_tokens: u32,
+        temperature: Option<f32>,
+        reasoning: Option<ReasoningParams>,
     ) -> Result<AIResponse, anyhow::Error> {
         let user_convos = UserConversations::new(db)?;
         let previous_response_id = user_convos.get_response_id(user_id);
@@ -113,24 +117,37 @@ impl AI {
         let vector_store_id = user_convos.get_vector_store_id(user_id);
 
         // Enhanced tools: built-in tools + custom function tools
-        let mut tools = vec![Tool::web_search_preview(), Tool::image_generation()];
+        let mut tools = vec![Tool::image_generation()];
+        if model != Model::O3 {
+            tools.push(Tool::web_search_preview());
+        }
+        
         if let Some(vs_id) = vector_store_id.clone() {
-            tools.push(Tool::file_search(vec![vs_id]));
+            if !vs_id.is_empty() {
+                tools.push(Tool::file_search(vec![vs_id]));
+            }
         }
 
         // Add custom function tools (get_balance, withdraw_funds, etc.)
         tools.extend(get_all_custom_tools());
 
         let mut request_builder = Request::builder()
-            .model(Model::GPT4o)
+            .model(model.clone())
             .instructions(self.system_prompt.clone())
             .tools(tools.clone())
             .tool_choice(ToolChoice::auto())
             .parallel_tool_calls(true) // Enable parallel execution for efficiency
-            .max_output_tokens(1000)
-            .temperature(0.5)
+            .max_output_tokens(max_tokens)
             .user(&format!("user-{}", user_id))
             .store(true);
+
+        if let Some(temp) = temperature {
+            request_builder = request_builder.temperature(temp);
+        }
+
+        if let Some(reasoning_params) = reasoning.clone() {
+            request_builder = request_builder.reasoning(reasoning_params);
+        }
 
         // ---- Attach vision inputs using the SDK helper (0.2.1) ----
         // Collect all image URLs we want GPT-4o to see
@@ -141,13 +158,17 @@ impl AI {
         image_urls.extend(user_uploaded_image_urls.clone());
 
         if !image_urls.is_empty() {
-            // New helper in v0.2.2 supports multiple images in one call
-            request_builder = request_builder.input_image_urls(&image_urls);
-
-            // Include accompanying text (if any) as instructions
-            if !input.trim().is_empty() {
-                request_builder = request_builder.input(input);
+            let mut content = Vec::new();
+            // Add all images to the content block
+            for url in image_urls {
+                content.push(InputItem::content_image(&url));
             }
+            // Add the text prompt to the content block
+            if !input.trim().is_empty() {
+                content.push(InputItem::content_text(input));
+            }
+            // Manually construct the message with multiple content items
+            request_builder = request_builder.input_items(vec![InputItem::message("user", content)]);
         } else {
             // No images ⇒ plain text input as before
             request_builder = request_builder.input(input);
@@ -206,17 +227,25 @@ impl AI {
                 }
 
                 // Submit tool outputs using Responses API pattern (with_function_outputs)
-                let continuation_request = Request::builder()
-                    .model(Model::GPT4o)
+                let mut continuation_builder = Request::builder()
+                    .model(model.clone())
                     .with_function_outputs(current_response.id(), function_outputs)
                     .tools(tools.clone()) // Keep tools available for follow-ups
                     .instructions(self.system_prompt.clone())
                     .parallel_tool_calls(true)
-                    .max_output_tokens(1000)
-                    .temperature(0.5)
+                    .max_output_tokens(max_tokens)
                     .user(&format!("user-{}", user_id))
-                    .store(true)
-                    .build();
+                    .store(true);
+
+                if let Some(temp) = temperature {
+                    continuation_builder = continuation_builder.temperature(temp);
+                }
+                
+                if let Some(reasoning_params) = reasoning.clone() {
+                    continuation_builder = continuation_builder.reasoning(reasoning_params);
+                }
+
+                let continuation_request = continuation_builder.build();
 
                 current_response = self
                     .openai_client
