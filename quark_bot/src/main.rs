@@ -66,6 +66,7 @@ async fn main() {
         BotCommand::new("listfiles", "List files in your vector store (DM only)."),
         BotCommand::new("newchat", "Start a new conversation thread."),
         BotCommand::new("c", "prompt to chat AI with the bot."),
+        BotCommand::new("r", "prompt to chat AI with the bot with reasoning."),
     ];
 
     bot.set_my_commands(commands).await.unwrap();
