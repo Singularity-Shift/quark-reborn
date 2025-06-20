@@ -1,7 +1,7 @@
 //! File upload and processing logic for quark_bot.
 
-use quark_core::ai::handler::AI;
-use quark_core::ai::vector_store::upload_files_to_vector_store;
+use crate::ai::handler::AI;
+use crate::ai::vector_store::upload_files_to_vector_store;
 use sled::Db;
 use std::time::Duration;
 use teloxide::net::Download;

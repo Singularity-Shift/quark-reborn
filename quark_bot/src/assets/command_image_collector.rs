@@ -1,6 +1,6 @@
+use crate::ai::handler::AI;
 use dashmap::DashMap;
-use quark_core::ai::handler::AI;
-use sled::Db;
+use sled::{Db, Tree};
 use std::sync::Arc;
 use std::time::Duration;
 use teloxide::prelude::*;
@@ -35,7 +35,7 @@ impl CommandImageCollector {
     }
 
     /// Entry point for any incoming message that is a `/c` command
-    pub async fn add_command(self: Arc<Self>, ai: AI, msg: Message) {
+    pub async fn add_command(self: Arc<Self>, ai: AI, msg: Message, tree: Tree) {
         // Cancel any existing pending command for this user/chat
         let key = (
             msg.chat.id,
@@ -57,22 +57,22 @@ impl CommandImageCollector {
             },
         );
 
-        self.reset_timer(key, ai, msg);
+        self.reset_timer(key, ai, msg, tree);
     }
 
     /// Entry point for photo-only messages that may belong to a pending command
-    pub async fn try_attach_photo(self: Arc<Self>, msg: Message, ai: AI) {
+    pub async fn try_attach_photo(self: Arc<Self>, msg: Message, ai: AI, tree: Tree) {
         let user_id = msg.from.as_ref().map(|u| u.id.0 as i64).unwrap_or(0);
         let key = (msg.chat.id, user_id);
         if let Some(mut entry) = self.pendings.get_mut(&key) {
             // Attach photo
             entry.extra_photos.push(msg.clone());
             // restart debounce
-            self.reset_timer(key, ai, msg);
+            self.reset_timer(key, ai, msg, tree);
         }
     }
 
-    fn reset_timer(self: &Arc<Self>, key: (ChatId, i64), ai: AI, msg: Message) {
+    fn reset_timer(self: &Arc<Self>, key: (ChatId, i64), ai: AI, msg: Message, tree: Tree) {
         // Abort any existing timer first
         if let Some(mut entry) = self.pendings.get_mut(&key) {
             if let Some(handle) = entry.timer.take() {
@@ -83,7 +83,7 @@ impl CommandImageCollector {
         let collector = Arc::clone(self);
         let handle = tokio::spawn(async move {
             sleep(Duration::from_millis(collector.debounce_ms)).await;
-            collector.finalize(key, ai, msg).await;
+            collector.finalize(key, ai, msg, tree).await;
         });
 
         if let Some(mut entry) = self.pendings.get_mut(&key) {
@@ -91,7 +91,7 @@ impl CommandImageCollector {
         }
     }
 
-    async fn finalize(self: &Arc<Self>, key: (ChatId, i64), ai: AI, msg: Message) {
+    async fn finalize(self: &Arc<Self>, key: (ChatId, i64), ai: AI, msg: Message, tree: Tree) {
         if let Some((_k, pending)) = self.pendings.remove(&key) {
             let mut all_msgs = Vec::new();
             all_msgs.push(pending.first_msg);
@@ -103,14 +103,21 @@ impl CommandImageCollector {
                 // Single message path = existing handle_chat
                 let msg = all_msgs.pop().unwrap();
 
-                if let Err(e) =
-                    handle_chat(self.bot.clone(), msg, ai, self.db.clone(), text.to_string()).await
+                if let Err(e) = handle_chat(
+                    self.bot.clone(),
+                    msg,
+                    ai,
+                    self.db.clone(),
+                    tree,
+                    text.to_string(),
+                )
+                .await
                 {
                     log::error!("Error handling chat: {}", e);
                 }
             } else {
                 if let Err(e) =
-                    handle_grouped_chat(self.bot.clone(), all_msgs, self.db.clone(), ai).await
+                    handle_grouped_chat(self.bot.clone(), all_msgs, self.db.clone(), ai, tree).await
                 {
                     log::error!("Error handling grouped chat (ungrouped images): {}", e);
                 }

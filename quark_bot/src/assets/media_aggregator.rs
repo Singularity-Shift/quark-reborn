@@ -1,7 +1,7 @@
+use crate::ai::handler::AI;
 use crate::bot::handler::handle_grouped_chat;
 use dashmap::DashMap;
-use quark_core::ai::handler::AI;
-use sled::Db;
+use sled::{Db, Tree};
 use std::sync::Arc;
 use std::time::Duration;
 use teloxide::prelude::*;
@@ -23,7 +23,7 @@ impl MediaGroupAggregator {
         }
     }
 
-    pub async fn add_message(self: Arc<Self>, msg: Message, ai: AI) {
+    pub async fn add_message(self: Arc<Self>, msg: Message, ai: AI, tree: Tree) {
         let media_group_id = if let Some(id) = msg.media_group_id() {
             id.to_string()
         } else {
@@ -56,6 +56,7 @@ impl MediaGroupAggregator {
                     messages,
                     aggregator_clone.db.clone(),
                     ai,
+                    tree,
                 )
                 .await
                 {

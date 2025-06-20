@@ -62,17 +62,6 @@ impl UserConversations {
             .and_then(|data| data.vector_store_id)
     }
 
-    pub fn set_wallet_address(&self, user_id: i64, wallet_address: &str) -> sled::Result<()> {
-        let mut data = self.get_user_data(user_id).unwrap_or_default();
-        data.wallet_address = Some(wallet_address.to_string());
-        self.set_user_data(user_id, &data)
-    }
-
-    pub fn get_wallet_address(&self, user_id: i64) -> Option<String> {
-        self.get_user_data(user_id)
-            .and_then(|data| data.wallet_address)
-    }
-
     pub fn add_file(&self, user_id: i64, file_id: &str, filename: &str) -> sled::Result<()> {
         let mut data = self.get_user_data(user_id).unwrap_or_default();
         if !data.files.iter().any(|f| f.id == file_id) {
@@ -88,10 +77,6 @@ impl UserConversations {
         self.get_user_data(user_id)
             .map(|data| data.files)
             .unwrap_or_else(Vec::new)
-    }
-
-    pub fn get_file_ids(&self, user_id: i64) -> Vec<String> {
-        self.get_files(user_id).into_iter().map(|f| f.id).collect()
     }
 
     pub fn remove_file_id(&self, user_id: i64, file_id: &str) -> sled::Result<()> {

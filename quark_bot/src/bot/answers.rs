@@ -1,14 +1,14 @@
+use crate::ai::handler::AI;
+use crate::user_conversation::handler::UserConversations;
 use anyhow::Result;
-use quark_core::ai::handler::AI;
 use quark_core::helpers::bot_commands::Command;
-use quark_core::user_conversation::handler::UserConversations;
-use sled::Db;
+use sled::{Db, Tree};
 use std::sync::Arc;
 use teloxide::{Bot, prelude::*, types::Message};
 
 use super::handler::{
     handle_add_files, handle_chat, handle_help, handle_list_files, handle_login_group,
-    handle_login_user, handle_new_chat,
+    handle_login_user, handle_new_chat, handle_reasoning_chat,
 };
 use crate::assets::command_image_collector::CommandImageCollector;
 use crate::bot::handler::handle_aptos_connect;
@@ -18,6 +18,7 @@ pub async fn answers(
     msg: Message,
     cmd: Command,
     db: Db,
+    tree: Tree,
     user_convos: UserConversations,
     ai: AI,
     cmd_collector: Arc<CommandImageCollector>,
@@ -32,9 +33,16 @@ pub async fn answers(
         Command::NewChat => handle_new_chat(bot, msg, user_convos).await?,
         Command::C(prompt) => {
             if prompt.trim().is_empty() && msg.photo().is_some() {
-                cmd_collector.add_command(ai, msg).await;
+                cmd_collector.add_command(ai, msg, tree).await;
             } else {
-                handle_chat(bot, msg, ai, db, prompt).await?;
+                handle_chat(bot, msg, ai, db, tree, prompt).await?;
+            }
+        }
+        Command::R(prompt) => {
+            if prompt.trim().is_empty() && msg.photo().is_some() {
+                cmd_collector.add_command(ai, msg, tree).await;
+            } else {
+                handle_reasoning_chat(bot, msg, ai, db, tree, prompt).await?;
             }
         }
         Command::PromptExamples => {

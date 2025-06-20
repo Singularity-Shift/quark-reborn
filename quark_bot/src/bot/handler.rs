@@ -4,15 +4,18 @@ use crate::{
         command_image_collector::CommandImageCollector, handler::handle_file_upload,
         media_aggregator::MediaGroupAggregator,
     },
-    credentials::helpers::generate_new_jwt,
+    credentials::dto::CredentialsPayload,
     utils,
 };
 use anyhow::Result as AnyResult;
-use quark_core::{
+
+use crate::{
     ai::{handler::AI, vector_store::list_user_files_with_names},
-    helpers::{bot_commands::Command, jwt::JwtManager},
+    credentials::helpers::generate_new_jwt,
     user_conversation::handler::UserConversations,
 };
+
+use quark_core::helpers::{bot_commands::Command, jwt::JwtManager};
 use regex;
 use reqwest::Url;
 use sled::{Db, Tree};
@@ -29,6 +32,9 @@ use teloxide::{
 };
 use tokio::fs::File;
 use tokio::time::sleep;
+use open_ai_rust_responses_by_sshift::types::{ReasoningParams, SummarySetting};
+use open_ai_rust_responses_by_sshift::types::Effort;
+use open_ai_rust_responses_by_sshift::Model;
 
 pub async fn handle_aptos_connect(bot: Bot, msg: Message) -> AnyResult<()> {
     if !msg.chat.is_private() {
@@ -235,11 +241,130 @@ pub async fn handle_list_files(
     Ok(())
 }
 
-pub async fn handle_chat(bot: Bot, msg: Message, ai: AI, db: Db, prompt: String) -> AnyResult<()> {
-    let user_id = msg.from.as_ref().map(|u| u.id.0).unwrap_or(0) as i64;
-    let chat_id = msg.chat.id;
+pub async fn handle_reasoning_chat(
+    bot: Bot,
+    msg: Message,
+    ai: AI,
+    db: Db,
+    tree: Tree,
+    prompt: String,
+) -> AnyResult<()> {
+    // --- Start Typing Indicator Immediately ---
+    let bot_clone = bot.clone();
+    let typing_indicator_handle = tokio::spawn(async move {
+        loop {
+            if let Err(e) = bot_clone
+                .send_chat_action(msg.chat.id, ChatAction::Typing)
+                .await
+            {
+                log::warn!("Failed to send typing action: {}", e);
+                break;
+            }
+            sleep(Duration::from_secs(5)).await;
+        }
+    });
 
-    // --- Extract image URL from reply ---
+    let user = msg.from.as_ref();
+
+    if user.is_none() {
+        typing_indicator_handle.abort();
+        bot.send_message(msg.chat.id, "❌ Unable to verify permissions.")
+            .await?;
+        return Ok(());
+    }
+
+    let user_id = user.unwrap().id.0 as i64;
+
+    // Asynchronously generate the response
+    let response_result = ai
+        .generate_response(
+            msg.clone(),
+            user_id,
+            &prompt,
+            &db,
+            tree,
+            None,
+            vec![],
+            Model::O3,
+            20000,
+            None,
+            Some(
+                ReasoningParams::new()
+                    .with_effort(Effort::High)
+                    .with_summary(SummarySetting::Detailed),
+            ),
+        )
+        .await;
+
+    typing_indicator_handle.abort();
+
+    match response_result {
+        Ok(response) => {
+            // Check for image data and send as a photo if present
+            if let Some(image_data) = response.image_data {
+                let photo = InputFile::memory(image_data);
+                bot.send_photo(msg.chat.id, photo)
+                    .caption(response.text)
+                    .parse_mode(ParseMode::Markdown)
+                    .await?;
+            } else {
+                let text_to_send = if response.text.is_empty() {
+                    "_(The model processed the request but returned no text.)_".to_string()
+                } else {
+                    response.text
+                };
+                bot.send_message(msg.chat.id, text_to_send)
+                    .parse_mode(ParseMode::Markdown)
+                    .await?;
+            }
+        }
+        Err(e) => {
+            bot.send_message(
+                msg.chat.id,
+                format!("An error occurred while processing your request: {}", e),
+            )
+            .await?;
+        }
+    }
+
+    Ok(())
+}
+
+pub async fn handle_chat(
+    bot: Bot,
+    msg: Message,
+    ai: AI,
+    db: Db,
+    tree: Tree,
+    prompt: String,
+) -> AnyResult<()> {
+    // --- Start Typing Indicator Immediately ---
+    let bot_clone = bot.clone();
+    let typing_indicator_handle = tokio::spawn(async move {
+        loop {
+            if let Err(e) = bot_clone
+                .send_chat_action(msg.chat.id, ChatAction::Typing)
+                .await
+            {
+                log::warn!("Failed to send typing action: {}", e);
+                break;
+            }
+            sleep(Duration::from_secs(5)).await;
+        }
+    });
+
+    let user = msg.from.as_ref();
+
+    if user.is_none() {
+        typing_indicator_handle.abort();
+        bot.send_message(msg.chat.id, "❌ Unable to verify permissions.")
+            .await?;
+        return Ok(());
+    }
+
+    let user_id = user.unwrap().id;
+
+    // --- Vision Support: Check for replied-to images ---
     let mut image_url_from_reply: Option<String> = None;
     if let Some(reply) = msg.reply_to_message() {
         if let Some(from) = reply.from.as_ref() {
@@ -284,27 +409,89 @@ pub async fn handle_chat(bot: Bot, msg: Message, ai: AI, db: Db, prompt: String)
     }
 
     // --- Upload user images to GCS ---
-    let mut user_uploaded_image_urls: Vec<String> = Vec::new();
-    if !user_uploaded_image_paths.is_empty() {
-        match ai.upload_user_images(user_uploaded_image_paths).await {
-            Ok(urls) => {
-                user_uploaded_image_urls = urls;
-            }
+    let user_uploaded_image_urls = match ai.upload_user_images(user_uploaded_image_paths).await {
+        Ok(urls) => urls,
             Err(e) => {
                 log::error!("Failed to upload user images: {}", e);
+            typing_indicator_handle.abort();
                 bot.send_message(
-                    chat_id,
+                msg.chat.id,
                     "Sorry, I couldn't upload your image. Please try again.",
                 )
                 .await?;
                 // We should probably stop execution here
                 return Ok(());
             }
+    };
+
+    // Asynchronously generate the response
+    let response_result = ai
+        .generate_response(
+            msg.clone(),
+            user_id.0 as i64,
+            &prompt,
+            &db,
+            tree,
+            image_url_from_reply,
+            user_uploaded_image_urls,
+            Model::GPT4o,
+            1000,
+            Some(0.5),
+            None,
+        )
+        .await;
+
+    typing_indicator_handle.abort();
+
+    match response_result {
+        Ok(response) => {
+            // Check for image data and send as a photo if present
+            if let Some(image_data) = response.image_data {
+                let photo = InputFile::memory(image_data);
+                bot.send_photo(msg.chat.id, photo)
+                    .caption(response.text)
+                    .parse_mode(ParseMode::Markdown)
+                    .await?;
+            } else {
+                bot.send_message(msg.chat.id, response.text)
+                    .parse_mode(ParseMode::Markdown)
+                        .await?;
+            }
+        }
+        Err(e) => {
+            bot.send_message(
+                msg.chat.id,
+                format!("An error occurred while processing your request: {}", e),
+            )
+            .await?;
         }
     }
 
-    // --- Typing Indicator Task ---
+    Ok(())
+}
+
+pub async fn handle_grouped_chat(
+    bot: Bot,
+    messages: Vec<Message>,
+    db: Db,
+    ai: AI,
+    tree: Tree,
+) -> AnyResult<()> {
+    // Determine the user who initiated the conversation
+    let user = messages.first().and_then(|m| m.from());
+    if user.is_none() {
+        if let Some(first_msg) = messages.first() {
+            bot.send_message(first_msg.chat.id, "❌ Unable to identify sender.")
+            .await?;
+        }
+        return Ok(());
+    }
+    let user_id = user.unwrap().id.0 as i64;
+    let representative_msg = messages.first().unwrap().clone();
+
+    // --- Start Typing Indicator Immediately ---
     let bot_clone = bot.clone();
+    let chat_id = representative_msg.chat.id;
     let typing_indicator_handle = tokio::spawn(async move {
         loop {
             if let Err(e) = bot_clone
@@ -317,67 +504,6 @@ pub async fn handle_chat(bot: Bot, msg: Message, ai: AI, db: Db, prompt: String)
             sleep(Duration::from_secs(5)).await;
         }
     });
-
-    let ai_response_result = ai
-        .generate_response(
-            user_id,
-            &prompt,
-            &db,
-            image_url_from_reply,
-            user_uploaded_image_urls,
-        )
-        .await;
-
-    // Stop the typing indicator task
-    typing_indicator_handle.abort();
-
-    // --- Handle AI Response ---
-    match ai_response_result {
-        Ok(ai_response) => {
-            if let Some(image_bytes) = ai_response.image_data {
-                let photo = InputFile::memory(image_bytes);
-                let mut request = bot.send_photo(chat_id, photo);
-                if !ai_response.text.is_empty() {
-                    let formatted = crate::utils::markdown_to_html(&ai_response.text);
-                    request = request.caption(formatted).parse_mode(ParseMode::Html);
-                }
-                request.await?;
-            } else {
-                if !ai_response.text.is_empty() {
-                    let formatted = crate::utils::markdown_to_html(&ai_response.text);
-                    bot.send_message(chat_id, formatted)
-                        .parse_mode(ParseMode::Html)
-                        .await?;
-                }
-            }
-        }
-        Err(e) => {
-            let error_message = format!("[AI error]: {}", e);
-            bot.send_message(chat_id, error_message).await?;
-        }
-    };
-
-    Ok(())
-}
-
-pub async fn handle_grouped_chat(
-    bot: Bot,
-    messages: Vec<Message>,
-    db: Db,
-    ai: AI,
-) -> AnyResult<()> {
-    // Assumption: all messages have the same chat_id and from user.
-    let first_msg = if let Some(msg) = messages.first() {
-        msg
-    } else {
-        return Ok(()); // Should not happen
-    };
-
-    let user_id = first_msg.from.as_ref().map(|u| u.id.0).unwrap_or(0) as i64;
-    let chat_id = first_msg.chat.id;
-
-    // Find the caption from any of the messages
-    let caption = messages.iter().find_map(|m| m.caption()).unwrap_or("");
 
     // --- Download all user-attached images ---
     let mut user_uploaded_image_paths: Vec<(String, String)> = Vec::new();
@@ -406,79 +532,115 @@ pub async fn handle_grouped_chat(
     }
 
     // --- Upload user images to GCS ---
-    let mut user_uploaded_image_urls: Vec<String> = Vec::new();
-    if !user_uploaded_image_paths.is_empty() {
-        match ai.upload_user_images(user_uploaded_image_paths).await {
-            Ok(urls) => {
-                user_uploaded_image_urls = urls;
-            }
+    let mut all_image_urls = match ai.upload_user_images(user_uploaded_image_paths).await {
+        Ok(urls) => urls,
             Err(e) => {
                 log::error!("Failed to upload user images: {}", e);
+            typing_indicator_handle.abort();
                 bot.send_message(
-                    chat_id,
+                representative_msg.chat.id,
                     "Sorry, I couldn't upload your images. Please try again.",
                 )
                 .await?;
                 return Ok(());
             }
+    };
+
+    // Extract all image URLs from the message group (reply or user-uploaded)
+    let mut combined_text_input = String::new();
+
+    for msg in &messages {
+        // Look for URLs in replies
+        if let Some(reply) = msg.reply_to_message() {
+            if let Some(from) = reply.from.as_ref() {
+                if from.is_bot {
+                    let reply_text = reply.text().or_else(|| reply.caption());
+                    if let Some(text) = reply_text {
+                        // A simple regex to find the GCS URL
+                        if let Ok(re) = regex::Regex::new(
+                            r"https://storage\.googleapis\.com/sshift-gpt-bucket/[^\s]+",
+                        ) {
+                            if let Some(mat) = re.find(text) {
+                                all_image_urls.push(mat.as_str().to_string());
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // Aggregate text from all messages
+        if let Some(text) = msg.text() {
+            if !text.is_empty() {
+                if !combined_text_input.is_empty() {
+                    combined_text_input.push(' ');
+                }
+                combined_text_input.push_str(text);
+            }
+        } else if let Some(caption) = msg.caption() {
+            if !caption.is_empty() {
+                if !combined_text_input.is_empty() {
+                    combined_text_input.push(' ');
+                }
+                combined_text_input.push_str(caption);
+            }
         }
     }
 
-    // No need to check for replies in a media group context.
-    let image_url_from_reply: Option<String> = None;
-
-    // --- Typing Indicator Task ---
-    let bot_clone = bot.clone();
-    let typing_indicator_handle = tokio::spawn(async move {
-        loop {
-            if let Err(e) = bot_clone
-                .send_chat_action(chat_id, ChatAction::Typing)
-                .await
-            {
-                log::warn!("Failed to send typing action: {}", e);
-                break;
-            }
-            sleep(Duration::from_secs(5)).await;
+    // Use the aggregated text as the final input
+    let final_input = if combined_text_input.is_empty() {
+        "Describe the attached images." // Default if no text at all
+    } else {
+        // Clean up command prefix from the combined text if present
+        if let Some(stripped) = combined_text_input.strip_prefix("/c ") {
+            stripped
+        } else {
+            &combined_text_input
         }
-    });
+    };
 
-    let ai_response_result = ai
+    // Asynchronously generate the response
+    let response_result = ai
         .generate_response(
+            representative_msg.clone(),
             user_id,
-            caption,
+            final_input,
             &db,
-            image_url_from_reply,
-            user_uploaded_image_urls,
+            tree,
+            None,
+            all_image_urls,
+            Model::GPT4o,
+            1000,
+            Some(0.5),
+            None,
         )
         .await;
 
     typing_indicator_handle.abort();
 
-    // --- Handle AI Response ---
-    match ai_response_result {
-        Ok(ai_response) => {
-            if let Some(image_bytes) = ai_response.image_data {
-                let photo = InputFile::memory(image_bytes);
-                let mut request = bot.send_photo(chat_id, photo);
-                if !ai_response.text.is_empty() {
-                    let formatted = crate::utils::markdown_to_html(&ai_response.text);
-                    request = request.caption(formatted).parse_mode(ParseMode::Html);
-                }
-                request.await?;
+    match response_result {
+        Ok(response) => {
+            // Check for image data and send as a photo if present
+            if let Some(image_data) = response.image_data {
+                let photo = InputFile::memory(image_data);
+                bot.send_photo(representative_msg.chat.id, photo)
+                    .caption(response.text)
+                    .parse_mode(ParseMode::Markdown)
+                    .await?;
             } else {
-                if !ai_response.text.is_empty() {
-                    let formatted = crate::utils::markdown_to_html(&ai_response.text);
-                    bot.send_message(chat_id, formatted)
-                        .parse_mode(ParseMode::Html)
+                bot.send_message(representative_msg.chat.id, response.text)
+                    .parse_mode(ParseMode::Markdown)
                         .await?;
-                }
             }
         }
         Err(e) => {
-            let error_message = format!("[AI error]: {}", e);
-            bot.send_message(chat_id, error_message).await?;
+            bot.send_message(
+                representative_msg.chat.id,
+                format!("An error occurred while processing your request: {}", e),
+            )
+            .await?;
         }
-    };
+    }
 
     Ok(())
 }
@@ -513,7 +675,17 @@ pub async fn handle_new_chat(
 
 pub async fn handle_web_app_data(bot: Bot, msg: Message, tree: Tree) -> AnyResult<()> {
     let web_app_data = msg.web_app_data().unwrap();
-    let account_address = web_app_data.data.clone();
+    let payload = web_app_data.data.clone();
+
+    let payload = serde_json::from_str::<CredentialsPayload>(&payload);
+
+    if payload.is_err() {
+        bot.send_message(msg.chat.id, "❌ Error parsing payload")
+            .await?;
+        return Ok(());
+    };
+
+    let payload = payload.unwrap();
 
     let user = msg.from;
 
@@ -538,7 +710,15 @@ pub async fn handle_web_app_data(bot: Bot, msg: Message, tree: Tree) -> AnyResul
 
     let jwt_manager = JwtManager::new();
 
-    generate_new_jwt(username, user_id, account_address, jwt_manager, tree).await;
+    generate_new_jwt(
+        username,
+        user_id,
+        payload.account_address,
+        payload.resource_account_address,
+        jwt_manager,
+        tree,
+    )
+    .await;
 
     return Ok(());
 }
@@ -550,15 +730,16 @@ pub async fn handle_message(
     media_aggregator: Arc<MediaGroupAggregator>,
     cmd_collector: Arc<CommandImageCollector>,
     db: Db,
+    tree: Tree,
 ) -> AnyResult<()> {
     if msg.media_group_id().is_some() && msg.photo().is_some() {
-        media_aggregator.add_message(msg, ai).await;
+        media_aggregator.add_message(msg, ai, tree).await;
         return Ok(());
     }
 
     // Photo-only message (no text/caption) may belong to a pending command
     if msg.text().is_none() && msg.caption().is_none() && msg.photo().is_some() {
-        cmd_collector.try_attach_photo(msg, ai).await;
+        cmd_collector.try_attach_photo(msg, ai, tree).await;
         return Ok(());
     }
 
