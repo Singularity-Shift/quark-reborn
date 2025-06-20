@@ -124,7 +124,7 @@ impl AI {
         
         if let Some(vs_id) = vector_store_id.clone() {
             if !vs_id.is_empty() {
-                tools.push(Tool::file_search(vec![vs_id]));
+            tools.push(Tool::file_search(vec![vs_id]));
             }
         }
 
