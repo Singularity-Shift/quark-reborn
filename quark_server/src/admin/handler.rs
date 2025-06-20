@@ -12,9 +12,12 @@ use crate::error::ErrorServer;
 
 pub fn get_admin() -> Result<(AccountAddress, Ed25519PrivateKey), ErrorServer> {
     let seed = env::var("SEED").expect("SEED environment variable not set");
-    let hex_seed = hex::encode(seed.into_bytes());
 
-    let private_key = Ed25519PrivateKey::from_encoded_string(&hex_seed).unwrap();
+    let seed = hex::encode(seed);
+
+    let hex_bytes = hex::decode(&seed).unwrap();
+
+    let private_key = Ed25519PrivateKey::try_from(hex_bytes.as_slice()).unwrap();
 
     let auth_key = AuthenticationKey::ed25519(&Ed25519PublicKey::from(&private_key));
 

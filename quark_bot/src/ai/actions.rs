@@ -4,7 +4,8 @@ use sled::Tree;
 use teloxide::types::Message;
 
 use crate::{
-    credentials::helpers::get_credentials, panora::handler::Panora, services::handler::Services,
+    ai::dto::GetBalanceResponse, credentials::helpers::get_credentials, panora::handler::Panora,
+    services::handler::Services,
 };
 
 /// Execute trending pools fetch from GeckoTerminal
@@ -67,28 +68,41 @@ pub async fn execute_trending_pools(arguments: &serde_json::Value) -> String {
                         }
                     }
                     Err(e) => {
+                        log::error!("Failed to parse trending pools API response: {}", e);
                         format!("❌ Error parsing API response: {}", e)
                     }
                 }
             } else if response.status() == 404 {
+                log::error!("Network '{}' not found in trending pools API", network);
                 format!(
                     "❌ Network '{}' not found. Please check the network name and try again.",
                     network
                 )
             } else if response.status() == 429 {
+                log::error!("Rate limit exceeded for trending pools API");
                 "⚠️ Rate limit exceeded. GeckoTerminal allows 30 requests per minute. Please try again later.".to_string()
             } else {
+                let status = response.status();
+                let error_text = response
+                    .text()
+                    .await
+                    .unwrap_or_else(|_| "Unknown error".to_string());
+                log::error!(
+                    "Trending pools API request failed with status: {} - {}",
+                    status,
+                    error_text
+                );
                 format!(
                     "❌ API request failed with status: {} - {}",
-                    response.status(),
-                    response
-                        .text()
-                        .await
-                        .unwrap_or_else(|_| "Unknown error".to_string())
+                    status, error_text
                 )
             }
         }
         Err(e) => {
+            log::error!(
+                "Network error when calling trending pools GeckoTerminal API: {}",
+                e
+            );
             format!("❌ Network error when calling GeckoTerminal API: {}", e)
         }
     };
@@ -435,7 +449,10 @@ pub async fn execute_search_pools(arguments: &serde_json::Value) -> String {
     // Parse arguments
     let query = match arguments.get("query").and_then(|v| v.as_str()) {
         Some(q) if !q.trim().is_empty() => q,
-        _ => return "❌ Error: 'query' is required for pool search.".to_string(),
+        _ => {
+            log::error!("Pool search called without required query parameter");
+            return "❌ Error: 'query' is required for pool search.".to_string();
+        }
     };
     let network = arguments.get("network").and_then(|v| v.as_str());
     let page = arguments
@@ -479,25 +496,38 @@ pub async fn execute_search_pools(arguments: &serde_json::Value) -> String {
                         }
                     }
                     Err(e) => {
+                        log::error!("Failed to parse search pools API response: {}", e);
                         format!("❌ Error parsing API response: {}", e)
                     }
                 }
             } else if response.status() == 404 {
+                log::error!("No pools found for query '{}' (404 response)", query);
                 format!("❌ No pools found for query '{}'.", query)
             } else if response.status() == 429 {
+                log::error!("Rate limit exceeded for search pools API");
                 "⚠️ Rate limit exceeded. GeckoTerminal allows 30 requests per minute. Please try again later.".to_string()
             } else {
+                let status = response.status();
+                let error_text = response
+                    .text()
+                    .await
+                    .unwrap_or_else(|_| "Unknown error".to_string());
+                log::error!(
+                    "Search pools API request failed with status: {} - {}",
+                    status,
+                    error_text
+                );
                 format!(
                     "❌ API request failed with status: {} - {}",
-                    response.status(),
-                    response
-                        .text()
-                        .await
-                        .unwrap_or_else(|_| "Unknown error".to_string())
+                    status, error_text
                 )
             }
         }
         Err(e) => {
+            log::error!(
+                "Network error when calling search pools GeckoTerminal API: {}",
+                e
+            );
             format!("❌ Network error when calling GeckoTerminal API: {}", e)
         }
     };
@@ -942,7 +972,10 @@ pub async fn execute_get_time(arguments: &serde_json::Value) -> String {
             if response.status().is_success() {
                 match response.json::<serde_json::Value>().await {
                     Ok(data) => format_time_response(&data),
-                    Err(e) => format!("❌ Error parsing time API response: {}", e),
+                    Err(e) => {
+                        log::error!("Failed to parse time API response: {}", e);
+                        format!("❌ Error parsing time API response: {}", e)
+                    }
                 }
             } else {
                 format!(
@@ -951,7 +984,10 @@ pub async fn execute_get_time(arguments: &serde_json::Value) -> String {
                 )
             }
         }
-        Err(e) => format!("❌ Network error when calling WorldTimeAPI: {}", e),
+        Err(e) => {
+            log::error!("Network error when calling WorldTimeAPI: {}", e);
+            format!("❌ Network error when calling WorldTimeAPI: {}", e)
+        }
     }
 }
 
@@ -980,6 +1016,7 @@ fn format_time_response(data: &serde_json::Value) -> String {
         .to_string();
 
     if time_part.is_empty() {
+        log::error!("Could not extract time from WorldTimeAPI response");
         return "❌ Could not extract the time from the API response.".to_string();
     }
 
@@ -1010,7 +1047,10 @@ pub async fn execute_fear_and_greed_index(arguments: &serde_json::Value) -> Stri
             if response.status().is_success() {
                 match response.json::<serde_json::Value>().await {
                     Ok(data) => format_fear_and_greed_response(&data),
-                    Err(e) => format!("❌ Error parsing Fear & Greed API response: {}", e),
+                    Err(e) => {
+                        log::error!("Failed to parse Fear & Greed API response: {}", e);
+                        format!("❌ Error parsing Fear & Greed API response: {}", e)
+                    }
                 }
             } else {
                 format!(
@@ -1019,7 +1059,10 @@ pub async fn execute_fear_and_greed_index(arguments: &serde_json::Value) -> Stri
                 )
             }
         }
-        Err(e) => format!("❌ Network error when calling Fear & Greed API: {}", e),
+        Err(e) => {
+            log::error!("Network error when calling Fear & Greed API: {}", e);
+            format!("❌ Network error when calling Fear & Greed API: {}", e)
+        }
     }
 }
 
@@ -1027,6 +1070,7 @@ pub async fn execute_fear_and_greed_index(arguments: &serde_json::Value) -> Stri
 fn format_fear_and_greed_response(data: &serde_json::Value) -> String {
     if let Some(index_data_array) = data.get("data").and_then(|d| d.as_array()) {
         if index_data_array.is_empty() {
+            log::error!("No Fear & Greed Index data found in API response");
             return "❌ No Fear & Greed Index data could be found.".to_string();
         }
 
@@ -1098,6 +1142,7 @@ fn format_fear_and_greed_response(data: &serde_json::Value) -> String {
             return result;
         }
     } else {
+        log::error!("❌ Could not retrieve Fear & Greed Index data from the API response");
         "❌ Could not retrieve Fear & Greed Index data from the API response.".to_string()
     }
 }
@@ -1112,6 +1157,7 @@ pub async fn execute_pay_users(
     let user = msg.from;
 
     if user.is_none() {
+        log::error!("❌ User not found");
         return "❌ User not found".to_string();
     }
 
@@ -1120,6 +1166,7 @@ pub async fn execute_pay_users(
     let username = user.username;
 
     if username.is_none() {
+        log::error!("❌ Username not found");
         return "❌ Username not found".to_string();
     }
 
@@ -1144,6 +1191,68 @@ pub async fn execute_pay_users(
         .map(|v| v.as_str().unwrap().to_string())
         .collect::<Vec<_>>();
 
+    let is_emojicoin = arguments
+        .get("is_emojicoin")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
+    let is_native = arguments
+        .get("is_native")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
+    let is_meme = arguments
+        .get("is_meme")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
+    let is_bridged = arguments
+        .get("is_bridged")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
+
+    let tokens = panora
+        .get_panora_token_list(is_emojicoin, is_native, is_meme, is_bridged)
+        .await;
+
+    if tokens.is_err() {
+        log::error!(
+            "❌ Error getting tokens: {}",
+            tokens.as_ref().err().unwrap()
+        );
+        return format!("❌ Error getting tokens: {}", tokens.err().unwrap());
+    }
+
+    let tokens = tokens.unwrap();
+
+    let token = tokens
+        .iter()
+        .find(|t| t.panora_symbol == symbol && !t.is_banned);
+
+    if token.is_none() {
+        log::error!("❌ Token not found: {}", symbol);
+        return format!("❌ Token not found: {}", symbol);
+    }
+
+    let token = token.unwrap();
+
+    let version = if token.token_address.as_ref().is_some() {
+        PayUsersVersion::V1
+    } else {
+        PayUsersVersion::V2
+    };
+
+    let token_type = if token.token_address.as_ref().is_some() {
+        token.token_address.as_ref().unwrap().to_string()
+    } else {
+        token.fa_address.clone()
+    };
+
+    // Convert amount to blockchain format using token decimals
+    let decimals = if symbol.to_lowercase() == "apt" || symbol.to_lowercase() == "aptos" {
+        8u8 // APT has 8 decimals
+    } else {
+        token.decimals
+    };
+    let blockchain_amount = (amount as f64 * 10_f64.powi(decimals as i32)) as u64;
+
     let user_addresses = users
         .iter()
         .map(|u| {
@@ -1156,26 +1265,31 @@ pub async fn execute_pay_users(
     let user_credentials = get_credentials(&username, tree.clone());
 
     if user_credentials.is_none() {
+        log::error!("❌ User not found");
         return "❌ User not found".to_string();
     }
 
     let user_credentials = user_credentials.unwrap();
 
-    // let result = services
-    //     .pay_users(
-    //         user_credentials.jwt,
-    //         PayUsersRequest {
-    //             amount,
-    //             users: user_addresses,
-    //             coin_type: token_type.to_string(),
-    //             version,
-    //         },
-    //     )
-    //     .await;
+    let result = services
+        .pay_users(
+            user_credentials.jwt,
+            PayUsersRequest {
+                amount: blockchain_amount,
+                users: user_addresses,
+                coin_type: token_type,
+                version,
+            },
+        )
+        .await;
 
-    // if result.is_err() {
-    //     return format!("❌ Error sending payments: {}", result.err().unwrap());
-    // }
+    if result.is_err() {
+        log::error!(
+            "❌ Error sending payments: {}",
+            result.as_ref().err().unwrap()
+        );
+        return format!("❌ Error sending payments: {}", result.err().unwrap());
+    }
 
     "Payments sent successfully".to_string()
 }
@@ -1184,6 +1298,7 @@ pub async fn execute_get_wallet_address(msg: Message, tree: Tree) -> String {
     let user = msg.from;
 
     if user.is_none() {
+        log::error!("❌ User not found");
         return "❌ User not found".to_string();
     }
 
@@ -1192,6 +1307,7 @@ pub async fn execute_get_wallet_address(msg: Message, tree: Tree) -> String {
     let username = user.username;
 
     if username.is_none() {
+        log::error!("❌ Username not found");
         return "❌ Username not found".to_string();
     }
 
@@ -1200,6 +1316,7 @@ pub async fn execute_get_wallet_address(msg: Message, tree: Tree) -> String {
     let user_credentials = get_credentials(&username, tree.clone());
 
     if user_credentials.is_none() {
+        log::error!("❌ User not found");
         return "❌ User not found".to_string();
     }
 
@@ -1219,11 +1336,6 @@ pub async fn execute_get_balance(
 ) -> String {
     let user = msg.from;
 
-    let asset_type = arguments
-        .get("asset_type")
-        .and_then(|v| v.as_str())
-        .unwrap_or("0x1::aptos_coin::AptosCoin");
-
     if user.is_none() {
         return "❌ User not found".to_string();
     }
@@ -1233,6 +1345,7 @@ pub async fn execute_get_balance(
     let username = user.username;
 
     if username.is_none() {
+        log::error!("❌ Username not found");
         return "❌ Username not found".to_string();
     }
 
@@ -1241,22 +1354,90 @@ pub async fn execute_get_balance(
     let user_credentials = get_credentials(&username, tree.clone());
 
     if user_credentials.is_none() {
+        log::error!("❌ User not found");
         return "❌ User not found".to_string();
     }
+
+    let symbol = arguments
+        .get("symbol")
+        .and_then(|v| v.as_str())
+        .unwrap_or("APT");
+
+    let (token_type, decimals, token_symbol) =
+        if symbol.to_lowercase() == "apt" || symbol.to_lowercase() == "aptos" {
+            (
+                "0x1::aptos_coin::AptosCoin".to_string(),
+                8u8,
+                "APT".to_string(),
+            )
+        } else {
+            let tokens = panora
+                .get_panora_token_list(false, false, false, false)
+                .await;
+
+            if tokens.is_err() {
+                log::error!(
+                    "❌ Error getting tokens: {}",
+                    tokens.as_ref().err().unwrap()
+                );
+                return format!("❌ Error getting tokens: {}", tokens.err().unwrap());
+            }
+
+            let tokens = tokens.unwrap();
+
+            let token = tokens
+                .iter()
+                .find(|t| t.panora_symbol.to_lowercase() == symbol.to_lowercase() && !t.is_banned);
+
+            if token.is_none() {
+                log::error!("❌ Token not found: {}", symbol);
+                return format!("❌ Token not found: {}", symbol);
+            }
+
+            let token = token.unwrap();
+            println!("token: {:?}", token);
+
+            let token_type = if token.token_address.as_ref().is_some() {
+                token.token_address.as_ref().unwrap().to_string()
+            } else {
+                token.fa_address.clone()
+            };
+
+            (token_type, token.decimals, token.symbol.clone())
+        };
 
     let user_credentials = user_credentials.unwrap();
 
     let balance = node
-        .get_account_balance(user_credentials.account_address, asset_type.to_string())
+        .get_account_balance(user_credentials.account_address, token_type.to_string())
         .await;
 
     if balance.is_err() {
+        log::error!(
+            "❌ Error getting balance: {}",
+            balance.as_ref().err().unwrap()
+        );
         return format!("❌ Error getting balance: {}", balance.err().unwrap());
     }
 
-    let balance = balance.unwrap();
+    let raw_balance = balance.unwrap().into_inner();
 
-    println!("Balance: {:?}", balance);
+    let balance_i64 = raw_balance.as_i64();
 
-    format!("Balance: {:?}", balance)
+    if balance_i64.is_none() {
+        log::error!("❌ Balance not found");
+        return "❌ Balance not found".to_string();
+    }
+
+    let raw_balance = balance_i64.unwrap();
+
+    // Convert raw balance to human readable format using decimals
+    let human_balance = raw_balance as f64 / 10_f64.powi(decimals as i32);
+
+    println!(
+        "Raw balance: {}, Human balance: {}",
+        raw_balance, human_balance
+    );
+
+    format!("💰 **Balance**: {:.6} {}", human_balance, token_symbol)
 }

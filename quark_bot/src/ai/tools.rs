@@ -238,7 +238,13 @@ pub async fn execute_custom_tool(
     node: AptosFullnodeClient,
     panora: Panora,
 ) -> String {
-    match tool_name {
+    log::info!(
+        "Executing tool: {} with arguments: {}",
+        tool_name,
+        arguments
+    );
+
+    let result = match tool_name {
         "get_balance" => execute_get_balance(arguments, msg, tree, node, panora).await,
         "get_wallet_address" => execute_get_wallet_address(msg, tree).await,
         "withdraw_funds" => {
@@ -253,6 +259,23 @@ pub async fn execute_custom_tool(
         _ => {
             format!("Error: Unknown custom tool '{}'", tool_name)
         }
+    };
+
+    log::info!(
+        "Tool {} completed with result length: {}",
+        tool_name,
+        result.len()
+    );
+
+    // Ensure we always return a non-empty string
+    if result.trim().is_empty() {
+        log::warn!(
+            "Tool {} returned empty result, providing fallback",
+            tool_name
+        );
+        format!("Tool '{}' executed but returned no output", tool_name)
+    } else {
+        result
     }
 }
 

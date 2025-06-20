@@ -47,13 +47,26 @@ impl Panora {
         let response = self
             .client
             .get(format!("{}/tokenlist", panora_url))
-            .query(&[
-                ("panoraUI", QueryValue::Boolean(false)),
-                ("tags", QueryValue::String(tags.join(","))),
-            ])
+            .query(&[("panoraUI", false)])
+            .query(&[("panoraTags", tags.join(","))])
             .header("x-api-key", panora_api_key)
             .send()
             .await?;
+
+        if response.status() != 200 {
+            let status = response.status();
+            let error_text = response.text().await?;
+            log::error!(
+                "❌ Error getting tokens: status: {}, text: {}",
+                status,
+                error_text
+            );
+            return Err(anyhow::anyhow!(
+                "❌ Error getting tokens: status: {}, text: {}",
+                status,
+                error_text
+            ));
+        }
 
         let body = response.json::<PanoraResponse>().await?;
 
