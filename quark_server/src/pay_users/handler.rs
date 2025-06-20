@@ -2,13 +2,14 @@ use std::{str::FromStr, sync::Arc};
 
 use aptos_crypto::ed25519::Ed25519PublicKey;
 use aptos_rust_sdk_types::api_types::{
+    address::AccountAddress,
     module_id::ModuleId,
     transaction::{
         EntryFunction, GenerateSigningMessage, RawTransaction, SignedTransaction,
         TransactionPayload,
     },
     transaction_authenticator::{AccountAuthenticator, TransactionAuthenticator},
-    type_tag::TypeTag,
+    type_tag::{StructTag, TypeTag},
 };
 use axum::{
     Extension,
@@ -48,47 +49,89 @@ pub async fn pay_users(
         message: e.to_string(),
     })?;
 
-    let account_address = user.account_address;
+    let account_address =
+        AccountAddress::from_str(&user.account_address).map_err(|e| ErrorServer {
+            status: StatusCode::INTERNAL_SERVER_ERROR.into(),
+            message: e.to_string(),
+        })?;
+
     let amount = request.amount;
     let users = request.users;
     let version = request.version;
     let coin_type = request.coin_type;
+    let users = users
+        .iter()
+        .map(|u| {
+            AccountAddress::from_str(u).map_err(|e| ErrorServer {
+                status: StatusCode::INTERNAL_SERVER_ERROR.into(),
+                message: e.to_string(),
+            })
+        })
+        .collect::<Result<Vec<_>, _>>()?;
 
     let payload = match version {
         PayUsersVersion::V1 => {
-            let token_type = TypeTag::from_str(coin_type.as_str()).map_err(|e| ErrorServer {
-                status: StatusCode::INTERNAL_SERVER_ERROR.into(),
-                message: e.to_string(),
-            })?;
+            // Parse coin type string like "0x1::aptos_coin::AptosCoin"
+            let parts: Vec<&str> = coin_type.split("::").collect();
+            if parts.len() != 3 {
+                return Err(ErrorServer {
+                    status: StatusCode::BAD_REQUEST.into(),
+                    message: format!("Invalid coin type format: {}", coin_type),
+                });
+            }
+
+            let address = if parts[0] == "0x1" {
+                AccountAddress::ONE
+            } else {
+                AccountAddress::from_str(parts[0]).map_err(|e| ErrorServer {
+                    status: StatusCode::BAD_REQUEST.into(),
+                    message: format!("Invalid address in coin type: {}", e),
+                })?
+            };
+
+            let module = parts[1].to_string();
+            let name = parts[2].to_string();
+
+            let token_type = TypeTag::Struct(Box::new(StructTag {
+                address,
+                module,
+                name,
+                type_args: vec![],
+            }));
+
+            println!("amount: {:?}", amount);
 
             TransactionPayload::EntryFunction(EntryFunction::new(
-                ModuleId::new(contract_address, "user".to_string()),
+                ModuleId::new(contract_address, "user_v2".to_string()),
                 "pay_to_users_v1".to_string(),
                 vec![token_type],
                 vec![
-                    account_address.into(),
+                    account_address.to_vec(),
                     amount.to_le_bytes().to_vec(),
-                    users
-                        .iter()
-                        .map(|u| u.as_bytes())
-                        .collect::<Vec<_>>()
-                        .concat(),
+                    bcs::to_bytes(&users).map_err(|e| ErrorServer {
+                        status: StatusCode::INTERNAL_SERVER_ERROR.into(),
+                        message: e.to_string(),
+                    })?,
                 ],
             ))
         }
         PayUsersVersion::V2 => TransactionPayload::EntryFunction(EntryFunction::new(
-            ModuleId::new(contract_address, "user".to_string()),
+            ModuleId::new(contract_address, "user_v2".to_string()),
             "pay_to_users_v2".to_string(),
             vec![],
             vec![
-                account_address.into(),
+                account_address.to_vec(),
                 amount.to_le_bytes().to_vec(),
-                coin_type.into(),
-                users
-                    .iter()
-                    .map(|u| u.as_bytes())
-                    .collect::<Vec<_>>()
-                    .concat(),
+                AccountAddress::from_str(&coin_type)
+                    .map_err(|e| ErrorServer {
+                        status: StatusCode::INTERNAL_SERVER_ERROR.into(),
+                        message: e.to_string(),
+                    })?
+                    .to_vec(),
+                bcs::to_bytes(&users).map_err(|e| ErrorServer {
+                    status: StatusCode::INTERNAL_SERVER_ERROR.into(),
+                    message: e.to_string(),
+                })?,
             ],
         )),
     };
@@ -163,7 +206,7 @@ pub async fn pay_users(
     println!("Simulate Transaction: {:?}", simulate_transaction);
 
     let transaction = node
-        .simulate_transaction(SignedTransaction::new(
+        .submit_transaction(SignedTransaction::new(
             raw_transaction,
             TransactionAuthenticator::ed25519(Ed25519PublicKey::from(&signer), signature),
         ))

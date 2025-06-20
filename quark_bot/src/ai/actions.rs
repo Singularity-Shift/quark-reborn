@@ -4,8 +4,7 @@ use sled::Tree;
 use teloxide::types::Message;
 
 use crate::{
-    ai::dto::GetBalanceResponse, credentials::helpers::get_credentials, panora::handler::Panora,
-    services::handler::Services,
+    credentials::helpers::get_credentials, panora::handler::Panora, services::handler::Services,
 };
 
 /// Execute trending pools fetch from GeckoTerminal
@@ -1154,6 +1153,8 @@ pub async fn execute_pay_users(
     tree: Tree,
     panora: Panora,
 ) -> String {
+    let mut version = PayUsersVersion::V1;
+
     let user = msg.from;
 
     if user.is_none() {
@@ -1174,12 +1175,12 @@ pub async fn execute_pay_users(
 
     let amount = arguments
         .get("amount")
-        .and_then(|v| v.as_u64())
-        .unwrap_or(0);
+        .and_then(|v| v.as_f64())
+        .unwrap_or(0.0);
     let symbol = arguments
         .get("symbol")
         .and_then(|v| v.as_str())
-        .unwrap_or("USDC");
+        .unwrap_or("APT");
     let empty_vec = Vec::new();
     let users_array = arguments
         .get("users")
@@ -1208,49 +1209,46 @@ pub async fn execute_pay_users(
         .and_then(|v| v.as_bool())
         .unwrap_or(false);
 
-    let tokens = panora
-        .get_panora_token_list(is_emojicoin, is_native, is_meme, is_bridged)
-        .await;
+    let (token_type, decimals) =
+        if symbol.to_lowercase() == "apt" || symbol.to_lowercase() == "aptos" {
+            version = PayUsersVersion::V1;
+            ("0x1::aptos_coin::AptosCoin".to_string(), 8u8)
+        } else {
+            let tokens = panora
+                .get_panora_token_list(is_emojicoin, is_native, is_meme, is_bridged)
+                .await;
 
-    if tokens.is_err() {
-        log::error!(
-            "❌ Error getting tokens: {}",
-            tokens.as_ref().err().unwrap()
-        );
-        return format!("❌ Error getting tokens: {}", tokens.err().unwrap());
-    }
+            if tokens.is_err() {
+                log::error!(
+                    "❌ Error getting tokens: {}",
+                    tokens.as_ref().err().unwrap()
+                );
+                return format!("❌ Error getting tokens: {}", tokens.err().unwrap());
+            }
 
-    let tokens = tokens.unwrap();
+            let tokens = tokens.unwrap();
 
-    let token = tokens
-        .iter()
-        .find(|t| t.panora_symbol == symbol && !t.is_banned);
+            let token = tokens
+                .iter()
+                .find(|t| t.panora_symbol.to_lowercase() == symbol.to_lowercase() && !t.is_banned);
 
-    if token.is_none() {
-        log::error!("❌ Token not found: {}", symbol);
-        return format!("❌ Token not found: {}", symbol);
-    }
+            if token.is_none() {
+                log::error!("❌ Token not found: {}", symbol);
+                return format!("❌ Token not found: {}", symbol);
+            }
 
-    let token = token.unwrap();
+            let token = token.unwrap();
 
-    let version = if token.token_address.as_ref().is_some() {
-        PayUsersVersion::V1
-    } else {
-        PayUsersVersion::V2
-    };
+            let token_type_result = if token.token_address.as_ref().is_some() {
+                token.token_address.as_ref().unwrap().to_string()
+            } else {
+                token.fa_address.clone()
+            };
 
-    let token_type = if token.token_address.as_ref().is_some() {
-        token.token_address.as_ref().unwrap().to_string()
-    } else {
-        token.fa_address.clone()
-    };
+            (token_type_result, token.decimals)
+        };
 
-    // Convert amount to blockchain format using token decimals
-    let decimals = if symbol.to_lowercase() == "apt" || symbol.to_lowercase() == "aptos" {
-        8u8 // APT has 8 decimals
-    } else {
-        token.decimals
-    };
+    // Convert amount to blockchain format using token decima
     let blockchain_amount = (amount as f64 * 10_f64.powi(decimals as i32)) as u64;
 
     let user_addresses = users
@@ -1258,7 +1256,7 @@ pub async fn execute_pay_users(
         .map(|u| {
             let user_data = get_credentials(u.as_str(), tree.clone()).unwrap();
 
-            user_data.account_address
+            user_data.resource_account_address
         })
         .collect::<Vec<_>>();
 
@@ -1409,7 +1407,10 @@ pub async fn execute_get_balance(
     let user_credentials = user_credentials.unwrap();
 
     let balance = node
-        .get_account_balance(user_credentials.account_address, token_type.to_string())
+        .get_account_balance(
+            user_credentials.resource_account_address,
+            token_type.to_string(),
+        )
         .await;
 
     if balance.is_err() {

@@ -45,6 +45,7 @@ pub async fn auth(msg: Message, db: Tree) -> bool {
             username,
             user.id,
             credentials.account_address,
+            credentials.resource_account_address,
             jwt_manager,
             db,
         )
