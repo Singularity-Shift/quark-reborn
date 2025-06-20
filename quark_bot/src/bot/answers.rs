@@ -8,7 +8,7 @@ use teloxide::{Bot, prelude::*, types::Message};
 
 use super::handler::{
     handle_add_files, handle_chat, handle_help, handle_list_files, handle_login_group,
-    handle_login_user, handle_new_chat,
+    handle_login_user, handle_new_chat, handle_reasoning_chat,
 };
 use crate::assets::command_image_collector::CommandImageCollector;
 use crate::bot::handler::handle_aptos_connect;
@@ -36,6 +36,13 @@ pub async fn answers(
                 cmd_collector.add_command(ai, msg, tree).await;
             } else {
                 handle_chat(bot, msg, ai, db, tree, prompt).await?;
+            }
+        }
+        Command::R(prompt) => {
+            if prompt.trim().is_empty() && msg.photo().is_some() {
+                cmd_collector.add_command(ai, msg, tree).await;
+            } else {
+                handle_reasoning_chat(bot, msg, ai, db, tree, prompt).await?;
             }
         }
         Command::PromptExamples => {

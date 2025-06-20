@@ -81,6 +81,7 @@ pub fn handler_tree() -> Handler<'static, DependencyMap, Result<()>, DpHandlerDe
                             matches!(
                                 cmd,
                                 Command::C(_)
+                                    | Command::R(_)
                                     | Command::AddFiles
                                     | Command::ListFiles
                                     | Command::NewChat
