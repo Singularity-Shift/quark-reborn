@@ -42,8 +42,9 @@ pub struct PayUsersRequest {
 
 impl fmt::Display for Endpoints {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let backend_host = env::var("HOST").expect("HOST environment variable not set");
-        let backend_url = format!("https://{}", backend_host);
+        let backend_host =
+            env::var("BACKEND_URL").expect("BACKEND_URL environment variable not set");
+        let backend_url = backend_host;
 
         match self {
             &Endpoints::PayUsers => write!(f, "{}/pay-users", backend_url),
