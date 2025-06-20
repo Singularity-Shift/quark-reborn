@@ -4,6 +4,7 @@ use crate::{
         command_image_collector::CommandImageCollector, handler::handle_file_upload,
         media_aggregator::MediaGroupAggregator,
     },
+    credentials::dto::CredentialsPayload,
     utils,
 };
 use anyhow::Result as AnyResult;
@@ -674,7 +675,17 @@ pub async fn handle_new_chat(
 
 pub async fn handle_web_app_data(bot: Bot, msg: Message, tree: Tree) -> AnyResult<()> {
     let web_app_data = msg.web_app_data().unwrap();
-    let account_address = web_app_data.data.clone();
+    let payload = web_app_data.data.clone();
+
+    let payload = serde_json::from_str::<CredentialsPayload>(&payload);
+
+    if payload.is_err() {
+        bot.send_message(msg.chat.id, "❌ Error parsing payload")
+            .await?;
+        return Ok(());
+    };
+
+    let payload = payload.unwrap();
 
     let user = msg.from;
 
@@ -699,7 +710,15 @@ pub async fn handle_web_app_data(bot: Bot, msg: Message, tree: Tree) -> AnyResul
 
     let jwt_manager = JwtManager::new();
 
-    generate_new_jwt(username, user_id, account_address, jwt_manager, tree).await;
+    generate_new_jwt(
+        username,
+        user_id,
+        payload.account_address,
+        payload.resource_account_address,
+        jwt_manager,
+        tree,
+    )
+    .await;
 
     return Ok(());
 }

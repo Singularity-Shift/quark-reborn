@@ -1,9 +1,6 @@
 use std::env;
 
-use aptos_crypto::{
-    ValidCryptoMaterialStringExt,
-    ed25519::{Ed25519PrivateKey, Ed25519PublicKey},
-};
+use aptos_crypto::ed25519::{Ed25519PrivateKey, Ed25519PublicKey};
 use aptos_rust_sdk_types::api_types::{
     address::AccountAddress, transaction_authenticator::AuthenticationKey,
 };
@@ -11,11 +8,13 @@ use aptos_rust_sdk_types::api_types::{
 use crate::error::ErrorServer;
 
 pub fn get_admin() -> Result<(AccountAddress, Ed25519PrivateKey), ErrorServer> {
-    let seed = env::var("SEED").expect("SEED environment variable not set");
+    let private_key = env::var("PRIVATE_KEY").expect("PRIVATE_KEY environment variable not set");
+    let private_key = private_key.trim_matches('"');
 
-    let seed = hex::encode(seed);
+    let mut seed = [0u8; 32];
+    let hex_bytes = hex::decode(&private_key).unwrap();
 
-    let hex_bytes = hex::decode(&seed).unwrap();
+    seed[..hex_bytes.len()].copy_from_slice(&hex_bytes);
 
     let private_key = Ed25519PrivateKey::try_from(hex_bytes.as_slice()).unwrap();
 
