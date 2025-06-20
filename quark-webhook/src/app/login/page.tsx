@@ -79,7 +79,12 @@ const LoginPage = () => {
     const resourceAccountAddress = resourceAccountResponse?.[0] as string;
 
     if (sendData.isAvailable()) {
-      sendData(resourceAccountAddress);
+      sendData(
+        JSON.stringify({
+          accountAddress: account?.address.toString(),
+          resourceAccountAddress: resourceAccountAddress,
+        })
+      );
     }
 
     setResourceAccount(resourceAccountAddress);

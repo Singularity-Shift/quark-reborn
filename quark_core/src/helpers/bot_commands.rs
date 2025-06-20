@@ -22,6 +22,8 @@ pub enum Command {
     NewChat,
     #[command(description = "Send a prompt to the bot.")]
     C(String),
+    #[command(description = "Send a prompt to the O3 reasoning model.")]
+    R(String),
     #[command(description = "Show example prompts.")]
     PromptExamples,
 }

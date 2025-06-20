@@ -28,6 +28,7 @@ pub async fn generate_new_jwt(
     username: String,
     user_id: UserId,
     account_address: String,
+    resource_account_address: String,
     jwt_manager: JwtManager,
     db: Tree,
 ) -> bool {
@@ -35,7 +36,8 @@ pub async fn generate_new_jwt(
         Ok(token) => {
             let jwt = token;
 
-            let credentials = Credentials::from((jwt, user_id, account_address));
+            let credentials =
+                Credentials::from((jwt, user_id, account_address, resource_account_address));
 
             let saved = save_credentials(&username, credentials, db);
 
