@@ -40,6 +40,11 @@ pub struct PayUsersRequest {
     pub version: PayUsersVersion,
 }
 
+#[derive(Deserialize, Serialize, Debug, ToSchema)]
+pub struct PayUsersResponse {
+    pub hash: String,
+}
+
 impl fmt::Display for Endpoints {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let backend_host =

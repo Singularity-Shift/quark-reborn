@@ -9,7 +9,7 @@ use aptos_rust_sdk_types::api_types::{
         TransactionPayload,
     },
     transaction_authenticator::{AccountAuthenticator, TransactionAuthenticator},
-    type_tag::{StructTag, TypeTag},
+    type_tag::TypeTag,
 };
 use axum::{
     Extension,
@@ -18,7 +18,7 @@ use axum::{
 };
 
 use crate::{admin::handler::get_admin, error::ErrorServer, state::ServerState};
-use quark_core::helpers::dto::{PayUsersRequest, PayUsersVersion, UserPayload};
+use quark_core::helpers::dto::{PayUsersRequest, PayUsersResponse, PayUsersVersion, UserPayload};
 
 #[utoipa::path(
     post,
@@ -35,7 +35,7 @@ pub async fn pay_users(
     State(server_state): State<Arc<ServerState>>,
     Extension(user): Extension<UserPayload>,
     Json(request): Json<PayUsersRequest>,
-) -> Result<Json<()>, ErrorServer> {
+) -> Result<Json<PayUsersResponse>, ErrorServer> {
     let (admin, signer) = get_admin().map_err(|e| ErrorServer {
         status: StatusCode::INTERNAL_SERVER_ERROR.into(),
         message: e.to_string(),
@@ -71,35 +71,10 @@ pub async fn pay_users(
 
     let payload = match version {
         PayUsersVersion::V1 => {
-            // Parse coin type string like "0x1::aptos_coin::AptosCoin"
-            let parts: Vec<&str> = coin_type.split("::").collect();
-            if parts.len() != 3 {
-                return Err(ErrorServer {
-                    status: StatusCode::BAD_REQUEST.into(),
-                    message: format!("Invalid coin type format: {}", coin_type),
-                });
-            }
-
-            let address = if parts[0] == "0x1" {
-                AccountAddress::ONE
-            } else {
-                AccountAddress::from_str(parts[0]).map_err(|e| ErrorServer {
-                    status: StatusCode::BAD_REQUEST.into(),
-                    message: format!("Invalid address in coin type: {}", e),
-                })?
-            };
-
-            let module = parts[1].to_string();
-            let name = parts[2].to_string();
-
-            let token_type = TypeTag::Struct(Box::new(StructTag {
-                address,
-                module,
-                name,
-                type_args: vec![],
-            }));
-
-            println!("amount: {:?}", amount);
+            let token_type = TypeTag::from_str(&coin_type).map_err(|e| ErrorServer {
+                status: StatusCode::INTERNAL_SERVER_ERROR.into(),
+                message: e.to_string(),
+            })?;
 
             TransactionPayload::EntryFunction(EntryFunction::new(
                 ModuleId::new(contract_address, "user_v2".to_string()),
@@ -214,9 +189,14 @@ pub async fn pay_users(
         .map_err(|e| ErrorServer {
             status: StatusCode::INTERNAL_SERVER_ERROR.into(),
             message: e.to_string(),
+        })?
+        .into_inner();
+
+    let pay_users_response: PayUsersResponse =
+        serde_json::from_value(transaction).map_err(|e| ErrorServer {
+            status: StatusCode::INTERNAL_SERVER_ERROR.into(),
+            message: e.to_string(),
         })?;
 
-    println!("Transaction: {:?}", transaction);
-
-    Ok(Json(()))
+    Ok(Json(pay_users_response))
 }

@@ -1,3 +1,5 @@
+use std::env;
+
 use aptos_rust_sdk::client::rest_api::AptosFullnodeClient;
 use quark_core::helpers::dto::{PayUsersRequest, PayUsersVersion};
 use sled::Tree;
@@ -1289,7 +1291,16 @@ pub async fn execute_pay_users(
         return format!("❌ Error sending payments: {}", result.err().unwrap());
     }
 
-    "Payments sent successfully".to_string()
+    let result = result.unwrap();
+
+    let network = env::var("APTOS_NETWORK")
+        .unwrap_or("mainnet".to_string())
+        .to_lowercase();
+
+    format!(
+        "Payments sent successfully: https://explorer.aptoslabs.com/txn/{}?network={}",
+        result.hash, network
+    )
 }
 
 pub async fn execute_get_wallet_address(msg: Message, tree: Tree) -> String {
