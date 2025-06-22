@@ -170,9 +170,9 @@ impl AI {
 
         if !image_urls.is_empty() {
             let mut content = Vec::new();
-            // Add all images to the content block
+            // Add all images to the content block with detail level 'high'
             for url in image_urls {
-                content.push(InputItem::content_image(&url));
+                content.push(InputItem::content_image_with_detail(&url, "high"));
             }
             // Add the text prompt to the content block
             if !input.trim().is_empty() {
