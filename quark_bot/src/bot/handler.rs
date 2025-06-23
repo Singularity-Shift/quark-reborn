@@ -109,7 +109,7 @@ async fn send_long_message(bot: &Bot, chat_id: ChatId, text: &str) -> AnyResult<
         }
 
         bot.send_message(chat_id, chunk)
-            .parse_mode(ParseMode::MarkdownV2)
+            .parse_mode(ParseMode::Markdown)
             .await?;
     }
 
@@ -257,7 +257,7 @@ pub async fn handle_list_files(
             Ok(files) => {
                 if files.is_empty() {
                     bot.send_message(msg.chat.id, "📁 <b>Your Document Library</b>\n\n<i>No files uploaded yet</i>\n\n💡 Use /add_files to start building your personal AI knowledge base!")
-                        .parse_mode(teloxide::types::ParseMode::Html)
+                        .parse_mode(ParseMode::Html)
                         .await?;
                 } else {
                     let file_list = files
@@ -315,7 +315,7 @@ pub async fn handle_list_files(
         }
     } else {
         bot.send_message(msg.chat.id, "🆕 <b>Welcome to Your Document Library!</b>\n\n<i>No documents uploaded yet</i>\n\n💡 Use /add_files to upload your first files and start building your AI-powered knowledge base!")
-            .parse_mode(teloxide::types::ParseMode::Html)
+            .parse_mode(ParseMode::Html)
             .await?;
     }
     Ok(())
@@ -447,7 +447,7 @@ pub async fn handle_reasoning_chat(
                 let photo = InputFile::memory(image_data);
                 bot.send_photo(msg.chat.id, photo)
                     .caption(response.text)
-                    .parse_mode(ParseMode::MarkdownV2)
+                    .parse_mode(ParseMode::Markdown)
                     .await?;
             } else {
                 let text_to_send = if response.text.is_empty() {
@@ -592,7 +592,7 @@ pub async fn handle_chat(
                 let photo = InputFile::memory(image_data);
                 bot.send_photo(msg.chat.id, photo)
                     .caption(response.text)
-                    .parse_mode(ParseMode::MarkdownV2)
+                    .parse_mode(ParseMode::Markdown)
                     .await?;
             } else if response.tool_calls.is_some()
                 && response
@@ -626,7 +626,7 @@ pub async fn handle_chat(
                     .await?;
             } else {
                 bot.send_message(msg.chat.id, response.text)
-                    .parse_mode(ParseMode::MarkdownV2)
+                    .parse_mode(ParseMode::Markdown)
                     .await?;
             }
         }
@@ -797,11 +797,11 @@ pub async fn handle_grouped_chat(
                 let photo = InputFile::memory(image_data);
                 bot.send_photo(representative_msg.chat.id, photo)
                     .caption(response.text)
-                    .parse_mode(ParseMode::MarkdownV2)
+                    .parse_mode(ParseMode::Markdown)
                     .await?;
             } else {
                 bot.send_message(representative_msg.chat.id, response.text)
-                    .parse_mode(ParseMode::MarkdownV2)
+                    .parse_mode(ParseMode::Markdown)
                     .await?;
             }
         }
@@ -827,7 +827,7 @@ pub async fn handle_new_chat(
     match user_convos.clear_response_id(user_id) {
         Ok(_) => {
             bot.send_message(msg.chat.id, "🆕 <b>New conversation started!</b>\n\n✨ Your previous chat history has been cleared. Your next /chat command will start a fresh conversation thread.\n\n💡 <i>Your uploaded files and settings remain intact</i>")
-                .parse_mode(teloxide::types::ParseMode::Html)
+                .parse_mode(ParseMode::Html)
                 .await?;
         }
         Err(e) => {
@@ -838,7 +838,7 @@ pub async fn handle_new_chat(
                     e
                 ),
             )
-            .parse_mode(teloxide::types::ParseMode::Html)
+            .parse_mode(ParseMode::Html)
             .await?;
         }
     }
