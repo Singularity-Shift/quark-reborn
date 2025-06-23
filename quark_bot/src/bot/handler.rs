@@ -15,7 +15,12 @@ use crate::{
     user_conversation::handler::UserConversations,
 };
 
-use quark_core::helpers::{bot_commands::Command, jwt::JwtManager};
+use open_ai_rust_responses_by_sshift::Model;
+use open_ai_rust_responses_by_sshift::types::Effort;
+use open_ai_rust_responses_by_sshift::types::{ReasoningParams, SummarySetting};
+use quark_core::helpers::{
+    bot_commands::Command, jwt::JwtManager, utils::extract_url_from_markdown,
+};
 use regex;
 use reqwest::Url;
 use sled::{Db, Tree};
@@ -32,9 +37,6 @@ use teloxide::{
 };
 use tokio::fs::File;
 use tokio::time::sleep;
-use open_ai_rust_responses_by_sshift::types::{ReasoningParams, SummarySetting};
-use open_ai_rust_responses_by_sshift::types::Effort;
-use open_ai_rust_responses_by_sshift::Model;
 
 pub async fn handle_aptos_connect(bot: Bot, msg: Message) -> AnyResult<()> {
     if !msg.chat.is_private() {
@@ -305,7 +307,7 @@ pub async fn handle_reasoning_chat(
                 let photo = InputFile::memory(image_data);
                 bot.send_photo(msg.chat.id, photo)
                     .caption(response.text)
-                    .parse_mode(ParseMode::Markdown)
+                    .parse_mode(ParseMode::MarkdownV2)
                     .await?;
             } else {
                 let text_to_send = if response.text.is_empty() {
@@ -314,7 +316,7 @@ pub async fn handle_reasoning_chat(
                     response.text
                 };
                 bot.send_message(msg.chat.id, text_to_send)
-                    .parse_mode(ParseMode::Markdown)
+                    .parse_mode(ParseMode::MarkdownV2)
                     .await?;
             }
         }
@@ -390,7 +392,7 @@ pub async fn handle_chat(
         // Process all photos, not just the last one
         for photo in photos {
             let file_id = &photo.file.id;
-            let file_info = bot.get_file(file_id).await?;
+            let file_info = bot.get_file(file_id.clone()).await?;
             let extension = file_info
                 .path
                 .split('.')
@@ -411,17 +413,17 @@ pub async fn handle_chat(
     // --- Upload user images to GCS ---
     let user_uploaded_image_urls = match ai.upload_user_images(user_uploaded_image_paths).await {
         Ok(urls) => urls,
-            Err(e) => {
-                log::error!("Failed to upload user images: {}", e);
+        Err(e) => {
+            log::error!("Failed to upload user images: {}", e);
             typing_indicator_handle.abort();
-                bot.send_message(
+            bot.send_message(
                 msg.chat.id,
-                    "Sorry, I couldn't upload your image. Please try again.",
-                )
-                .await?;
-                // We should probably stop execution here
-                return Ok(());
-            }
+                "Sorry, I couldn't upload your image. Please try again.",
+            )
+            .await?;
+            // We should probably stop execution here
+            return Ok(());
+        }
     };
 
     // Asynchronously generate the response
@@ -450,12 +452,42 @@ pub async fn handle_chat(
                 let photo = InputFile::memory(image_data);
                 bot.send_photo(msg.chat.id, photo)
                     .caption(response.text)
-                    .parse_mode(ParseMode::Markdown)
+                    .parse_mode(ParseMode::MarkdownV2)
+                    .await?;
+            } else if response.tool_calls.is_some()
+                && response
+                    .tool_calls
+                    .unwrap()
+                    .iter()
+                    .any(|tool_call| tool_call.name == "withdraw_funds")
+            {
+                let url = extract_url_from_markdown(&response.text);
+
+                if url.is_none() {
+                    bot.send_message(msg.chat.id, "❌ Unable to extract URL from response.")
+                        .await?;
+                    return Ok(());
+                }
+
+                let url = url.unwrap();
+
+                let url = Url::parse(&url).expect("Invalid URL");
+
+                let web_app_info = WebAppInfo { url };
+
+                let withdraw_funds_button =
+                    InlineKeyboardButton::web_app("Withdraw Funds", web_app_info);
+
+                let withdraw_funds_markup =
+                    InlineKeyboardMarkup::new(vec![vec![withdraw_funds_button]]);
+
+                bot.send_message(msg.chat.id, "Click the button below to withdraw funds")
+                    .reply_markup(withdraw_funds_markup)
                     .await?;
             } else {
                 bot.send_message(msg.chat.id, response.text)
-                    .parse_mode(ParseMode::Markdown)
-                        .await?;
+                    .parse_mode(ParseMode::MarkdownV2)
+                    .await?;
             }
         }
         Err(e) => {
@@ -478,11 +510,11 @@ pub async fn handle_grouped_chat(
     tree: Tree,
 ) -> AnyResult<()> {
     // Determine the user who initiated the conversation
-    let user = messages.first().and_then(|m| m.from());
+    let user = messages.first().and_then(|m| m.from.clone());
     if user.is_none() {
         if let Some(first_msg) = messages.first() {
             bot.send_message(first_msg.chat.id, "❌ Unable to identify sender.")
-            .await?;
+                .await?;
         }
         return Ok(());
     }
@@ -512,7 +544,7 @@ pub async fn handle_grouped_chat(
             // Process all photos in each message, not just the last one
             for photo in photos {
                 let file_id = &photo.file.id;
-                let file_info = bot.get_file(file_id).await?;
+                let file_info = bot.get_file(file_id.clone()).await?;
                 let extension = file_info
                     .path
                     .split('.')
@@ -534,16 +566,16 @@ pub async fn handle_grouped_chat(
     // --- Upload user images to GCS ---
     let mut all_image_urls = match ai.upload_user_images(user_uploaded_image_paths).await {
         Ok(urls) => urls,
-            Err(e) => {
-                log::error!("Failed to upload user images: {}", e);
+        Err(e) => {
+            log::error!("Failed to upload user images: {}", e);
             typing_indicator_handle.abort();
-                bot.send_message(
+            bot.send_message(
                 representative_msg.chat.id,
-                    "Sorry, I couldn't upload your images. Please try again.",
-                )
-                .await?;
-                return Ok(());
-            }
+                "Sorry, I couldn't upload your images. Please try again.",
+            )
+            .await?;
+            return Ok(());
+        }
     };
 
     // Extract all image URLs from the message group (reply or user-uploaded)
@@ -625,12 +657,12 @@ pub async fn handle_grouped_chat(
                 let photo = InputFile::memory(image_data);
                 bot.send_photo(representative_msg.chat.id, photo)
                     .caption(response.text)
-                    .parse_mode(ParseMode::Markdown)
+                    .parse_mode(ParseMode::MarkdownV2)
                     .await?;
             } else {
                 bot.send_message(representative_msg.chat.id, response.text)
-                    .parse_mode(ParseMode::Markdown)
-                        .await?;
+                    .parse_mode(ParseMode::MarkdownV2)
+                    .await?;
             }
         }
         Err(e) => {

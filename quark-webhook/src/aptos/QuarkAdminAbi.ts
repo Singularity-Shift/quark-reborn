@@ -1,6 +1,6 @@
 export const QuarkAdminAbi = {
   address: "0x2033b72957c2f0b66cf5be479a2aa098d5bf18c36477907eba8be39435f2811",
-  name: "admin_v2",
+  name: "admin_v3",
   friends: [],
   exposed_functions: [
     {

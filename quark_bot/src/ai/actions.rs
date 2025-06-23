@@ -1331,7 +1331,7 @@ pub async fn execute_get_wallet_address(msg: Message, tree: Tree) -> String {
 
     let user_credentials = user_credentials.unwrap();
 
-    let wallet_address = user_credentials.account_address;
+    let wallet_address = user_credentials.resource_account_address;
 
     wallet_address
 }
@@ -1452,4 +1452,115 @@ pub async fn execute_get_balance(
     );
 
     format!("💰 **Balance**: {:.6} {}", human_balance, token_symbol)
+}
+
+pub async fn execute_withdraw_funds(
+    arguments: &serde_json::Value,
+    msg: Message,
+    tree: Tree,
+    node: AptosFullnodeClient,
+    panora: Panora,
+) -> String {
+    let app_url = env::var("APP_URL");
+
+    if app_url.is_err() {
+        return "❌ APP_URL not found".to_string();
+    }
+
+    let app_url = app_url.unwrap();
+
+    let chat = msg.chat;
+
+    if chat.is_group() || chat.is_supergroup() || !chat.is_private() || chat.is_channel() {
+        return "❌ This command is only available in private chats".to_string();
+    }
+
+    let user = msg.from;
+
+    if user.is_none() {
+        return "❌ User not found".to_string();
+    }
+
+    let user = user.unwrap();
+
+    let username = user.username;
+
+    if username.is_none() {
+        return "❌ Username not found".to_string();
+    }
+
+    let username = username.unwrap();
+
+    let user_credentials = get_credentials(&username, tree.clone());
+
+    if user_credentials.is_none() {
+        return "❌ User not found".to_string();
+    }
+
+    let user_credentials = user_credentials.unwrap();
+
+    let symbol = arguments
+        .get("symbol")
+        .and_then(|v| v.as_str())
+        .unwrap_or("APT");
+
+    let amount = arguments
+        .get("amount")
+        .and_then(|v| v.as_f64())
+        .unwrap_or(0.0);
+
+    let tokens = panora
+        .get_panora_token_list(false, false, false, false)
+        .await;
+
+    if tokens.is_err() {
+        return "❌ Error getting token type".to_string();
+    }
+
+    let tokens = tokens.unwrap();
+
+    let token = tokens
+        .iter()
+        .find(|t| t.symbol.to_lowercase() == symbol.to_lowercase());
+
+    if token.is_none() {
+        return "❌ Token not found".to_string();
+    }
+
+    let token = token.unwrap();
+
+    let token_type = if token.token_address.as_ref().is_some() {
+        token.token_address.as_ref().unwrap().to_string()
+    } else {
+        token.fa_address.clone()
+    };
+
+    let balance = node
+        .get_account_balance(
+            user_credentials.resource_account_address,
+            token_type.to_string(),
+        )
+        .await;
+
+    if balance.is_err() {
+        return "❌ Error getting balance".to_string();
+    }
+
+    let balance = balance.unwrap().into_inner();
+
+    let balance_i64 = balance.as_i64();
+
+    if balance_i64.is_none() {
+        return "❌ Balance not found".to_string();
+    }
+
+    let balance_i64 = balance_i64.unwrap();
+
+    if balance_i64 < amount as i64 {
+        return "❌ Insufficient balance".to_string();
+    }
+
+    let url = format!("{}/withdraw?coin={}&amount={}", app_url, symbol, amount);
+
+    url
 }
