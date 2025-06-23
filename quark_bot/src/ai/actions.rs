@@ -960,10 +960,10 @@ pub async fn execute_get_time(arguments: &serde_json::Value) -> String {
         .filter(|s| !s.trim().is_empty())
         .unwrap_or("Europe/London");
 
-    // Use TIME_API_BASE_URL from env if set, otherwise default
+    // Use TIME_API_BASE_URL from env if set, otherwise default to just the base
     let base_url = std::env::var("TIME_API_BASE_URL")
-        .unwrap_or_else(|_| "https://timeapi.io/api/Time/current/zone?timeZone=".to_string());
-    let url = format!("{}{}", base_url, timezone);
+        .unwrap_or_else(|_| "https://timeapi.io/api".to_string());
+    let url = format!("{}/Time/current/zone?timeZone={}", base_url, timezone);
 
     let client = reqwest::Client::new();
     match client
