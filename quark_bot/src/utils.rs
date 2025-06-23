@@ -18,7 +18,7 @@ pub fn get_file_icon(filename: &str) -> &'static str {
         "zip" | "rar" | "7z" => "📦",
         "json" | "xml" | "csv" => "🗂️",
         "py" | "js" | "ts" | "rs" | "cpp" | "java" => "💻",
-        _ => "📎"
+        _ => "📎",
     }
 }
 
@@ -26,7 +26,10 @@ pub fn get_file_icon(filename: &str) -> &'static str {
 pub fn clean_filename(filename: &str) -> String {
     // Remove timestamp prefixes like "1030814179_"
     let cleaned = if let Some(underscore_pos) = filename.find('_') {
-        if filename[..underscore_pos].chars().all(|c| c.is_ascii_digit()) {
+        if filename[..underscore_pos]
+            .chars()
+            .all(|c| c.is_ascii_digit())
+        {
             &filename[underscore_pos + 1..]
         } else {
             filename
@@ -67,24 +70,28 @@ pub fn markdown_to_html(md: &str) -> String {
     let mut code_blocks = HashMap::new();
     let mut counter = 0;
 
-    html = re_code.replace_all(&html, |caps: &regex::Captures| {
-        let placeholder = format!("__QUARK_CODE_{}__", counter);
-        code_blocks.insert(placeholder.clone(), caps[1].to_string());
-        counter += 1;
-        placeholder
-    }).to_string();
+    html = re_code
+        .replace_all(&html, |caps: &regex::Captures| {
+            let placeholder = format!("__QUARK_CODE_{}__", counter);
+            code_blocks.insert(placeholder.clone(), caps[1].to_string());
+            counter += 1;
+            placeholder
+        })
+        .to_string();
 
     // --- Step 2: Process standard Markdown on the remaining text ---
-    
+
     // Horizontal rule --- → plain em-dash line (HTML <hr> not allowed by Telegram)
     let re_hr = Regex::new(r"(?m)^---+").unwrap();
     html = re_hr.replace_all(&html, "———").to_string();
 
     // Headings (#, ##, ###) → <b>…</b>
     let re_h1 = Regex::new(r"(?m)^#{1,3}\s+(.*)").unwrap();
-    html = re_h1.replace_all(&html, |caps: &regex::Captures| {
-        format!("<b>{}</b>", &caps[1])
-    }).to_string();
+    html = re_h1
+        .replace_all(&html, |caps: &regex::Captures| {
+            format!("<b>{}</b>", &caps[1])
+        })
+        .to_string();
 
     // Bold **text** → <b>text</b>
     let re_bold = Regex::new(r"\*\*(.*?)\*\*").unwrap();
@@ -92,7 +99,9 @@ pub fn markdown_to_html(md: &str) -> String {
 
     // Links [text](url) → <a href="url">text</a>
     let re_link = Regex::new(r"\[(.*?)\]\((.*?)\)").unwrap();
-    html = re_link.replace_all(&html, "<a href=\"$2\">$1</a>").to_string();
+    html = re_link
+        .replace_all(&html, "<a href=\"$2\">$1</a>")
+        .to_string();
 
     // --- Step 3: Restore code blocks wrapped in <code> tags ---
     for (placeholder, code_content) in code_blocks {
@@ -100,4 +109,4 @@ pub fn markdown_to_html(md: &str) -> String {
     }
 
     html
-} 
+}
