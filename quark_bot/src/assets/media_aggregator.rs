@@ -47,7 +47,7 @@ impl MediaGroupAggregator {
         // Start a new debounce task.
         let handle = tokio::spawn(async move {
             // Wait for a short period to see if more messages arrive for this group.
-            tokio::time::sleep(Duration::from_millis(500)).await;
+            tokio::time::sleep(Duration::from_millis(2000)).await;
 
             // The timer has elapsed, so we can now process the group.
             if let Some((_, (messages, _))) = aggregator_clone.groups.remove(&media_group_id) {
