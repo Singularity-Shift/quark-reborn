@@ -960,7 +960,7 @@ pub async fn execute_get_time(arguments: &serde_json::Value) -> String {
         .filter(|s| !s.trim().is_empty())
         .unwrap_or("Europe/London");
 
-    let url = format!("http://worldtimeapi.org/api/timezone/{}", timezone);
+    let url = format!("https://timeapi.io/api/Time/current/zone?timeZone={}", timezone);
 
     let client = reqwest::Client::new();
     match client
@@ -972,7 +972,7 @@ pub async fn execute_get_time(arguments: &serde_json::Value) -> String {
         Ok(response) => {
             if response.status().is_success() {
                 match response.json::<serde_json::Value>().await {
-                    Ok(data) => format_time_response(&data),
+                    Ok(data) => format_time_response_timeapi(&data),
                     Err(e) => {
                         log::error!("Failed to parse time API response: {}", e);
                         format!("❌ Error parsing time API response: {}", e)
@@ -986,44 +986,28 @@ pub async fn execute_get_time(arguments: &serde_json::Value) -> String {
             }
         }
         Err(e) => {
-            log::error!("Network error when calling WorldTimeAPI: {}", e);
-            format!("❌ Network error when calling WorldTimeAPI: {}", e)
+            log::error!("Network error when calling timeapi.io: {}", e);
+            format!("❌ Network error when calling timeapi.io: {}", e)
         }
     }
 }
 
-/// Format the time API response into a readable string
-fn format_time_response(data: &serde_json::Value) -> String {
-    let timezone = data
-        .get("timezone")
-        .and_then(|v| v.as_str())
-        .unwrap_or("Unknown");
-    let datetime = data.get("datetime").and_then(|v| v.as_str()).unwrap_or("");
-    let abbreviation = data
-        .get("abbreviation")
-        .and_then(|v| v.as_str())
-        .unwrap_or("");
-    let utc_offset = data
-        .get("utc_offset")
-        .and_then(|v| v.as_str())
-        .unwrap_or("");
+/// Helper for formatting timeapi.io response
+fn format_time_response_timeapi(data: &serde_json::Value) -> String {
+    let timezone = data.get("timeZone").and_then(|v| v.as_str()).unwrap_or("Unknown");
+    let date = data.get("date").and_then(|v| v.as_str()).unwrap_or("");
+    let time = data.get("time").and_then(|v| v.as_str()).unwrap_or("");
+    let day_of_week = data.get("dayOfWeek").and_then(|v| v.as_str()).unwrap_or("");
+    let dst_active = data.get("dstActive").and_then(|v| v.as_bool()).unwrap_or(false);
 
-    // Extract time part by splitting the string, avoids the chrono dependency
-    let time_part = datetime
-        .split('T')
-        .nth(1)
-        .and_then(|s| s.split('.').next())
-        .unwrap_or("")
-        .to_string();
-
-    if time_part.is_empty() {
-        log::error!("Could not extract time from WorldTimeAPI response");
+    if time.is_empty() {
+        log::error!("Could not extract time from timeapi.io response");
         return "❌ Could not extract the time from the API response.".to_string();
     }
 
     format!(
-        "🕰️ The current time in **{}** is **{}** ({} / UTC{}).",
-        timezone, time_part, abbreviation, utc_offset
+        "🕰️ The current time in **{}** is **{}** on **{}** (Date: {}, DST: {}).",
+        timezone, time, day_of_week, date, if dst_active { "active" } else { "inactive" }
     )
 }
 
