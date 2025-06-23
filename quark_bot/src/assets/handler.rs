@@ -22,7 +22,7 @@ pub async fn handle_file_upload(
     // Handle document
     if let Some(document) = msg.document() {
         let file_id = &document.file.id;
-        let file_info = bot.get_file(file_id).await?;
+        let file_info = bot.get_file(file_id.clone()).await?;
         let filename = document
             .file_name
             .clone()
@@ -41,7 +41,7 @@ pub async fn handle_file_upload(
         // Process all photos in the message
         for photo in photos {
             let file_id = &photo.file.id;
-            let file_info = bot.get_file(file_id).await?;
+            let file_info = bot.get_file(file_id.clone()).await?;
             let file_path = format!("/tmp/{}_photo_{}.jpg", user_id, photo.file.id);
             let mut file = File::create(&file_path)
                 .await
@@ -55,7 +55,7 @@ pub async fn handle_file_upload(
     // Handle video
     if let Some(video) = msg.video() {
         let file_id = &video.file.id;
-        let file_info = bot.get_file(file_id).await?;
+        let file_info = bot.get_file(file_id.clone()).await?;
         let filename = video
             .file_name
             .clone()
@@ -72,7 +72,7 @@ pub async fn handle_file_upload(
     // Handle audio
     if let Some(audio) = msg.audio() {
         let file_id = &audio.file.id;
-        let file_info = bot.get_file(file_id).await?;
+        let file_info = bot.get_file(file_id.clone()).await?;
         let filename = audio
             .file_name
             .clone()
