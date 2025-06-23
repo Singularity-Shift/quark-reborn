@@ -124,7 +124,12 @@ impl AI {
         let vector_store_id = user_convos.get_vector_store_id(user_id);
 
         // Enhanced tools: built-in tools + custom function tools
-        let mut tools = vec![Tool::image_generation()];
+        let mut tools = vec![];
+
+        // Add image generation only for non-O-series models (O-series don't support it)
+        if !matches!(model, Model::O3 | Model::O4Mini | Model::O1 | Model::O1Mini | Model::O1Preview) {
+            tools.push(Tool::image_generation());
+        }
 
         // Add code interpreter for Python code execution
         tools.push(Tool::code_interpreter(Some(Container::auto_type())));
