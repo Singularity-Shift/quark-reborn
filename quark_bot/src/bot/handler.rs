@@ -15,7 +15,12 @@ use crate::{
     user_conversation::handler::UserConversations,
 };
 
-use quark_core::helpers::{bot_commands::Command, jwt::JwtManager};
+use open_ai_rust_responses_by_sshift::Model;
+use open_ai_rust_responses_by_sshift::types::Effort;
+use open_ai_rust_responses_by_sshift::types::{ReasoningParams, SummarySetting};
+use quark_core::helpers::{
+    bot_commands::Command, jwt::JwtManager, utils::extract_url_from_markdown,
+};
 use regex;
 use reqwest::Url;
 use sled::{Db, Tree};
@@ -32,9 +37,6 @@ use teloxide::{
 };
 use tokio::fs::File;
 use tokio::time::sleep;
-use open_ai_rust_responses_by_sshift::types::{ReasoningParams, SummarySetting};
-use open_ai_rust_responses_by_sshift::types::Effort;
-use open_ai_rust_responses_by_sshift::Model;
 
 const TELEGRAM_MESSAGE_LIMIT: usize = 4096;
 
@@ -43,10 +45,10 @@ fn split_message(text: &str) -> Vec<String> {
     if text.len() <= TELEGRAM_MESSAGE_LIMIT {
         return vec![text.to_string()];
     }
-    
+
     let mut chunks = Vec::new();
     let mut current_chunk = String::new();
-    
+
     // Split by lines first to avoid breaking in the middle of sentences
     for line in text.lines() {
         // If adding this line would exceed the limit, save current chunk and start new one
@@ -55,12 +57,12 @@ fn split_message(text: &str) -> Vec<String> {
                 chunks.push(current_chunk.trim().to_string());
                 current_chunk.clear();
             }
-            
+
             // If a single line is too long, split it by words
             if line.len() > TELEGRAM_MESSAGE_LIMIT {
                 let words: Vec<&str> = line.split_whitespace().collect();
                 let mut word_chunk = String::new();
-                
+
                 for word in words {
                     if word_chunk.len() + word.len() + 1 > TELEGRAM_MESSAGE_LIMIT {
                         if !word_chunk.is_empty() {
@@ -68,13 +70,13 @@ fn split_message(text: &str) -> Vec<String> {
                             word_chunk.clear();
                         }
                     }
-                    
+
                     if !word_chunk.is_empty() {
                         word_chunk.push(' ');
                     }
                     word_chunk.push_str(word);
                 }
-                
+
                 if !word_chunk.is_empty() {
                     current_chunk = word_chunk;
                 }
@@ -88,29 +90,29 @@ fn split_message(text: &str) -> Vec<String> {
             current_chunk.push_str(line);
         }
     }
-    
+
     if !current_chunk.is_empty() {
         chunks.push(current_chunk.trim().to_string());
     }
-    
+
     chunks
 }
 
 /// Send a potentially long message, splitting it into multiple messages if necessary
 async fn send_long_message(bot: &Bot, chat_id: ChatId, text: &str) -> AnyResult<()> {
     let chunks = split_message(text);
-    
+
     for (i, chunk) in chunks.iter().enumerate() {
         if i > 0 {
             // Small delay between messages to avoid rate limiting
             sleep(Duration::from_millis(100)).await;
         }
-        
+
         bot.send_message(chat_id, chunk)
             .parse_mode(ParseMode::Markdown)
             .await?;
     }
-    
+
     Ok(())
 }
 
@@ -255,7 +257,7 @@ pub async fn handle_list_files(
             Ok(files) => {
                 if files.is_empty() {
                     bot.send_message(msg.chat.id, "📁 <b>Your Document Library</b>\n\n<i>No files uploaded yet</i>\n\n💡 Use /add_files to start building your personal AI knowledge base!")
-                        .parse_mode(teloxide::types::ParseMode::Html)
+                        .parse_mode(ParseMode::Html)
                         .await?;
                 } else {
                     let file_list = files
@@ -313,7 +315,7 @@ pub async fn handle_list_files(
         }
     } else {
         bot.send_message(msg.chat.id, "🆕 <b>Welcome to Your Document Library!</b>\n\n<i>No documents uploaded yet</i>\n\n💡 Use /add_files to upload your first files and start building your AI-powered knowledge base!")
-            .parse_mode(teloxide::types::ParseMode::Html)
+            .parse_mode(ParseMode::Html)
             .await?;
     }
     Ok(())
@@ -379,7 +381,7 @@ pub async fn handle_reasoning_chat(
         // Process all photos, not just the last one
         for photo in photos {
             let file_id = &photo.file.id;
-            let file_info = bot.get_file(file_id).await?;
+            let file_info = bot.get_file(file_id.clone()).await?;
             let extension = file_info
                 .path
                 .split('.')
@@ -439,12 +441,12 @@ pub async fn handle_reasoning_chat(
     match response_result {
         Ok(response) => {
             log::info!("Reasoning response generated successfully");
-            
+
             // Check for image data and send as a photo if present
             if let Some(image_data) = response.image_data {
                 let photo = InputFile::memory(image_data);
                 bot.send_photo(msg.chat.id, photo)
-                    .caption(&response.text)
+                    .caption(response.text)
                     .parse_mode(ParseMode::Markdown)
                     .await?;
             } else {
@@ -459,8 +461,11 @@ pub async fn handle_reasoning_chat(
         }
         Err(e) => {
             log::error!("Error generating reasoning response: {}", e);
-            bot.send_message(msg.chat.id, "Sorry, I encountered an error while processing your reasoning request.")
-                .await?;
+            bot.send_message(
+                msg.chat.id,
+                "Sorry, I encountered an error while processing your reasoning request.",
+            )
+            .await?;
         }
     }
 
@@ -527,7 +532,7 @@ pub async fn handle_chat(
         // Process all photos, not just the last one
         for photo in photos {
             let file_id = &photo.file.id;
-            let file_info = bot.get_file(file_id).await?;
+            let file_info = bot.get_file(file_id.clone()).await?;
             let extension = file_info
                 .path
                 .split('.')
@@ -548,17 +553,17 @@ pub async fn handle_chat(
     // --- Upload user images to GCS ---
     let user_uploaded_image_urls = match ai.upload_user_images(user_uploaded_image_paths).await {
         Ok(urls) => urls,
-            Err(e) => {
-                log::error!("Failed to upload user images: {}", e);
+        Err(e) => {
+            log::error!("Failed to upload user images: {}", e);
             typing_indicator_handle.abort();
-                bot.send_message(
+            bot.send_message(
                 msg.chat.id,
-                    "Sorry, I couldn't upload your image. Please try again.",
-                )
-                .await?;
-                // We should probably stop execution here
-                return Ok(());
-            }
+                "Sorry, I couldn't upload your image. Please try again.",
+            )
+            .await?;
+            // We should probably stop execution here
+            return Ok(());
+        }
     };
 
     // Asynchronously generate the response
@@ -589,10 +594,40 @@ pub async fn handle_chat(
                     .caption(response.text)
                     .parse_mode(ParseMode::Markdown)
                     .await?;
+            } else if response.tool_calls.is_some()
+                && response
+                    .tool_calls
+                    .unwrap()
+                    .iter()
+                    .any(|tool_call| tool_call.name == "withdraw_funds")
+            {
+                let url = extract_url_from_markdown(&response.text);
+
+                if url.is_none() {
+                    bot.send_message(msg.chat.id, "❌ Unable to extract URL from response.")
+                        .await?;
+                    return Ok(());
+                }
+
+                let url = url.unwrap();
+
+                let url = Url::parse(&url).expect("Invalid URL");
+
+                let web_app_info = WebAppInfo { url };
+
+                let withdraw_funds_button =
+                    InlineKeyboardButton::web_app("Withdraw Funds", web_app_info);
+
+                let withdraw_funds_markup =
+                    InlineKeyboardMarkup::new(vec![vec![withdraw_funds_button]]);
+
+                bot.send_message(msg.chat.id, "Click the button below to withdraw funds")
+                    .reply_markup(withdraw_funds_markup)
+                    .await?;
             } else {
                 bot.send_message(msg.chat.id, response.text)
                     .parse_mode(ParseMode::Markdown)
-                        .await?;
+                    .await?;
             }
         }
         Err(e) => {
@@ -615,11 +650,11 @@ pub async fn handle_grouped_chat(
     tree: Tree,
 ) -> AnyResult<()> {
     // Determine the user who initiated the conversation
-    let user = messages.first().and_then(|m| m.from());
+    let user = messages.first().and_then(|m| m.from.clone());
     if user.is_none() {
         if let Some(first_msg) = messages.first() {
             bot.send_message(first_msg.chat.id, "❌ Unable to identify sender.")
-            .await?;
+                .await?;
         }
         return Ok(());
     }
@@ -649,7 +684,7 @@ pub async fn handle_grouped_chat(
             // Process all photos in each message, not just the last one
             for photo in photos {
                 let file_id = &photo.file.id;
-                let file_info = bot.get_file(file_id).await?;
+                let file_info = bot.get_file(file_id.clone()).await?;
                 let extension = file_info
                     .path
                     .split('.')
@@ -671,16 +706,16 @@ pub async fn handle_grouped_chat(
     // --- Upload user images to GCS ---
     let mut all_image_urls = match ai.upload_user_images(user_uploaded_image_paths).await {
         Ok(urls) => urls,
-            Err(e) => {
-                log::error!("Failed to upload user images: {}", e);
+        Err(e) => {
+            log::error!("Failed to upload user images: {}", e);
             typing_indicator_handle.abort();
-                bot.send_message(
+            bot.send_message(
                 representative_msg.chat.id,
-                    "Sorry, I couldn't upload your images. Please try again.",
-                )
-                .await?;
-                return Ok(());
-            }
+                "Sorry, I couldn't upload your images. Please try again.",
+            )
+            .await?;
+            return Ok(());
+        }
     };
 
     // Extract all image URLs from the message group (reply or user-uploaded)
@@ -767,7 +802,7 @@ pub async fn handle_grouped_chat(
             } else {
                 bot.send_message(representative_msg.chat.id, response.text)
                     .parse_mode(ParseMode::Markdown)
-                        .await?;
+                    .await?;
             }
         }
         Err(e) => {
@@ -792,7 +827,7 @@ pub async fn handle_new_chat(
     match user_convos.clear_response_id(user_id) {
         Ok(_) => {
             bot.send_message(msg.chat.id, "🆕 <b>New conversation started!</b>\n\n✨ Your previous chat history has been cleared. Your next /chat command will start a fresh conversation thread.\n\n💡 <i>Your uploaded files and settings remain intact</i>")
-                .parse_mode(teloxide::types::ParseMode::Html)
+                .parse_mode(ParseMode::Html)
                 .await?;
         }
         Err(e) => {
@@ -803,7 +838,7 @@ pub async fn handle_new_chat(
                     e
                 ),
             )
-            .parse_mode(teloxide::types::ParseMode::Html)
+            .parse_mode(ParseMode::Html)
             .await?;
         }
     }

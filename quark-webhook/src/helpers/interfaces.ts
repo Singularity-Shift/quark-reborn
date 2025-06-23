@@ -1,7 +1,7 @@
-import { QuoteSummaryResult } from 'yahoo-finance2/dist/esm/src/modules/quoteSummary-iface';
-import { RecommendationsBySymbolResponse } from 'yahoo-finance2/dist/esm/src/modules/recommendationsBySymbol';
-import { MultisignAction, UserType } from './enums';
-import { ToolsNameList } from 'move-agent-kit-fullstack';
+import { QuoteSummaryResult } from "yahoo-finance2/dist/esm/src/modules/quoteSummary-iface";
+import { RecommendationsBySymbolResponse } from "yahoo-finance2/dist/esm/src/modules/recommendationsBySymbol";
+import { MultisignAction, UserType } from "./enums";
+import { ToolsNameList } from "move-agent-kit-fullstack";
 
 export interface IUserAuth {
   telegramId: string;
@@ -16,7 +16,7 @@ export interface Token {
   };
 }
 
-export interface ICoins {
+export interface ICoin {
   amount?: any | null;
   asset_type?: string | null;
   is_frozen: boolean;
@@ -178,17 +178,17 @@ export interface IDividend {
 }
 
 export interface IFinancial {
-  financialData: QuoteSummaryResult['financialData'];
-  incomeStatement: QuoteSummaryResult['incomeStatementHistory'];
+  financialData: QuoteSummaryResult["financialData"];
+  incomeStatement: QuoteSummaryResult["incomeStatementHistory"];
 }
 
 export interface ITicker {
   current_price: number;
   splits: object;
   dividends: object;
-  company_info: QuoteSummaryResult['price'] &
-    QuoteSummaryResult['summaryProfile'] &
-    QuoteSummaryResult['summaryDetail'];
+  company_info: QuoteSummaryResult["price"] &
+    QuoteSummaryResult["summaryProfile"] &
+    QuoteSummaryResult["summaryDetail"];
   financials: IFinancial;
   recommendations: RecommendationsBySymbolResponse;
 }

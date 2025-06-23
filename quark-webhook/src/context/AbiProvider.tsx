@@ -22,14 +22,10 @@ const AbiContext = createContext<AbiContextProp>({} as AbiContextProp);
 export const AbiProvider = ({ children }: { children: ReactNode }) => {
   const [abi, setAbi] = useState<Client<DefaultABITable>>();
   const { aptos } = useChain();
-  const { connected, connect } = useWallet();
+  const { connected } = useWallet();
 
   useEffect(() => {
     if (!aptos) return;
-
-    if (!connected) {
-      connect("Continue with Google");
-    }
 
     setAbi(
       surfClient(

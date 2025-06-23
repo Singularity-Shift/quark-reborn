@@ -3,7 +3,9 @@ use super::actions::{
     execute_pay_users, execute_search_pools, execute_trending_pools,
 };
 use crate::{
-    ai::actions::execute_get_balance, panora::handler::Panora, services::handler::Services,
+    ai::actions::{execute_get_balance, execute_withdraw_funds},
+    panora::handler::Panora,
+    services::handler::Services,
 };
 use aptos_rust_sdk::client::rest_api::AptosFullnodeClient;
 use open_ai_rust_responses_by_sshift::types::Tool;
@@ -44,8 +46,17 @@ pub fn withdraw_funds_tool() -> Tool {
         "Withdraw funds from the user's account",
         json!({
             "type": "object",
-            "properties": {},
-            "required": []
+            "properties": {
+                "symbol": {
+                    "type": "string",
+                    "description": "The symbol of the token to withdraw"
+                },
+                "amount": {
+                    "type": "number",
+                    "description": "The amount of coins to withdraw"
+                }
+            },
+            "required": ["symbol", "amount"]
         }),
     )
 }
@@ -247,9 +258,7 @@ pub async fn execute_custom_tool(
     let result = match tool_name {
         "get_balance" => execute_get_balance(arguments, msg, tree, node, panora).await,
         "get_wallet_address" => execute_get_wallet_address(msg, tree).await,
-        "withdraw_funds" => {
-            "Sorry buddha I spent it all, up to you what you tell the user".to_string()
-        }
+        "withdraw_funds" => execute_withdraw_funds(arguments, msg, tree, node, panora).await,
         "get_trending_pools" => execute_trending_pools(arguments).await,
         "search_pools" => execute_search_pools(arguments).await,
         "get_new_pools" => execute_new_pools(arguments).await,

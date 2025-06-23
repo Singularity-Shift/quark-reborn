@@ -36,7 +36,7 @@ pub async fn handle_callback_query(
                     .await
                 {
                     Ok(_) => {
-                        bot.answer_callback_query(&query.id).await?;
+                        bot.answer_callback_query(query.id.clone()).await?;
 
                         match list_user_files_with_names(user_id, &db) {
                             Ok(files) => {
@@ -105,7 +105,7 @@ pub async fn handle_callback_query(
                             }
                             Err(e) => {
                                 log::error!("Failed to list files after deletion: {}", e);
-                                bot.answer_callback_query(&query.id)
+                                bot.answer_callback_query(query.id)
                                     .text("❌ Error refreshing file list. Please try /list_files again.")
                                     .await?;
                             }
@@ -113,20 +113,20 @@ pub async fn handle_callback_query(
                     }
                     Err(e) => {
                         log::error!("File deletion failed: {}", e);
-                        bot.answer_callback_query(&query.id)
+                        bot.answer_callback_query(query.id)
                             .text(&format!("❌ Failed to delete file. Error: {}", e))
                             .await?;
                     }
                 }
             } else {
-                bot.answer_callback_query(&query.id)
+                bot.answer_callback_query(query.id)
                     .text("❌ No document library found. Please try /list_files again.")
                     .await?;
             }
         } else if data == "clear_all_files" {
             match delete_vector_store(user_id, &db, &ai).await {
                 Ok(_) => {
-                    bot.answer_callback_query(&query.id).await?;
+                    bot.answer_callback_query(query.id).await?;
                     if let Some(teloxide::types::MaybeInaccessibleMessage::Regular(message)) =
                         &query.message
                     {
@@ -138,18 +138,18 @@ pub async fn handle_callback_query(
                 }
                 Err(e) => {
                     log::error!("Failed to clear all files: {}", e);
-                    bot.answer_callback_query(&query.id)
+                    bot.answer_callback_query(query.id)
                         .text(&format!("❌ Failed to clear files. Error: {}", e))
                         .await?;
                 }
             }
         } else {
-            bot.answer_callback_query(&query.id)
+            bot.answer_callback_query(query.id)
                 .text("❌ Unknown action")
                 .await?;
         }
     } else {
-        bot.answer_callback_query(&query.id)
+        bot.answer_callback_query(query.id)
             .text("❌ No action specified")
             .await?;
     }

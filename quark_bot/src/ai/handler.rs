@@ -13,7 +13,7 @@ use base64::{Engine as _, engine::general_purpose};
 use open_ai_rust_responses_by_sshift::types::{
     Container, Include, InputItem, ReasoningParams, Response, ResponseItem, Tool, ToolChoice,
 };
-use open_ai_rust_responses_by_sshift::{Client as OAIClient, Model, Request};
+use open_ai_rust_responses_by_sshift::{Client as OAIClient, FunctionCallInfo, Model, Request};
 use serde_json;
 use sled::{Db, Tree};
 use teloxide::types::Message;
@@ -120,6 +120,7 @@ impl AI {
         );
         let user_convos = UserConversations::new(db)?;
         let previous_response_id = user_convos.get_response_id(user_id);
+        let mut tool_called: Vec<FunctionCallInfo> = Vec::new();
 
         let vector_store_id = user_convos.get_vector_store_id(user_id);
 
@@ -298,6 +299,8 @@ impl AI {
                 })
                 .collect();
 
+            tool_called.extend(custom_tool_calls.iter().map(|tc| (*tc).clone()));
+
             log::info!(
                 "Found {} custom tool calls out of {} total",
                 custom_tool_calls.len(),
@@ -457,6 +460,6 @@ impl AI {
             }
         }
 
-        Ok(AIResponse::from((reply, image_data)))
+        Ok(AIResponse::from((reply, image_data, Some(tool_called))))
     }
 }

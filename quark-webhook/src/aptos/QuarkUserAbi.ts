@@ -1,6 +1,6 @@
 export const QuarkUserAbi = {
   address: "0x2033b72957c2f0b66cf5be479a2aa098d5bf18c36477907eba8be39435f2811",
-  name: "user_v2",
+  name: "user_v3",
   friends: [],
   exposed_functions: [
     {
@@ -53,7 +53,7 @@ export const QuarkUserAbi = {
       visibility: "public",
       is_entry: true,
       is_view: false,
-      generic_type_params: [{ constraints: [] }],
+      generic_type_params: [],
       params: ["&signer", "address", "u64", "address", "vector<address>"],
       return: [],
     },
@@ -80,7 +80,7 @@ export const QuarkUserAbi = {
       visibility: "public",
       is_entry: true,
       is_view: false,
-      generic_type_params: [{ constraints: [] }],
+      generic_type_params: [],
       params: ["&signer", "u64", "address"],
       return: [],
     },
