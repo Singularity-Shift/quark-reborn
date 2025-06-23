@@ -1,21 +1,22 @@
-'use client';
+"use client";
 
-import { type PropsWithChildren, useEffect } from 'react';
+import { type PropsWithChildren, useEffect } from "react";
 import {
   initData,
   miniApp,
   useLaunchParams,
   useSignal,
-} from '@telegram-apps/sdk-react';
-import { TonConnectUIProvider } from '@tonconnect/ui-react';
-import { AppRoot } from '@telegram-apps/telegram-ui';
+} from "@telegram-apps/sdk-react";
+import { TonConnectUIProvider } from "@tonconnect/ui-react";
+import { AppRoot } from "@telegram-apps/telegram-ui";
 
-import { ErrorBoundary } from '@/components/ErrorBoundary';
-import { ErrorPage } from '@/components/ErrorPage';
-import { useDidMount } from '@/hooks/useDidMount';
-import { setLocale } from '@/core/i18n/locale';
+import { ErrorBoundary } from "@/components/ErrorBoundary";
+import { ErrorPage } from "@/components/ErrorPage";
+import { useDidMount } from "@/hooks/useDidMount";
+import { setLocale } from "@/core/i18n/locale";
+import { WalletNavbar } from "@/components/WalletNavbar/WalletNavbar";
 
-import './styles.css';
+import "./styles.css";
 
 function RootInner({ children }: PropsWithChildren) {
   const lp = useLaunchParams();
@@ -31,11 +32,14 @@ function RootInner({ children }: PropsWithChildren) {
   return (
     <TonConnectUIProvider manifestUrl="/tonconnect-manifest.json">
       <AppRoot
-        appearance={isDark ? 'dark' : 'light'}
+        appearance={isDark ? "dark" : "light"}
         platform={
-          ['macos', 'ios'].includes(lp.tgWebAppPlatform) ? 'ios' : 'base'
+          ["macos", "ios", "android"].includes(lp.tgWebAppPlatform)
+            ? "ios"
+            : "base"
         }
       >
+        <WalletNavbar />
         {children}
       </AppRoot>
     </TonConnectUIProvider>

@@ -2,8 +2,9 @@
 "use client";
 import { useState } from "react";
 import { truncateAddress, useWallet } from "@aptos-labs/wallet-adapter-react";
-import toast from "react-hot-toast";
 import { closeMiniApp, hapticFeedback } from "@telegram-apps/sdk-react";
+import { Message } from "@/components/Message/Message";
+import { useMessage } from "@/hooks/useMessage";
 import {
   Button,
   Card,
@@ -29,6 +30,7 @@ export const AccountStatus = ({
 }: AccountStatusProps) => {
   const { connected, account } = useWallet();
   const [copied, setCopied] = useState(false);
+  const { message, showMessage } = useMessage();
 
   const isReady = connected && account?.address;
 
@@ -37,19 +39,11 @@ export const AccountStatus = ({
       await navigator.clipboard.writeText(text);
       setCopied(true);
       hapticFeedback.notificationOccurred("success");
-      toast.success("Copied to clipboard!", {
-        duration: 2000,
-        style: {
-          fontSize: "14px",
-          padding: "12px 16px",
-          borderRadius: "12px",
-          fontWeight: "500",
-        },
-      });
+      showMessage("Copied to clipboard!", "success");
       setTimeout(() => setCopied(false), 2000);
     } catch (err) {
       hapticFeedback.notificationOccurred("error");
-      toast.error("Failed to copy");
+      showMessage("Failed to copy", "error");
     }
   };
 
@@ -77,6 +71,7 @@ export const AccountStatus = ({
 
   return (
     <div className="min-h-screen">
+      <Message message={message} />
       {/* Header Section */}
       <Section>
         <div className="text-center" style={{ padding: "32px 0" }}>

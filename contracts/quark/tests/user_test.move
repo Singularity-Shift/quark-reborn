@@ -1,7 +1,7 @@
 #[test_only]
 module quark_test::account_test {
-    use quark_test::user_v2;
-    use quark_test::admin_v2;
+    use quark_test::user_v3;
+    use quark_test::admin_v3;
     use std::signer;
     use std::string;
     use std::object::{Self, Object};
@@ -25,8 +25,8 @@ module quark_test::account_test {
     }
 
     fun init_module(sender: &signer) {
-        admin_v2::test_init_admin(sender);
-        user_v2::test_init_account(sender);
+        admin_v3::test_init_admin(sender);
+        user_v3::test_init_account(sender);
     }
 
     fun mint_coin<CoinType>(admin: &signer, amount: u64, to: &signer) {
@@ -104,7 +104,7 @@ module quark_test::account_test {
     #[test(quark_test = @quark_test, user = @0x2)]
     fun test_create_account(quark_test: &signer, user: &signer) {
         init_module(quark_test);
-        user_v2::create_account(user, string::utf8(b"1234567890"));
+        user_v3::create_account(user, string::utf8(b"1234567890"));
     }
 
     #[test(aptos_framework = @0x1, quark_test = @quark_test, user = @0x2)]
@@ -120,12 +120,12 @@ module quark_test::account_test {
 
         init_module(quark_test);
         mint_coin<TestCoin>(quark_test, 5000, user);
-        user_v2::create_account(user, string::utf8(b"1234567890"));
-        let resource_account_address = user_v2::get_resource_account(user_address);
+        user_v3::create_account(user, string::utf8(b"1234567890"));
+        let resource_account_address = user_v3::get_resource_account(user_address);
 
         aptos_account::transfer_coins<TestCoin>(user, resource_account_address, 5000);
 
-        user_v2::withdraw_funds_v1<TestCoin>(user, 2500);
+        user_v3::withdraw_funds_v1<TestCoin>(user, 2500);
         assert!(coin::balance<TestCoin>(resource_account_address) == 2500, EIS_BALANCE_NOT_EQUAL);
         coin::destroy_burn_cap(burn_cap);
         coin::destroy_mint_cap(mint_cap);
@@ -143,9 +143,9 @@ module quark_test::account_test {
         aptos_coin::mint(aptos_framework, user_address, 20000000);
 
         init_module(quark_test);
-        user_v2::create_account(user, string::utf8(b"1234567890"));
+        user_v3::create_account(user, string::utf8(b"1234567890"));
         
-        let resource_account_address = user_v2::get_resource_account(user_address);
+        let resource_account_address = user_v3::get_resource_account(user_address);
 
         let fa_obj = create_fa();
         let fa_addr = object::object_address(&fa_obj);
@@ -156,7 +156,7 @@ module quark_test::account_test {
 
         aptos_account::transfer_fungible_assets(user, fa_metadata, resource_account_address, 5000);
 
-        user_v2::withdraw_funds_v2<TestCoin>(user, 2500, fa_addr);
+        user_v3::withdraw_funds_v2(user, 2500, fa_addr);
         assert!(primary_fungible_store::balance(resource_account_address, fa_metadata) == 2500, EIS_BALANCE_NOT_EQUAL);
         coin::destroy_burn_cap(burn_cap);
         coin::destroy_mint_cap(mint_cap);
@@ -174,18 +174,18 @@ module quark_test::account_test {
         mint_coin<TestCoin>(quark_test, 5000, user);
 
         init_module(quark_test);
-        user_v2::create_account(user, string::utf8(b"1234567890"));
-        let resource_account_address = user_v2::get_resource_account(user_address);
+        user_v3::create_account(user, string::utf8(b"1234567890"));
+        let resource_account_address = user_v3::get_resource_account(user_address);
 
         aptos_account::transfer_coins<TestCoin>(user, resource_account_address, 5000);
 
-        user_v2::set_coin_address<TestCoin>(quark_test);
+        user_v3::set_coin_address<TestCoin>(quark_test);
 
         create_resource_account(quark_test, admin);
 
         let resource_account_fees = fees::get_resource_account_address();
 
-        user_v2::pay_ai<TestCoin>(quark_test, user_address, 1000);
+        user_v3::pay_ai<TestCoin>(quark_test, user_address, 1000);
         assert!(coin::balance<TestCoin>(resource_account_address) == 4000, EIS_BALANCE_NOT_EQUAL);
         assert!(coin::balance<TestCoin>(resource_account_fees) == 1000, EIS_BALANCE_NOT_EQUAL);
         coin::destroy_burn_cap(burn_cap);
@@ -209,17 +209,17 @@ module quark_test::account_test {
         mint_coin<TestCoin>(quark_test, 5000, user);
 
         init_module(quark_test);
-        user_v2::create_account(user, string::utf8(b"1234567890"));
-        user_v2::create_account(user2, string::utf8(b"1234567891"));
-        user_v2::create_account(user3, string::utf8(b"1234567892"));
+        user_v3::create_account(user, string::utf8(b"1234567890"));
+        user_v3::create_account(user2, string::utf8(b"1234567891"));
+        user_v3::create_account(user3, string::utf8(b"1234567892"));
 
-        let resource_account_address = user_v2::get_resource_account(user_address);
+        let resource_account_address = user_v3::get_resource_account(user_address);
 
         aptos_account::transfer_coins<TestCoin>(user, resource_account_address, 5000);
 
-        user_v2::set_coin_address<TestCoin>(quark_test);
+        user_v3::set_coin_address<TestCoin>(quark_test);
 
-        user_v2::pay_to_users_v1<TestCoin>(quark_test, user_address, 1000, vector[user2_address, user3_address]);
+        user_v3::pay_to_users_v1<TestCoin>(quark_test, user_address, 1000, vector[user2_address, user3_address]);
 
         assert!(coin::balance<TestCoin>(resource_account_address) == 3000, EIS_BALANCE_NOT_EQUAL);
         assert!(coin::balance<TestCoin>(user2_address) == 1000, EIS_BALANCE_NOT_EQUAL);
@@ -250,15 +250,15 @@ module quark_test::account_test {
         mint_fa(user, &fa_controller.mint_ref, 5000);
 
         init_module(quark_test);
-        user_v2::create_account(user, string::utf8(b"1234567890"));
-        user_v2::create_account(user2, string::utf8(b"1234567891"));
-        user_v2::create_account(user3, string::utf8(b"1234567892"));
+        user_v3::create_account(user, string::utf8(b"1234567890"));
+        user_v3::create_account(user2, string::utf8(b"1234567891"));
+        user_v3::create_account(user3, string::utf8(b"1234567892"));
 
-        let resource_account_address = user_v2::get_resource_account(user_address);
+        let resource_account_address = user_v3::get_resource_account(user_address);
 
         aptos_account::transfer_fungible_assets(user, fa_metadata, resource_account_address, 5000);
 
-        user_v2::pay_to_users_v2<TestCoin>(quark_test, user_address, 1000, fa_addr, vector[user2_address, user3_address]);
+        user_v3::pay_to_users_v2(quark_test, user_address, 1000, fa_addr, vector[user2_address, user3_address]);
 
         assert!(primary_fungible_store::balance(resource_account_address, fa_metadata) == 3000, EIS_BALANCE_NOT_EQUAL);
         assert!(primary_fungible_store::balance(user2_address, fa_metadata) == 1000, EIS_BALANCE_NOT_EQUAL);
@@ -268,14 +268,14 @@ module quark_test::account_test {
     }
     
     #[test(quark_test = @quark_test, user = @0x2, user2 = @0x3)]
-    #[expected_failure(abort_code = 1, location = user_v2)]
+    #[expected_failure(abort_code = 1, location = user_v3)]
     fun test_not_admin_should_not_set_coin_address(quark_test: &signer, user: &signer) {
         init_module(quark_test);
-        user_v2::set_coin_address<TestCoin>(user);
+        user_v3::set_coin_address<TestCoin>(user);
     }
 
     #[test(aptos_framework = @0x1, quark_test = @quark_test, admin = @0x2, user = @0x3, user2 = @0x4)]
-    #[expected_failure(abort_code = 1, location = user_v2)]
+    #[expected_failure(abort_code = 1, location = user_v3)]
     fun test_not_admin_should_not_pay_ai(aptos_framework: &signer, quark_test: &signer, admin: &signer, user: &signer, user2: &signer) {
         let (burn_cap, mint_cap) = aptos_coin::initialize_for_test(aptos_framework);
 
@@ -287,19 +287,19 @@ module quark_test::account_test {
         mint_coin<TestCoin>(quark_test, 5000, user);
 
         init_module(quark_test);
-        user_v2::create_account(user, string::utf8(b"1234567890"));
+        user_v3::create_account(user, string::utf8(b"1234567890"));
 
-        let resource_account_address = user_v2::get_resource_account(user_address);
+        let resource_account_address = user_v3::get_resource_account(user_address);
 
         aptos_account::transfer_coins<TestCoin>(user, resource_account_address, 5000);
 
-        user_v2::set_coin_address<TestCoin>(quark_test);
+        user_v3::set_coin_address<TestCoin>(quark_test);
 
         create_resource_account(quark_test, admin);
 
         let resource_account_fees = fees::get_resource_account_address();
 
-        user_v2::pay_ai<TestCoin>(user2, user_address, 1000);
+        user_v3::pay_ai<TestCoin>(user2, user_address, 1000);
         assert!(coin::balance<TestCoin>(resource_account_address) == 4000, EIS_BALANCE_NOT_EQUAL);
         assert!(coin::balance<TestCoin>(resource_account_fees) == 1000, EIS_BALANCE_NOT_EQUAL);
         coin::destroy_burn_cap(burn_cap);
@@ -307,7 +307,7 @@ module quark_test::account_test {
     }
 
     #[test(aptos_framework = @0x1, quark_test = @quark_test, user = @0x2, user2 = @0x3, user3 = @0x4)]
-    #[expected_failure(abort_code = 1, location = user_v2)]
+    #[expected_failure(abort_code = 1, location = user_v3)]
     fun test_not_admin_should_not_pay_to_users_v1(aptos_framework: &signer, quark_test: &signer, user: &signer, user2: &signer, user3: &signer) {
         let (burn_cap, mint_cap) = aptos_coin::initialize_for_test(aptos_framework);
 
@@ -324,24 +324,24 @@ module quark_test::account_test {
         mint_coin<TestCoin>(quark_test, 5000, user);
 
         init_module(quark_test);
-        user_v2::create_account(user, string::utf8(b"1234567890"));
-        user_v2::create_account(user2, string::utf8(b"1234567891"));
-        user_v2::create_account(user3, string::utf8(b"1234567892"));
+        user_v3::create_account(user, string::utf8(b"1234567890"));
+        user_v3::create_account(user2, string::utf8(b"1234567891"));
+        user_v3::create_account(user3, string::utf8(b"1234567892"));
 
-        let resource_account_address = user_v2::get_resource_account(user_address);
+        let resource_account_address = user_v3::get_resource_account(user_address);
 
         aptos_account::transfer_coins<TestCoin>(user, resource_account_address, 5000);
 
-        user_v2::set_coin_address<TestCoin>(quark_test);
+        user_v3::set_coin_address<TestCoin>(quark_test);
 
-        user_v2::pay_to_users_v1<TestCoin>(user2, user_address, 1000, vector[user_address, user3_address]);
+        user_v3::pay_to_users_v1<TestCoin>(user2, user_address, 1000, vector[user_address, user3_address]);
 
         coin::destroy_burn_cap(burn_cap);
         coin::destroy_mint_cap(mint_cap);
     }
 
     #[test(aptos_framework = @0x1, quark_test = @quark_test, user = @0x3, user2 = @0x4, user3 = @0x5)]
-    #[expected_failure(abort_code = 1, location = user_v2)]
+    #[expected_failure(abort_code = 1, location = user_v3)]
     fun test_not_admin_should_not_pay_to_users_v2(aptos_framework: &signer, quark_test: &signer, user: &signer, user2: &signer, user3: &signer) acquires FAController {
         let (burn_cap, mint_cap) = aptos_coin::initialize_for_test(aptos_framework);
 
@@ -363,15 +363,15 @@ module quark_test::account_test {
         mint_fa(user, &fa_controller.mint_ref, 5000);
 
         init_module(quark_test);
-        user_v2::create_account(user, string::utf8(b"1234567890"));
-        user_v2::create_account(user2, string::utf8(b"1234567891"));
-        user_v2::create_account(user3, string::utf8(b"1234567892"));
+        user_v3::create_account(user, string::utf8(b"1234567890"));
+        user_v3::create_account(user2, string::utf8(b"1234567891"));
+        user_v3::create_account(user3, string::utf8(b"1234567892"));
 
-        let resource_account_address = user_v2::get_resource_account(user_address);
+        let resource_account_address = user_v3::get_resource_account(user_address);
 
         aptos_account::transfer_fungible_assets(user, fa_metadata, resource_account_address, 5000);
 
-        user_v2::pay_to_users_v2<TestCoin>(user2, user_address, 1000, fa_addr, vector[user_address, user3_address]);
+        user_v3::pay_to_users_v2(user2, user_address, 1000, fa_addr, vector[user_address, user3_address]);
 
         coin::destroy_burn_cap(burn_cap);
         coin::destroy_mint_cap(mint_cap);

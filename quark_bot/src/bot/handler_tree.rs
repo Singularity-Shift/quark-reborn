@@ -6,7 +6,7 @@ use teloxide::{
     Bot,
     dispatching::{DpHandlerDescription, HandlerExt, UpdateFilterExt, dialogue::InMemStorage},
     dptree::{self, Handler},
-    prelude::{DependencyMap, Requester},
+    prelude::Requester,
     types::{Message, Update},
 };
 
@@ -29,7 +29,7 @@ Please use `/login` to authenticate.",
     Ok(())
 }
 
-pub fn handler_tree() -> Handler<'static, DependencyMap, Result<()>, DpHandlerDescription> {
+pub fn handler_tree() -> Handler<'static, Result<()>, DpHandlerDescription> {
     dptree::entry()
         .branch(
             Update::filter_message()
@@ -68,7 +68,10 @@ pub fn handler_tree() -> Handler<'static, DependencyMap, Result<()>, DpHandlerDe
                         .filter(|cmd| {
                             matches!(
                                 cmd,
-                                Command::Help | Command::LoginUser | Command::LoginGroup
+                                Command::Help
+                                    | Command::LoginUser
+                                    | Command::LoginGroup
+                                    | Command::AptosConnect
                             )
                         })
                         .endpoint(answers),

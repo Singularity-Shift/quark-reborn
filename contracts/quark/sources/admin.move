@@ -1,4 +1,4 @@
-module quark_test::admin_v2 {
+module quark_test::admin_v3 {
     use std::signer;
     use std::option::{Self, Option};
 
