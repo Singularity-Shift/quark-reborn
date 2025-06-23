@@ -222,8 +222,8 @@ impl AI {
                 let error_msg = e.to_string();
                 log::error!("OpenAI API call failed: {}", error_msg);
 
-                // If it's a "No tool output found" error, clear conversation history and retry
-                if error_msg.contains("No tool output found") {
+                // If it's a "No tool output found" error or reasoning item error, clear conversation history and retry
+                if error_msg.contains("No tool output found") || error_msg.contains("was provided without its required following item") {
                     log::warn!(
                         "Detected stale tool call error, clearing conversation history and retrying"
                     );
@@ -392,7 +392,22 @@ impl AI {
         // Extract text and potentially image data from the final response
         let mut reply = current_response.output_text();
         let response_id = current_response.id().to_string();
-        user_convos.set_response_id(user_id, &response_id)?;
+        
+        // Check if response contains completed code interpreter containers
+        // Only filter for O-series models that have the reasoning item bug
+        let should_filter_containers = matches!(model, Model::O3 | Model::O4Mini | Model::O1 | Model::O1Mini | Model::O1Preview);
+        let has_completed_code_interpreter = should_filter_containers && current_response.output.iter().any(|item| {
+            matches!(item, ResponseItem::CodeInterpreterCall { status, .. } if status == "completed")
+        });
+        
+        // Only save response ID if it doesn't contain completed code interpreter containers (for O-series models)
+        // This prevents the "reasoning item" error on follow-up requests
+        if !has_completed_code_interpreter {
+            user_convos.set_response_id(user_id, &response_id)?;
+            log::info!("Saved response ID {} for future conversation context", response_id);
+        } else {
+            log::info!("Response {} contains completed code interpreter containers, not saving as previous_response_id to avoid OpenAI O-series API bug", response_id);
+        }
 
         let mut image_data: Option<Vec<u8>> = None;
         for item in &current_response.output {
