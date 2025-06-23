@@ -7,7 +7,7 @@ use teloxide::prelude::*;
 use tokio::task::JoinHandle;
 use tokio::time::sleep;
 
-use crate::bot::handler::{handle_chat, handle_grouped_chat};
+use crate::bot::handler::{handle_chat, handle_grouped_chat, handle_reasoning_chat};
 
 /// Holds an in-flight `/c` command and any trailing photo-only messages
 struct PendingCmd {
@@ -94,26 +94,48 @@ impl CommandImageCollector {
     async fn finalize(self: &Arc<Self>, key: (ChatId, i64), ai: AI, msg: Message, tree: Tree) {
         if let Some((_k, pending)) = self.pendings.remove(&key) {
             let mut all_msgs = Vec::new();
-            all_msgs.push(pending.first_msg);
+            all_msgs.push(pending.first_msg.clone());
             all_msgs.extend(pending.extra_photos);
             let text = msg.text().or_else(|| msg.caption()).unwrap_or("");
 
+            // Check if the original command was /r (reasoning)
+            let is_reasoning_command = pending.first_msg.text()
+                .map(|t| t.trim_start().starts_with("/r ") || t.trim() == "/r")
+                .unwrap_or(false);
+
             // Decide whether to call single or grouped handler
             if all_msgs.len() == 1 {
-                // Single message path = existing handle_chat
+                // Single message path
                 let msg = all_msgs.pop().unwrap();
 
-                if let Err(e) = handle_chat(
-                    self.bot.clone(),
-                    msg,
-                    ai,
-                    self.db.clone(),
-                    tree,
-                    text.to_string(),
-                )
-                .await
-                {
-                    log::error!("Error handling chat: {}", e);
+                if is_reasoning_command {
+                    // Use reasoning handler for /r commands
+                    if let Err(e) = handle_reasoning_chat(
+                        self.bot.clone(),
+                        msg,
+                        ai,
+                        self.db.clone(),
+                        tree,
+                        text.to_string(),
+                    )
+                    .await
+                    {
+                        log::error!("Error handling reasoning chat: {}", e);
+                    }
+                } else {
+                    // Use regular chat handler for /c commands
+                    if let Err(e) = handle_chat(
+                        self.bot.clone(),
+                        msg,
+                        ai,
+                        self.db.clone(),
+                        tree,
+                        text.to_string(),
+                    )
+                    .await
+                    {
+                        log::error!("Error handling chat: {}", e);
+                    }
                 }
             } else {
                 if let Err(e) =
