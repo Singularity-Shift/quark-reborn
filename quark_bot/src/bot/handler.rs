@@ -38,6 +38,84 @@ use teloxide::{
 use tokio::fs::File;
 use tokio::time::sleep;
 
+const TELEGRAM_MESSAGE_LIMIT: usize = 4096;
+
+/// Split a message into chunks that fit within Telegram's message limit
+fn split_message(text: &str) -> Vec<String> {
+    if text.len() <= TELEGRAM_MESSAGE_LIMIT {
+        return vec![text.to_string()];
+    }
+
+    let mut chunks = Vec::new();
+    let mut current_chunk = String::new();
+
+    // Split by lines first to avoid breaking in the middle of sentences
+    for line in text.lines() {
+        // If adding this line would exceed the limit, save current chunk and start new one
+        if current_chunk.len() + line.len() + 1 > TELEGRAM_MESSAGE_LIMIT {
+            if !current_chunk.is_empty() {
+                chunks.push(current_chunk.trim().to_string());
+                current_chunk.clear();
+            }
+
+            // If a single line is too long, split it by words
+            if line.len() > TELEGRAM_MESSAGE_LIMIT {
+                let words: Vec<&str> = line.split_whitespace().collect();
+                let mut word_chunk = String::new();
+
+                for word in words {
+                    if word_chunk.len() + word.len() + 1 > TELEGRAM_MESSAGE_LIMIT {
+                        if !word_chunk.is_empty() {
+                            chunks.push(word_chunk.trim().to_string());
+                            word_chunk.clear();
+                        }
+                    }
+
+                    if !word_chunk.is_empty() {
+                        word_chunk.push(' ');
+                    }
+                    word_chunk.push_str(word);
+                }
+
+                if !word_chunk.is_empty() {
+                    current_chunk = word_chunk;
+                }
+            } else {
+                current_chunk = line.to_string();
+            }
+        } else {
+            if !current_chunk.is_empty() {
+                current_chunk.push('\n');
+            }
+            current_chunk.push_str(line);
+        }
+    }
+
+    if !current_chunk.is_empty() {
+        chunks.push(current_chunk.trim().to_string());
+    }
+
+    chunks
+}
+
+/// Send a potentially long message, splitting it into multiple messages if necessary
+async fn send_long_message(bot: &Bot, chat_id: ChatId, text: &str) -> AnyResult<()> {
+    let chunks = split_message(text);
+
+    for (i, chunk) in chunks.iter().enumerate() {
+        if i > 0 {
+            // Small delay between messages to avoid rate limiting
+            sleep(Duration::from_millis(100)).await;
+        }
+
+        bot.send_message(chat_id, chunk)
+            .parse_mode(ParseMode::MarkdownV2)
+            .await?;
+    }
+
+    Ok(())
+}
+
 pub async fn handle_aptos_connect(bot: Bot, msg: Message) -> AnyResult<()> {
     if !msg.chat.is_private() {
         bot.send_message(
@@ -275,18 +353,78 @@ pub async fn handle_reasoning_chat(
         return Ok(());
     }
 
-    let user_id = user.unwrap().id.0 as i64;
+    let user_id = user.unwrap().id;
+
+    // --- Vision Support: Check for replied-to images ---
+    let mut image_url_from_reply: Option<String> = None;
+    if let Some(reply) = msg.reply_to_message() {
+        if let Some(from) = reply.from.as_ref() {
+            if from.is_bot {
+                let reply_text = reply.text().or_else(|| reply.caption());
+                if let Some(text) = reply_text {
+                    // A simple regex to find the GCS URL
+                    if let Ok(re) = regex::Regex::new(
+                        r"https://storage\.googleapis\.com/sshift-gpt-bucket/[^\s]+",
+                    ) {
+                        if let Some(mat) = re.find(text) {
+                            image_url_from_reply = Some(mat.as_str().to_string());
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // --- Download user-attached images ---
+    let mut user_uploaded_image_paths: Vec<(String, String)> = Vec::new();
+    if let Some(photos) = msg.photo() {
+        // Process all photos, not just the last one
+        for photo in photos {
+            let file_id = &photo.file.id;
+            let file_info = bot.get_file(file_id.clone()).await?;
+            let extension = file_info
+                .path
+                .split('.')
+                .last()
+                .unwrap_or("jpg")
+                .to_string();
+            let temp_path = format!("/tmp/{}_{}.{}", user_id, photo.file.unique_id, extension);
+            let mut file = File::create(&temp_path)
+                .await
+                .map_err(|e| teloxide::RequestError::from(std::sync::Arc::new(e)))?;
+            bot.download_file(&file_info.path, &mut file)
+                .await
+                .map_err(|e| teloxide::RequestError::from(e))?;
+            user_uploaded_image_paths.push((temp_path, extension));
+        }
+    }
+
+    // --- Upload user images to GCS ---
+    let user_uploaded_image_urls = match ai.upload_user_images(user_uploaded_image_paths).await {
+        Ok(urls) => urls,
+        Err(e) => {
+            log::error!("Failed to upload user images: {}", e);
+            typing_indicator_handle.abort();
+            bot.send_message(
+                msg.chat.id,
+                "Sorry, I couldn't upload your image. Please try again.",
+            )
+            .await?;
+            // We should probably stop execution here
+            return Ok(());
+        }
+    };
 
     // Asynchronously generate the response
     let response_result = ai
         .generate_response(
             msg.clone(),
-            user_id,
+            user_id.0 as i64,
             &prompt,
             &db,
             tree,
-            None,
-            vec![],
+            image_url_from_reply,
+            user_uploaded_image_urls,
             Model::O3,
             20000,
             None,
@@ -302,6 +440,8 @@ pub async fn handle_reasoning_chat(
 
     match response_result {
         Ok(response) => {
+            log::info!("Reasoning response generated successfully");
+
             // Check for image data and send as a photo if present
             if let Some(image_data) = response.image_data {
                 let photo = InputFile::memory(image_data);
@@ -315,15 +455,15 @@ pub async fn handle_reasoning_chat(
                 } else {
                     response.text
                 };
-                bot.send_message(msg.chat.id, text_to_send)
-                    .parse_mode(ParseMode::MarkdownV2)
-                    .await?;
+                // Use the new send_long_message function for text responses
+                send_long_message(&bot, msg.chat.id, &text_to_send).await?;
             }
         }
         Err(e) => {
+            log::error!("Error generating reasoning response: {}", e);
             bot.send_message(
                 msg.chat.id,
-                format!("An error occurred while processing your request: {}", e),
+                "Sorry, I encountered an error while processing your reasoning request.",
             )
             .await?;
         }
@@ -437,7 +577,7 @@ pub async fn handle_chat(
             image_url_from_reply,
             user_uploaded_image_urls,
             Model::GPT4o,
-            1000,
+            8192,
             Some(0.5),
             None,
         )
@@ -642,7 +782,7 @@ pub async fn handle_grouped_chat(
             None,
             all_image_urls,
             Model::GPT4o,
-            1000,
+            8192,
             Some(0.5),
             None,
         )
