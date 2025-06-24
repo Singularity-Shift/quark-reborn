@@ -226,8 +226,56 @@ impl AI {
                 let error_msg = e.to_string();
                 log::error!("OpenAI API call failed: {}", error_msg);
 
+                // Handle vector store not found errors
+                if error_msg.contains("Vector store") && error_msg.contains("not found") {
+                    log::warn!("Vector store not found, clearing orphaned reference for user {}", user_id);
+                    // Clear the orphaned vector store ID from database
+                    if let Err(clear_err) = user_convos.set_vector_store_id(user_id, "") {
+                        log::error!("Failed to clear orphaned vector store ID: {}", clear_err);
+                    }
+                    // Clear associated files
+                    if let Err(clear_err) = user_convos.clear_files(user_id) {
+                        log::error!("Failed to clear files after vector store cleanup: {}", clear_err);
+                    }
+                    
+                    // Return a user-friendly error with suggestion to upload files
+                    return Err(anyhow::anyhow!(
+                        "Your document library is no longer available (vector store deleted). Please upload files again using /add_files to create a new document library."
+                    ));
+                }
+
+                // Handle previous response not found errors  
+                if error_msg.contains("Previous response") && error_msg.contains("not found") {
+                    log::warn!("Previous response not found, clearing conversation history for user {}", user_id);
+                    user_convos.clear_response_id(user_id)?;
+                    
+                    // Rebuild request without previous_response_id
+                    let retry_request = Request::builder()
+                        .model(model.clone())
+                        .instructions(self.system_prompt.clone())
+                        .tools(tools.clone())
+                        .tool_choice(ToolChoice::auto())
+                        .parallel_tool_calls(true)
+                        .max_output_tokens(max_tokens)
+                        .user(&format!("user-{}", user_id))
+                        .store(true)
+                        .input(input)
+                        .build();
+
+                    log::info!("Retrying OpenAI API call without conversation history");
+                    match self.openai_client.responses.create(retry_request).await {
+                        Ok(response) => {
+                            log::info!("Retry successful, response ID: {}", response.id());
+                            response
+                        }
+                        Err(retry_err) => {
+                            log::error!("Retry also failed: {}", retry_err);
+                            return Err(retry_err.into());
+                        }
+                    }
+                }
                 // If it's a "No tool output found" error or reasoning item error, clear conversation history and retry
-                if error_msg.contains("No tool output found")
+                else if error_msg.contains("No tool output found")
                     || error_msg.contains("was provided without its required following item")
                 {
                     log::warn!(
