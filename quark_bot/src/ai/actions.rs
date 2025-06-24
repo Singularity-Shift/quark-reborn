@@ -961,8 +961,8 @@ pub async fn execute_get_time(arguments: &serde_json::Value) -> String {
         .unwrap_or("Europe/London");
 
     // Use TIME_API_BASE_URL from env if set, otherwise default to just the base
-    let base_url = std::env::var("TIME_API_BASE_URL")
-        .unwrap_or_else(|_| "https://timeapi.io/api".to_string());
+    let base_url =
+        std::env::var("TIME_API_BASE_URL").unwrap_or_else(|_| "https://timeapi.io/api".to_string());
     let url = format!("{}/Time/current/zone?timeZone={}", base_url, timezone);
 
     let client = reqwest::Client::new();
@@ -997,11 +997,17 @@ pub async fn execute_get_time(arguments: &serde_json::Value) -> String {
 
 /// Helper for formatting timeapi.io response
 fn format_time_response_timeapi(data: &serde_json::Value) -> String {
-    let timezone = data.get("timeZone").and_then(|v| v.as_str()).unwrap_or("Unknown");
+    let timezone = data
+        .get("timeZone")
+        .and_then(|v| v.as_str())
+        .unwrap_or("Unknown");
     let date = data.get("date").and_then(|v| v.as_str()).unwrap_or("");
     let time = data.get("time").and_then(|v| v.as_str()).unwrap_or("");
     let day_of_week = data.get("dayOfWeek").and_then(|v| v.as_str()).unwrap_or("");
-    let dst_active = data.get("dstActive").and_then(|v| v.as_bool()).unwrap_or(false);
+    let dst_active = data
+        .get("dstActive")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
 
     if time.is_empty() {
         log::error!("Could not extract time from timeapi.io response");
@@ -1010,7 +1016,11 @@ fn format_time_response_timeapi(data: &serde_json::Value) -> String {
 
     format!(
         "🕰️ The current time in **{}** is **{}** on **{}** (Date: {}, DST: {}).",
-        timezone, time, day_of_week, date, if dst_active { "active" } else { "inactive" }
+        timezone,
+        time,
+        day_of_week,
+        date,
+        if dst_active { "active" } else { "inactive" }
     )
 }
 
@@ -1548,6 +1558,115 @@ pub async fn execute_withdraw_funds(
     }
 
     let url = format!("{}/withdraw?coin={}&amount={}", app_url, symbol, amount);
+
+    url
+}
+
+pub async fn execute_fund_account(
+    arguments: &serde_json::Value,
+    msg: Message,
+    tree: Tree,
+    node: AptosFullnodeClient,
+    panora: Panora,
+) -> String {
+    let app_url = env::var("APP_URL");
+
+    if app_url.is_err() {
+        return "❌ APP_URL not found".to_string();
+    }
+
+    let app_url = app_url.unwrap();
+
+    let chat = msg.chat;
+
+    if chat.is_group() || chat.is_supergroup() || !chat.is_private() || chat.is_channel() {
+        return "❌ This command is only available in private chats".to_string();
+    }
+
+    let user = msg.from;
+
+    if user.is_none() {
+        return "❌ User not found".to_string();
+    }
+
+    let user = user.unwrap();
+
+    let username = user.username;
+
+    if username.is_none() {
+        return "❌ Username not found".to_string();
+    }
+
+    let username = username.unwrap();
+
+    let user_credentials = get_credentials(&username, tree.clone());
+
+    if user_credentials.is_none() {
+        return "❌ User not found".to_string();
+    }
+
+    let user_credentials = user_credentials.unwrap();
+
+    let symbol = arguments
+        .get("symbol")
+        .and_then(|v| v.as_str())
+        .unwrap_or("APT");
+
+    let amount = arguments
+        .get("amount")
+        .and_then(|v| v.as_f64())
+        .unwrap_or(0.0);
+
+    let tokens = panora
+        .get_panora_token_list(false, false, false, false)
+        .await;
+
+    if tokens.is_err() {
+        return "❌ Error getting token type".to_string();
+    }
+
+    let tokens = tokens.unwrap();
+
+    let token = tokens
+        .iter()
+        .find(|t| t.symbol.to_lowercase() == symbol.to_lowercase());
+
+    if token.is_none() {
+        return "❌ Token not found".to_string();
+    }
+
+    let token = token.unwrap();
+
+    let token_type = if token.token_address.as_ref().is_some() {
+        token.token_address.as_ref().unwrap().to_string()
+    } else {
+        token.fa_address.clone()
+    };
+
+    // Get balance from user's main wallet (not resource account)
+    let balance = node
+        .get_account_balance(user_credentials.account_address, token_type.to_string())
+        .await;
+
+    if balance.is_err() {
+        return "❌ Error getting balance".to_string();
+    }
+
+    let balance = balance.unwrap().into_inner();
+
+    let balance_i64 = balance.as_i64();
+
+    if balance_i64.is_none() {
+        return "❌ Balance not found".to_string();
+    }
+
+    let balance_i64 = balance_i64.unwrap();
+
+    if balance_i64 < amount as i64 {
+        return "❌ Insufficient balance".to_string();
+    }
+
+    let url = format!("{}/fund?coin={}&amount={}", app_url, symbol, amount);
 
     url
 }

@@ -4,6 +4,7 @@ use crate::{
         command_image_collector::CommandImageCollector, handler::handle_file_upload,
         media_aggregator::MediaGroupAggregator,
     },
+    bot::hooks::{fund_account_hook, withdraw_funds_hook},
     credentials::dto::CredentialsPayload,
     utils,
 };
@@ -18,9 +19,7 @@ use crate::{
 use open_ai_rust_responses_by_sshift::Model;
 use open_ai_rust_responses_by_sshift::types::Effort;
 use open_ai_rust_responses_by_sshift::types::{ReasoningParams, SummarySetting};
-use quark_core::helpers::{
-    bot_commands::Command, jwt::JwtManager, utils::extract_url_from_markdown,
-};
+use quark_core::helpers::{bot_commands::Command, jwt::JwtManager};
 use regex;
 use reqwest::Url;
 use sled::{Db, Tree};
@@ -594,39 +593,27 @@ pub async fn handle_chat(
                     .caption(response.text)
                     .parse_mode(ParseMode::Markdown)
                     .await?;
-            } else if response.tool_calls.is_some()
-                && response
-                    .tool_calls
-                    .unwrap()
+            } else if let Some(ref tool_calls) = response.tool_calls {
+                if tool_calls
                     .iter()
                     .any(|tool_call| tool_call.name == "withdraw_funds")
-            {
-                let url = extract_url_from_markdown(&response.text);
-
-                if url.is_none() {
-                    bot.send_message(msg.chat.id, "❌ Unable to extract URL from response.")
+                {
+                    withdraw_funds_hook(bot, msg, response.text).await?;
+                } else if tool_calls
+                    .iter()
+                    .any(|tool_call| tool_call.name == "fund_account")
+                {
+                    fund_account_hook(bot, msg, response.text).await?;
+                } else {
+                    let html_text = utils::markdown_to_html(&response.text);
+                    bot.send_message(msg.chat.id, html_text)
+                        .parse_mode(ParseMode::Html)
                         .await?;
-                    return Ok(());
                 }
-
-                let url = url.unwrap();
-
-                let url = Url::parse(&url).expect("Invalid URL");
-
-                let web_app_info = WebAppInfo { url };
-
-                let withdraw_funds_button =
-                    InlineKeyboardButton::web_app("Withdraw Funds", web_app_info);
-
-                let withdraw_funds_markup =
-                    InlineKeyboardMarkup::new(vec![vec![withdraw_funds_button]]);
-
-                bot.send_message(msg.chat.id, "Click the button below to withdraw funds")
-                    .reply_markup(withdraw_funds_markup)
-                    .await?;
             } else {
-                bot.send_message(msg.chat.id, response.text)
-                    .parse_mode(ParseMode::Markdown)
+                let html_text = utils::markdown_to_html(&response.text);
+                bot.send_message(msg.chat.id, html_text)
+                    .parse_mode(ParseMode::Html)
                     .await?;
             }
         }
