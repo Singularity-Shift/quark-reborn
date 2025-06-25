@@ -229,15 +229,10 @@ impl AI {
                 // Handle vector store not found errors
                 if error_msg.contains("Vector store") && error_msg.contains("not found") {
                     log::warn!("Vector store not found, clearing orphaned reference for user {}", user_id);
-                    // Clear the orphaned vector store ID from database
-                    if let Err(clear_err) = user_convos.set_vector_store_id(user_id, "") {
-                        log::error!("Failed to clear orphaned vector store ID: {}", clear_err);
+                    // Centralized cleanup
+                    if let Err(clear_err) = user_convos.cleanup_orphaned_vector_store(user_id) {
+                        log::error!("Failed to clean up orphaned vector store: {}", clear_err);
                     }
-                    // Clear associated files
-                    if let Err(clear_err) = user_convos.clear_files(user_id) {
-                        log::error!("Failed to clear files after vector store cleanup: {}", clear_err);
-                    }
-                    
                     // Return a user-friendly error with suggestion to upload files
                     return Err(anyhow::anyhow!(
                         "Your document library is no longer available (vector store deleted). Please upload files again using /add_files to create a new document library."
