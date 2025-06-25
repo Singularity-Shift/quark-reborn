@@ -9,3 +9,5 @@ demo_script.rs
 .env
 .aptos/
 .vscode/
+
+cargo-check.log
