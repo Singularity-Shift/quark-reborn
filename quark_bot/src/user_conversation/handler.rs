@@ -97,18 +97,11 @@ impl UserConversations {
         self.set_user_data(user_id, &data)
     }
 
-    // --- New image URL helpers ---
-    pub fn set_last_image_urls(&self, user_id: i64, urls: &[String]) -> sled::Result<()> {
+    /// Clean up orphaned vector store references when vector store is not found in OpenAI
+    pub fn cleanup_orphaned_vector_store(&self, user_id: i64) -> sled::Result<()> {
         let mut data = self.get_user_data(user_id).unwrap_or_default();
-        data.last_image_urls = urls.to_vec();
+        data.vector_store_id = None;
+        data.files.clear();
         self.set_user_data(user_id, &data)
-    }
-
-    /// Retrieve and clear stored image URLs (so they are used only once)
-    pub fn take_last_image_urls(&self, user_id: i64) -> Vec<String> {
-        let mut data = self.get_user_data(user_id).unwrap_or_default();
-        let urls = std::mem::take(&mut data.last_image_urls);
-        let _ = self.set_user_data(user_id, &data);
-        urls
     }
 }
