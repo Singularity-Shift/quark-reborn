@@ -1253,11 +1253,23 @@ pub async fn execute_pay_users(
     let user_addresses = users
         .iter()
         .map(|u| {
-            let user_data = get_credentials(u.as_str(), tree.clone()).unwrap();
+            let user_data = get_credentials(u.as_str(), tree.clone());
 
-            user_data.resource_account_address
+            if user_data.is_none() {
+                log::error!("❌ User not found");
+                return None;
+            }
+
+            user_data
         })
+        .filter(|u| u.is_some())
+        .map(|u| u.unwrap().resource_account_address)
         .collect::<Vec<_>>();
+
+    if user_addresses.is_empty() {
+        log::error!("❌ No users found");
+        return "❌ No users found".to_string();
+    }
 
     let user_credentials = get_credentials(&username, tree.clone());
 
