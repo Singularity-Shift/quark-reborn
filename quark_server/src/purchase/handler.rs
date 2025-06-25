@@ -59,7 +59,7 @@ pub async fn purchase(
         })?;
 
     let payload = TransactionPayload::EntryFunction(EntryFunction::new(
-        ModuleId::new(contract_address, "user".to_string()),
+        ModuleId::new(contract_address, "user_v3".to_string()),
         "pay_ai".to_string(),
         vec![token_type],
         vec![account_address.into(), amount.to_le_bytes().to_vec()],

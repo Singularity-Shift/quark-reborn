@@ -9,7 +9,7 @@ use crate::error::ErrorServer;
 
 pub fn get_admin() -> Result<(AccountAddress, Ed25519PrivateKey), ErrorServer> {
     let private_key = env::var("PRIVATE_KEY").expect("PRIVATE_KEY environment variable not set");
-    let private_key = private_key.trim_matches('"');
+    let private_key = private_key.trim_matches('"').trim_start_matches("0x");
 
     let mut seed = [0u8; 32];
     let hex_bytes = hex::decode(&private_key).unwrap();

@@ -1,0 +1,78 @@
+version: '3.8'
+
+services:
+  quark-server:
+    build:
+      context: .
+      dockerfile: quark_server/Dockerfile
+    ports:
+      - "3200:3200"
+    environment:
+      - SERVER_DOMAIN=0.0.0.0:8000
+      - APTOS_NETWORK=${APTOS_NETWORK}
+      - PRIVATE_KEY=${PRIVATE_KEY}
+      - CONTRACT_ADDRESS=${CONTRACT_ADDRESS}
+      - TOKEN_PAYMENT_ADDRESS=${TOKEN_PAYMENT_ADDRESS}
+      - SECRET=${SECRET}
+    networks:
+      - quark-net
+
+  quark-bot-debug:
+    build:
+      context: .
+      dockerfile: quark_bot/Dockerfile.debug
+    depends_on:
+      - quark-server
+    ports:
+      - "1234:1234"  # Debug port
+    environment:
+      - TELOXIDE_TOKEN=${TELOXIDE_TOKEN}
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - STORAGE_CREDENTIALS=${STORAGE_CREDENTIALS}
+      - GCS_BUCKET_NAME=${GCS_BUCKET_NAME}
+      - APTOS_NETWORK=${APTOS_NETWORK}
+      - PANORA_URL=${PANORA_URL}
+      - PANORA_API_KEY=${PANORA_API_KEY}
+      - TIME_API_BASE_URL=${TIME_API_BASE_URL}
+      - SLED_URL=${SLED_URL}
+      - SECRET=${SECRET}
+      - APP_URL=${APP_URL}
+      - RUST_BACKTRACE=1
+      - BACKEND_URL=${BACKEND_URL}
+    networks:
+      - quark-net
+    volumes:
+      - quark-data:/app/quark_data
+      - ./quark_bot/src:/app/quark_bot/src:ro  # Mount source for hot reload
+      - ./quark_core/src:/app/quark_core/src:ro
+      - ./target/debug/quark_bot:/app/quark_bot/quark_bot:ro  # Use locally built binary
+    # Override command to run with gdbserver for remote debugging
+    command: ["gdbserver", ":1234", "./quark_bot"]
+    stdin_open: true
+    tty: true
+    cap_add:
+      - SYS_PTRACE
+    security_opt:
+      - seccomp:unconfined
+
+  quark-webhook:
+    build:
+      context: .
+      dockerfile: quark-webhook/Dockerfile
+    ports:
+      - "3000:3000"
+    environment:
+      - NEXT_PUBLIC_EXPLORER_URL=${NEXT_PUBLIC_EXPLORER_URL}
+      - ACCOUNT_SEED=${ACCOUNT_SEED}
+      - APTOS_NODE_URL=${APTOS_NODE_URL}
+      - APTOS_INDEXER=${APTOS_INDEXER}
+      - NEXT_PUBLIC_APTOS_NETWORK=${NEXT_PUBLIC_APTOS_NETWORK}
+    networks:
+      - quark-net
+
+volumes:
+  quark-data:
+
+networks:
+  quark-net:
+    driver: bridge 
