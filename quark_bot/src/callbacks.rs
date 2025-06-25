@@ -113,9 +113,18 @@ pub async fn handle_callback_query(
                     }
                     Err(e) => {
                         log::error!("File deletion failed: {}", e);
-                        bot.answer_callback_query(query.id)
-                            .text(&format!("❌ Failed to delete file. Error: {}", e))
-                            .await?;
+                        let error_msg = e.to_string();
+                        
+                        // Check if it's a vector store not found error
+                        if error_msg.contains("document library is no longer available") {
+                            bot.answer_callback_query(query.id)
+                                .text("📁 Your document library was removed. Use /add_files to create a new one!")
+                                .await?;
+                        } else {
+                            bot.answer_callback_query(query.id)
+                                .text(&format!("❌ Failed to delete file. Error: {}", e))
+                                .await?;
+                        }
                     }
                 }
             } else {
