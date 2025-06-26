@@ -13,7 +13,7 @@ use base64::{Engine as _, engine::general_purpose};
 use open_ai_rust_responses_by_sshift::types::{
     Container, Include, InputItem, ReasoningParams, Response, ResponseItem, Tool, ToolChoice,
 };
-use open_ai_rust_responses_by_sshift::{Client as OAIClient, FunctionCallInfo, Model, Request};
+use open_ai_rust_responses_by_sshift::{Client as OAIClient, FunctionCallInfo, Model, Request, RecoveryPolicy};
 use serde_json;
 use sled::{Db, Tree};
 use teloxide::types::Message;
@@ -52,8 +52,11 @@ impl AI {
 
         let system_prompt = get_prompt();
 
-        let openai_client =
-            OAIClient::new(&openai_api_key).expect("Failed to create OpenAI client");
+        // Use default recovery policy for container expiration handling
+        // This provides automatic retry with 1 attempt for seamless experience
+        let recovery_policy = RecoveryPolicy::default();
+        let openai_client = OAIClient::new_with_recovery(&openai_api_key, recovery_policy)
+            .expect("Failed to create OpenAI client with recovery policy");
 
         let panora = Panora::new();
         let service = Services::new();
@@ -268,41 +271,6 @@ impl AI {
                             return Err(retry_err.into());
                         }
                     }
-                }
-                // If it's a "No tool output found" error or reasoning item error, clear conversation history and retry
-                else if error_msg.contains("No tool output found")
-                    || error_msg.contains("was provided without its required following item")
-                {
-                    log::warn!(
-                        "Detected stale tool call error, clearing conversation history and retrying"
-                    );
-                    user_convos.clear_response_id(user_id)?;
-
-                    // Rebuild request without previous_response_id
-                    let retry_request = Request::builder()
-                        .model(Model::GPT4o)
-                        .instructions(self.system_prompt.clone())
-                        .tools(tools.clone())
-                        .tool_choice(ToolChoice::auto())
-                        .parallel_tool_calls(true)
-                        .max_output_tokens(1000)
-                        .temperature(0.5)
-                        .user(&format!("user-{}", user_id))
-                        .store(true)
-                        .input(input)
-                        .build();
-
-                    log::info!("Retrying OpenAI API call without conversation history");
-                    match self.openai_client.responses.create(retry_request).await {
-                        Ok(response) => {
-                            log::info!("Retry successful, response ID: {}", response.id());
-                            response
-                        }
-                        Err(retry_err) => {
-                            log::error!("Retry also failed: {}", retry_err);
-                            return Err(retry_err.into());
-                        }
-                    }
                 } else {
                     return Err(e.into());
                 }
@@ -445,30 +413,12 @@ impl AI {
         let mut reply = current_response.output_text();
         let response_id = current_response.id().to_string();
 
-        // Check if response contains completed code interpreter containers
-        // Only filter for O-series models that have the reasoning item bug
-        let should_filter_containers = matches!(
-            model,
-            Model::O3 | Model::O4Mini | Model::O1 | Model::O1Mini | Model::O1Preview
+        // Save response ID for future conversation context (remove O-series container check)
+        user_convos.set_response_id(user_id, &response_id)?;
+        log::info!(
+            "Saved response ID {} for future conversation context",
+            response_id
         );
-        let has_completed_code_interpreter = should_filter_containers && current_response.output.iter().any(|item| {
-            matches!(item, ResponseItem::CodeInterpreterCall { status, .. } if status == "completed")
-        });
-
-        // Only save response ID if it doesn't contain completed code interpreter containers (for O-series models)
-        // This prevents the "reasoning item" error on follow-up requests
-        if !has_completed_code_interpreter {
-            user_convos.set_response_id(user_id, &response_id)?;
-            log::info!(
-                "Saved response ID {} for future conversation context",
-                response_id
-            );
-        } else {
-            log::info!(
-                "Response {} contains completed code interpreter containers, not saving as previous_response_id to avoid OpenAI O-series API bug",
-                response_id
-            );
-        }
 
         let mut image_data: Option<Vec<u8>> = None;
         for item in &current_response.output {
