@@ -34,6 +34,12 @@ pub async fn answers(
         Command::C(prompt) => {
             if prompt.trim().is_empty() && msg.photo().is_some() {
                 cmd_collector.add_command(ai, msg, tree).await;
+            } else if prompt.trim().is_empty() {
+                bot.send_message(
+                    msg.chat.id,
+                    "Please include a message after /c, e.g. /c What is the weather today?",
+                )
+                .await?;
             } else {
                 handle_chat(bot, msg, ai, db, tree, prompt).await?;
             }
@@ -41,6 +47,12 @@ pub async fn answers(
         Command::R(prompt) => {
             if prompt.trim().is_empty() && msg.photo().is_some() {
                 cmd_collector.add_command(ai, msg, tree).await;
+            } else if prompt.trim().is_empty() {
+                bot.send_message(
+                    msg.chat.id,
+                    "Please include a message after /r, e.g. /r Explain quantum entanglement.",
+                )
+                .await?;
             } else {
                 handle_reasoning_chat(bot, msg, ai, db, tree, prompt).await?;
             }
