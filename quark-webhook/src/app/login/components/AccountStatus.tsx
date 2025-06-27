@@ -47,11 +47,6 @@ export const AccountStatus = ({
     }
   };
 
-  const closeApp = () => {
-    hapticFeedback.impactOccurred("light");
-    closeMiniApp();
-  };
-
   if (!isReady) {
     return (
       <Section className="min-h-screen flex flex-col items-center justify-center">
@@ -262,42 +257,6 @@ export const AccountStatus = ({
             </div>
           </Cell>
         </Card>
-        <Button
-          size="l"
-          stretched
-          mode="filled"
-          onClick={closeApp}
-          style={{
-            backgroundColor: "#009F11",
-          }}
-        >
-          <div
-            style={{
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              gap: "8px",
-            }}
-          >
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
-              <path
-                d="M18 6L6 18"
-                stroke="currentColor"
-                strokeWidth="2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              />
-              <path
-                d="M6 6l12 12"
-                stroke="currentColor"
-                strokeWidth="2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              />
-            </svg>
-            <span>Close Quark AI</span>
-          </div>
-        </Button>
       </Section>
     </div>
   );
