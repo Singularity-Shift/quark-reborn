@@ -1335,17 +1335,17 @@ pub async fn execute_get_wallet_address(msg: Message, tree: Tree) -> String {
 
     if user_credentials.is_none() {
         log::error!("❌ User credentials not found for username: {}", username);
-        return "Unable to retrieve wallet address: No wallet found for your account. Please create a wallet first using the wallet creation tools.".to_string();
+        return "Unable to retrieve wallet address: No wallet found for your account. Please create a wallet first using the create wallet tool.".to_string();
     }
 
     let user_credentials = user_credentials.unwrap();
 
     let wallet_address = user_credentials.account_address;
 
-    log::info!("✅ Retrieved wallet address for user: {}", username);
+    log::info!("✅ Successfully retrieved wallet address for user: {}", username);
     
-    // Return wallet address in code block format for cleaner AI processing
-    format!("Your wallet address is:\n```\n{}\n```", wallet_address)
+    // Format the wallet address as an HTML code block for better presentation
+    format!("Your wallet address is:\n\n<code>{}</code>", wallet_address)
 }
 
 pub async fn execute_get_balance(
