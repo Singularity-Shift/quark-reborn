@@ -1317,7 +1317,7 @@ pub async fn execute_get_wallet_address(msg: Message, tree: Tree) -> String {
 
     if user.is_none() {
         log::error!("❌ User not found");
-        return "❌ User not found".to_string();
+        return "Unable to retrieve wallet address: User not found. Please try again.".to_string();
     }
 
     let user = user.unwrap();
@@ -1326,7 +1326,7 @@ pub async fn execute_get_wallet_address(msg: Message, tree: Tree) -> String {
 
     if username.is_none() {
         log::error!("❌ Username not found");
-        return "❌ Username not found".to_string();
+        return "Unable to retrieve wallet address: You need to set a Telegram username first. Please go to Telegram Settings and set a username, then try again.".to_string();
     }
 
     let username = username.unwrap();
@@ -1334,15 +1334,18 @@ pub async fn execute_get_wallet_address(msg: Message, tree: Tree) -> String {
     let user_credentials = get_credentials(&username, tree.clone());
 
     if user_credentials.is_none() {
-        log::error!("❌ User not found");
-        return "❌ User not found".to_string();
+        log::error!("❌ User credentials not found for username: {}", username);
+        return "Unable to retrieve wallet address: No wallet found for your account. Please create a wallet first using the wallet creation tools.".to_string();
     }
 
     let user_credentials = user_credentials.unwrap();
 
-    let wallet_address = user_credentials.resource_account_address;
+    let wallet_address = user_credentials.account_address;
 
-    wallet_address
+    log::info!("✅ Retrieved wallet address for user: {}", username);
+    
+    // Return wallet address in code block format for cleaner AI processing
+    format!("Your wallet address is:\n```\n{}\n```", wallet_address)
 }
 
 pub async fn execute_get_balance(
