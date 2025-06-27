@@ -446,10 +446,19 @@ pub async fn handle_reasoning_chat(
             // Check for image data and send as a photo if present
             if let Some(image_data) = response.image_data {
                 let photo = InputFile::memory(image_data);
+                let caption = if response.text.len() > 1024 {
+                    &response.text[..1024]
+                } else {
+                    &response.text
+                };
                 bot.send_photo(msg.chat.id, photo)
-                    .caption(response.text)
+                    .caption(caption)
                     .parse_mode(ParseMode::Markdown)
                     .await?;
+                // If the text is longer than 1024, send the rest as a follow-up message
+                if response.text.len() > 1024 {
+                    send_long_message(&bot, msg.chat.id, &response.text[1024..]).await?;
+                }
             } else {
                 let text_to_send = if response.text.is_empty() {
                     "_(The model processed the request but returned no text.)_".to_string()
