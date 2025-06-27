@@ -141,9 +141,8 @@ impl AI {
         // Add code interpreter for Python code execution
         tools.push(Tool::code_interpreter(Some(Container::auto_type())));
 
-        if model != Model::O3 {
-            tools.push(Tool::web_search_preview());
-        }
+        // Add web search for all models
+        tools.push(Tool::web_search_preview());
 
         if let Some(vs_id) = vector_store_id.clone() {
             if !vs_id.is_empty() {
