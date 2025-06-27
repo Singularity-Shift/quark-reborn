@@ -13,7 +13,7 @@ use std::env;
 use dotenvy::dotenv;
 use router::router;
 
-#[tokio::main]
+#[tokio::main(flavor = "multi_thread", worker_threads = 4)]
 async fn main() {
     dotenv().ok();
     tracing_subscriber::fmt::init();
