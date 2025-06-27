@@ -431,7 +431,7 @@ pub async fn handle_reasoning_chat(
             None,
             Some(
                 ReasoningParams::new()
-                    .with_effort(Effort::High)
+                    .with_effort(Effort::Low)
                     .with_summary(SummarySetting::Detailed),
             ),
         )
