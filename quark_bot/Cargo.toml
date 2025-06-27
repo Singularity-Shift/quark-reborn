@@ -22,7 +22,7 @@ aptos-crypto-derive = { workspace = true }
 regex = "1.10.5"
 dashmap = "5.5.3"
 tracing = "0.1.41"
-open-ai-rust-responses-by-sshift = "0.2.5"
+open-ai-rust-responses-by-sshift = "0.2.6"
 base64 = "0.22.1"
 cloud-storage = "0.11.1"
 uuid = { version = "1.9.1", features = ["v4"] }
