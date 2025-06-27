@@ -99,7 +99,9 @@ fn split_message(text: &str) -> Vec<String> {
 
 /// Send a potentially long message, splitting it into multiple messages if necessary
 async fn send_long_message(bot: &Bot, chat_id: ChatId, text: &str) -> AnyResult<()> {
-    let chunks = split_message(text);
+    // Convert markdown to HTML to avoid Telegram parsing issues
+    let html_text = utils::markdown_to_html(text);
+    let chunks = split_message(&html_text);
 
     for (i, chunk) in chunks.iter().enumerate() {
         if i > 0 {
@@ -108,7 +110,7 @@ async fn send_long_message(bot: &Bot, chat_id: ChatId, text: &str) -> AnyResult<
         }
 
         bot.send_message(chat_id, chunk)
-            .parse_mode(ParseMode::Markdown)
+            .parse_mode(ParseMode::Html)
             .await?;
     }
 
@@ -424,7 +426,7 @@ pub async fn handle_reasoning_chat(
             tree,
             image_url_from_reply,
             user_uploaded_image_urls,
-            Model::O3,
+            Model::O4Mini,
             20000,
             None,
             Some(
