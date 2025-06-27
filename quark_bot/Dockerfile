@@ -8,7 +8,7 @@ WORKDIR /app/quark_bot
 COPY quark_bot/Cargo.toml ./
 COPY quark_core/Cargo.toml ../quark_core/
 COPY quark_server/Cargo.toml ../quark_server/
-COPY Cargo.toml Cargo.lock ../
+COPY Cargo.toml ../
 
 # Copy the source code
 COPY quark_bot/src/ ./src/
