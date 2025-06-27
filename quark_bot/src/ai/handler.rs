@@ -375,7 +375,7 @@ impl AI {
                 // Submit tool outputs using Responses API pattern (with_function_outputs)
                 let mut continuation_builder = Request::builder()
                     .model(model.clone())
-                    .with_function_outputs(current_response.id(), function_outputs.clone())
+                    .with_function_outputs(current_response.id(), function_outputs)
                     .tools(tools.clone()) // Keep tools available for follow-ups
                     .instructions(self.system_prompt.clone())
                     .parallel_tool_calls(true)
@@ -393,47 +393,13 @@ impl AI {
 
                 let continuation_request = continuation_builder.build();
 
-                log::info!("Making continuation request to OpenAI with response_id: {} and {} function outputs", current_response.id(), function_outputs.len());
-                
-                // Log function outputs for debugging
-                for (call_id, output) in &function_outputs {
-                    log::debug!("Function output for call_id {}: {}", call_id, output);
-                }
-                
-                match self
+                log::info!("Making continuation request to OpenAI");
+                current_response = self
                     .openai_client
                     .responses
                     .create(continuation_request)
-                    .await
-                {
-                    Ok(response) => {
-                        log::info!("Continuation request completed successfully");
-                        current_response = response;
-                    }
-                    Err(e) => {
-                        log::error!("Continuation request failed: {}", e);
-                        
-                        // If it's a server error, try to provide a more user-friendly response
-                        let error_msg = e.to_string();
-                        if error_msg.contains("server_error") || error_msg.contains("The server had an error") {
-                            // Return a simplified response without going through the continuation
-                            let simplified_response = if tool_calls.iter().any(|tc| tc.name == "get_wallet_address") {
-                                // Find the wallet address from function outputs
-                                if let Some((_, wallet_output)) = function_outputs.iter().find(|(_, output)| output.contains("wallet address")) {
-                                    wallet_output.clone()
-                                } else {
-                                    "Unable to retrieve wallet address due to a server error. Please try again.".to_string()
-                                }
-                            } else {
-                                "An error occurred while processing your request. Please try again.".to_string()
-                            };
-                            
-                            return Ok(AIResponse::from((simplified_response, None, Some(tool_called))));
-                        }
-                        
-                        return Err(e.into());
-                    }
-                }
+                    .await?;
+                log::info!("Continuation request completed");
             } else {
                 // No custom function calls, break the loop
                 // (Built-in tools like web_search and file_search are handled automatically by OpenAI)
