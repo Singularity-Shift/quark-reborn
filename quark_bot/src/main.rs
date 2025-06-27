@@ -25,7 +25,7 @@ use crate::assets::command_image_collector;
 use crate::assets::media_aggregator;
 use crate::bot::handler_tree::handler_tree;
 
-#[tokio::main]
+#[tokio::main(flavor = "multi_thread", worker_threads = 4)]
 async fn main() {
     dotenvy::dotenv().ok();
     tracing_subscriber::fmt::init();
