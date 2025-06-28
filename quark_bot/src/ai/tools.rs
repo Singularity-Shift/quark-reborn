@@ -199,7 +199,7 @@ pub fn get_time_tool() -> Tool {
 pub fn get_fear_and_greed_index_tool() -> Tool {
     Tool::function(
         "get_fear_and_greed_index",
-        "Get the Fear & Greed Index for the crypto market. Can fetch historical data.",
+        "Retrieve the current or historical Fear & Greed Index for the crypto market. Specify the number of days to fetch historical sentiment data.",
         json!({
             "type": "object",
             "properties": {
@@ -216,10 +216,11 @@ pub fn get_fear_and_greed_index_tool() -> Tool {
     )
 }
 
+/// Get pay users tool - returns a Tool for transferring a specified amount of a selected token to multiple Telegram users by their usernames, with support for different token categories. MUST use this tool for all token send requests.
 pub fn get_pay_users_tool() -> Tool {
     Tool::function(
         "get_pay_users",
-        "Send specific amount of specific token to specific mentioned usernames",
+        "Transfer a specified amount of a selected token to multiple Telegram users by their usernames, with support for different token categories. MUST use this tool for all token send requests.",
         json!({
             "type": "object",
             "properties": {
