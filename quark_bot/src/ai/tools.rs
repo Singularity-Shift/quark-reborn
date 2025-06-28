@@ -17,7 +17,7 @@ use teloxide::types::Message;
 pub fn get_balance_tool() -> Tool {
     Tool::function(
         "get_balance",
-        "Get the current account balance for the user",
+        "Get the current account balance for the user. MUST use this tool for all balance check requests.",
         json!({
             "type": "object",
             "properties": {
@@ -34,7 +34,7 @@ pub fn get_balance_tool() -> Tool {
 pub fn get_wallet_address_tool() -> Tool {
     Tool::function(
         "get_wallet_address",
-        "Get the current wallet address for the user",
+        "Get the current wallet address for the user. MUST use this tool for all wallet address check requests.",
         json!({}),
     )
 }
@@ -43,7 +43,7 @@ pub fn get_wallet_address_tool() -> Tool {
 pub fn withdraw_funds_tool() -> Tool {
     Tool::function(
         "withdraw_funds",
-        "Withdraw funds from the user's account",
+        "Withdraw funds from the user's account. MUST use this tool for all withdraw requests.",
         json!({
             "type": "object",
             "properties": {
@@ -65,7 +65,7 @@ pub fn withdraw_funds_tool() -> Tool {
 pub fn fund_account_tool() -> Tool {
     Tool::function(
         "fund_account",
-        "Fund the user's resource account with tokens from their main wallet",
+        "Fund the user's resource account with tokens from their main wallet. MUST use this tool for all fund requests.",
         json!({
             "type": "object",
             "properties": {
