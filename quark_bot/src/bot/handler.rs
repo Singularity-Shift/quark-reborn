@@ -14,6 +14,7 @@ use crate::{
     ai::{handler::AI, vector_store::list_user_files_with_names},
     credentials::helpers::generate_new_jwt,
     user_conversation::handler::UserConversations,
+    user_model_preferences::handler::{UserModelPreferences, initialize_user_preferences},
 };
 
 use open_ai_rust_responses_by_sshift::Model;
@@ -355,6 +356,17 @@ pub async fn handle_reasoning_chat(
     }
 
     let user_id = user.unwrap().id;
+    let username = user.unwrap().username.as_ref();
+    
+    // Load user's reasoning model preferences
+    let (reasoning_model, effort) = if let Some(username) = username {
+        let prefs_handler = UserModelPreferences::new(&db)?;
+        let preferences = prefs_handler.get_preferences(username);
+        (preferences.reasoning_model.to_openai_model(), preferences.effort)
+    } else {
+        // Fallback to defaults if no username
+        (Model::O4Mini, Effort::Low)
+    };
 
     // --- Vision Support: Check for replied-to images ---
     let mut image_url_from_reply: Option<String> = None;
@@ -426,12 +438,12 @@ pub async fn handle_reasoning_chat(
             tree,
             image_url_from_reply,
             user_uploaded_image_urls,
-            Model::O4Mini,
+            reasoning_model,
             20000,
             None,
             Some(
                 ReasoningParams::new()
-                    .with_effort(Effort::Low)
+                    .with_effort(effort)
                     .with_summary(SummarySetting::Detailed),
             ),
         )
@@ -515,6 +527,17 @@ pub async fn handle_chat(
     }
 
     let user_id = user.unwrap().id;
+    let username = user.unwrap().username.as_ref();
+    
+    // Load user's chat model preferences
+    let (chat_model, temperature) = if let Some(username) = username {
+        let prefs_handler = UserModelPreferences::new(&db)?;
+        let preferences = prefs_handler.get_preferences(username);
+        (preferences.chat_model.to_openai_model(), Some(preferences.temperature))
+    } else {
+        // Fallback to defaults if no username
+        (Model::GPT41Mini, Some(0.6))
+    };
 
     // --- Vision Support: Check for replied-to images ---
     let mut image_url_from_reply: Option<String> = None;
@@ -586,9 +609,9 @@ pub async fn handle_chat(
             tree,
             image_url_from_reply,
             user_uploaded_image_urls,
-            Model::GPT41Mini,
+            chat_model,
             8192,
-            Some(0.5),
+            temperature,
             None,
         )
         .await;
@@ -843,7 +866,7 @@ pub async fn handle_new_chat(
     Ok(())
 }
 
-pub async fn handle_web_app_data(bot: Bot, msg: Message, tree: Tree) -> AnyResult<()> {
+pub async fn handle_web_app_data(bot: Bot, msg: Message, tree: Tree, db: Db) -> AnyResult<()> {
     let web_app_data = msg.web_app_data().unwrap();
     let payload = web_app_data.data.clone();
 
@@ -881,7 +904,7 @@ pub async fn handle_web_app_data(bot: Bot, msg: Message, tree: Tree) -> AnyResul
     let jwt_manager = JwtManager::new();
 
     generate_new_jwt(
-        username,
+        username.clone(),
         user_id,
         payload.account_address,
         payload.resource_account_address,
@@ -889,6 +912,9 @@ pub async fn handle_web_app_data(bot: Bot, msg: Message, tree: Tree) -> AnyResul
         tree,
     )
     .await;
+
+    // Initialize default model preferences for new user
+    let _ = initialize_user_preferences(&username, &db).await;
 
     return Ok(());
 }

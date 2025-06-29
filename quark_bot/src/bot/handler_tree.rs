@@ -39,7 +39,11 @@ pub fn handler_tree() -> Handler<'static, Result<()>, DpHandlerDescription> {
                         .filter(|msg: Message| {
                             msg.web_app_data().is_some() && msg.chat.is_private()
                         })
-                        .endpoint(handle_web_app_data),
+                        .endpoint(
+                            |bot: Bot, msg: Message, tree: sled::Tree, db: sled::Db| async move {
+                                handle_web_app_data(bot, msg, tree, db).await
+                            }
+                        ),
                 )
                 // 0. Intercept media-group photo messages early so we can aggregate
                 //    all images (important for multi-image vision prompts). This
@@ -89,6 +93,8 @@ pub fn handler_tree() -> Handler<'static, Result<()>, DpHandlerDescription> {
                                     | Command::ListFiles
                                     | Command::NewChat
                                     | Command::PromptExamples
+                                    | Command::SelectModel
+                                    | Command::SelectReasoningModel
                             )
                         })
                         .filter_async(auth)

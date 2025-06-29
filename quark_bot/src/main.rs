@@ -8,6 +8,7 @@ mod middleware;
 mod panora;
 mod services;
 mod user_conversation;
+mod user_model_preferences;
 mod utils;
 
 use crate::{
@@ -67,6 +68,8 @@ async fn main() {
         BotCommand::new("newchat", "Start a new conversation thread."),
         BotCommand::new("c", "prompt to chat AI with the bot."),
         BotCommand::new("r", "prompt to chat AI with the bot with reasoning."),
+        BotCommand::new("selectreasoningmodel", "Select reasoning model (O-series) and effort level."),
+        BotCommand::new("selectmodel", "Select chat model (4-series) and temperature."),
     ];
 
     bot.set_my_commands(commands).await.unwrap();

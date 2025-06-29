@@ -1,6 +1,7 @@
 //! Callback query handlers for quark_bot.
 
 use crate::utils;
+use crate::user_model_preferences::callbacks::handle_model_preferences_callback;
 use crate::{
     ai::{
         handler::AI,
@@ -152,6 +153,12 @@ pub async fn handle_callback_query(
                         .await?;
                 }
             }
+        } else if data.starts_with("select_chat_model:") 
+            || data.starts_with("set_temperature:") 
+            || data.starts_with("select_reasoning_model:") 
+            || data.starts_with("set_effort:") {
+            // Handle model preference callbacks
+            handle_model_preferences_callback(bot, query, db).await?;
         } else {
             bot.answer_callback_query(query.id)
                 .text("❌ Unknown action")
