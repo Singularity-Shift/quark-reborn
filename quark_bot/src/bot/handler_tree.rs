@@ -121,6 +121,19 @@ pub fn handler_tree() -> Handler<'static, Result<()>, DpHandlerDescription> {
                         .endpoint(handle_message),
                 )
                 .branch(
+                    // Silently ignore DM-only commands when used in groups
+                    dptree::entry()
+                        .filter_command::<Command>()
+                        .filter(|cmd| {
+                            matches!(
+                                cmd,
+                                Command::SelectModel | Command::SelectReasoningModel | Command::MySettings
+                            )
+                        })
+                        .filter(|msg: Message| !msg.chat.is_private())
+                        .endpoint(|_bot: Bot, _msg: Message| async move { Ok(()) }),
+                )
+                .branch(
                     dptree::entry()
                         .filter_command::<Command>()
                         .endpoint(handle_unauthenticated),
