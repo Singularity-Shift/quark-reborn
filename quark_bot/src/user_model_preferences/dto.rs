@@ -73,6 +73,7 @@ impl ReasoningModel {
 pub fn effort_to_display_string(effort: &Effort) -> &'static str {
     match effort {
         Effort::Low => "Low",
+        Effort::Medium => "Medium",
         Effort::High => "High",
     }
 } 
