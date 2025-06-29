@@ -43,7 +43,7 @@ pub fn get_wallet_address_tool() -> Tool {
 pub fn withdraw_funds_tool() -> Tool {
     Tool::function(
         "withdraw_funds",
-        "Withdraw funds from the user's account. MUST use this tool for all withdraw requests.",
+        "Withdraw funds from the user's account. Important: The assistant must always confirm the withdrawal amount and token with the user before calling this tool, and never invoke it without explicit user confirmation. Strictly follow the protocol described in this tool's description.",
         json!({
             "type": "object",
             "properties": {
@@ -65,7 +65,7 @@ pub fn withdraw_funds_tool() -> Tool {
 pub fn fund_account_tool() -> Tool {
     Tool::function(
         "fund_account",
-        "Fund the user's resource account with tokens from their main wallet. MUST use this tool for all fund requests.",
+        "Fund the user's resource account with tokens from their main wallet. Important: The assistant must always confirm the funding amount and token with the user before calling this tool, and never invoke it without explicit user confirmation. Strictly follow the protocol described in this tool's description.",
         json!({
             "type": "object",
             "properties": {
