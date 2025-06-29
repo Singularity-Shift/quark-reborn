@@ -39,7 +39,11 @@ pub fn handler_tree() -> Handler<'static, Result<()>, DpHandlerDescription> {
                         .filter(|msg: Message| {
                             msg.web_app_data().is_some() && msg.chat.is_private()
                         })
-                        .endpoint(handle_web_app_data),
+                        .endpoint(
+                            |bot: Bot, msg: Message, tree: sled::Tree, db: sled::Db, user_model_prefs: crate::user_model_preferences::handler::UserModelPreferences| async move {
+                                handle_web_app_data(bot, msg, tree, db, user_model_prefs).await
+                            }
+                        ),
                 )
                 // 0. Intercept media-group photo messages early so we can aggregate
                 //    all images (important for multi-image vision prompts). This
@@ -94,6 +98,20 @@ pub fn handler_tree() -> Handler<'static, Result<()>, DpHandlerDescription> {
                         .filter_async(auth)
                         .endpoint(answers),
                 )
+                .branch(
+                    // DM-only authenticated commands
+                    dptree::entry()
+                        .filter_command::<Command>()
+                        .filter(|cmd| {
+                            matches!(
+                                cmd,
+                                Command::SelectModel | Command::SelectReasoningModel | Command::MySettings
+                            )
+                        })
+                        .filter(|msg: Message| msg.chat.is_private())
+                        .filter_async(auth)
+                        .endpoint(answers),
+                )
                 // Fallback for any non-command message in PRIVATE CHATS.
                 // This ensures we still capture file uploads (documents, photos, etc.)
                 // sent via DM while ignoring non-command chatter in groups.
@@ -101,6 +119,26 @@ pub fn handler_tree() -> Handler<'static, Result<()>, DpHandlerDescription> {
                     dptree::entry()
                         .filter(|msg: Message| msg.chat.is_private())
                         .endpoint(handle_message),
+                )
+                .branch(
+                    // Handle DM-only commands when used in groups - direct to DMs
+                    dptree::entry()
+                        .filter_command::<Command>()
+                        .filter(|cmd| {
+                            matches!(
+                                cmd,
+                                Command::SelectModel | Command::SelectReasoningModel | Command::MySettings
+                            )
+                        })
+                        .filter(|msg: Message| !msg.chat.is_private())
+                        .endpoint(|bot: Bot, msg: Message| async move {
+                            bot.send_message(
+                                msg.chat.id,
+                                "❌ This command is only available in direct messages (DMs).\n\n💬 Please send me a private message to use this feature."
+                            )
+                            .await?;
+                            Ok(())
+                        }),
                 )
                 .branch(
                     dptree::entry()
@@ -113,8 +151,9 @@ pub fn handler_tree() -> Handler<'static, Result<()>, DpHandlerDescription> {
              query: teloxide::types::CallbackQuery,
              db: sled::Db,
              user_convos: UserConversations,
+             user_model_prefs: crate::user_model_preferences::handler::UserModelPreferences,
              ai: AI| async move {
-                handle_callback_query(bot, query, db, user_convos, ai).await
+                handle_callback_query(bot, query, db, user_convos, user_model_prefs, ai).await
             },
         ))
 }
