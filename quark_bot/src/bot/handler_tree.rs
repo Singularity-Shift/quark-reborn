@@ -40,8 +40,8 @@ pub fn handler_tree() -> Handler<'static, Result<()>, DpHandlerDescription> {
                             msg.web_app_data().is_some() && msg.chat.is_private()
                         })
                         .endpoint(
-                            |bot: Bot, msg: Message, tree: sled::Tree, db: sled::Db| async move {
-                                handle_web_app_data(bot, msg, tree, db).await
+                            |bot: Bot, msg: Message, tree: sled::Tree, db: sled::Db, user_model_prefs: crate::user_model_preferences::handler::UserModelPreferences| async move {
+                                handle_web_app_data(bot, msg, tree, db, user_model_prefs).await
                             }
                         ),
                 )
@@ -119,8 +119,9 @@ pub fn handler_tree() -> Handler<'static, Result<()>, DpHandlerDescription> {
              query: teloxide::types::CallbackQuery,
              db: sled::Db,
              user_convos: UserConversations,
+             user_model_prefs: crate::user_model_preferences::handler::UserModelPreferences,
              ai: AI| async move {
-                handle_callback_query(bot, query, db, user_convos, ai).await
+                handle_callback_query(bot, query, db, user_convos, user_model_prefs, ai).await
             },
         ))
 }

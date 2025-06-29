@@ -2,14 +2,14 @@ use super::dto::{ChatModel, ReasoningModel, effort_to_display_string};
 use super::handler::{UserModelPreferences, get_temperature_keyboard, get_effort_keyboard};
 use anyhow::Result;
 use open_ai_rust_responses_by_sshift::types::Effort;
-use sled::Db;
+
 use teloxide::prelude::*;
 use teloxide::types::{CallbackQuery, ParseMode};
 
 pub async fn handle_model_preferences_callback(
     bot: Bot,
     query: CallbackQuery,
-    db: Db,
+    user_model_prefs: UserModelPreferences,
 ) -> Result<()> {
     let data = query.data.as_ref().unwrap();
     let user = &query.from;
@@ -23,7 +23,7 @@ pub async fn handle_model_preferences_callback(
     }
     let username = username.unwrap();
 
-    let prefs_handler = UserModelPreferences::new(&db)?;
+    let prefs_handler = &user_model_prefs;
 
     if data.starts_with("select_chat_model:") {
         let model_str = data.strip_prefix("select_chat_model:").unwrap();

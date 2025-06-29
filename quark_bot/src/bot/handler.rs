@@ -329,6 +329,7 @@ pub async fn handle_reasoning_chat(
     ai: AI,
     db: Db,
     tree: Tree,
+    user_model_prefs: UserModelPreferences,
     prompt: String,
 ) -> AnyResult<()> {
     // --- Start Typing Indicator Immediately ---
@@ -360,8 +361,7 @@ pub async fn handle_reasoning_chat(
     
     // Load user's reasoning model preferences
     let (reasoning_model, effort) = if let Some(username) = username {
-        let prefs_handler = UserModelPreferences::new(&db)?;
-        let preferences = prefs_handler.get_preferences(username);
+        let preferences = user_model_prefs.get_preferences(username);
         (preferences.reasoning_model.to_openai_model(), preferences.effort)
     } else {
         // Fallback to defaults if no username
@@ -500,6 +500,7 @@ pub async fn handle_chat(
     ai: AI,
     db: Db,
     tree: Tree,
+    user_model_prefs: UserModelPreferences,
     prompt: String,
 ) -> AnyResult<()> {
     // --- Start Typing Indicator Immediately ---
@@ -531,8 +532,7 @@ pub async fn handle_chat(
     
     // Load user's chat model preferences
     let (chat_model, temperature) = if let Some(username) = username {
-        let prefs_handler = UserModelPreferences::new(&db)?;
-        let preferences = prefs_handler.get_preferences(username);
+        let preferences = user_model_prefs.get_preferences(username);
         (preferences.chat_model.to_openai_model(), Some(preferences.temperature))
     } else {
         // Fallback to defaults if no username
@@ -866,7 +866,7 @@ pub async fn handle_new_chat(
     Ok(())
 }
 
-pub async fn handle_web_app_data(bot: Bot, msg: Message, tree: Tree, db: Db) -> AnyResult<()> {
+pub async fn handle_web_app_data(bot: Bot, msg: Message, tree: Tree, _db: Db, user_model_prefs: UserModelPreferences) -> AnyResult<()> {
     let web_app_data = msg.web_app_data().unwrap();
     let payload = web_app_data.data.clone();
 
@@ -914,7 +914,7 @@ pub async fn handle_web_app_data(bot: Bot, msg: Message, tree: Tree, db: Db) -> 
     .await;
 
     // Initialize default model preferences for new user
-    let _ = initialize_user_preferences(&username, &db).await;
+    let _ = initialize_user_preferences(&username, &user_model_prefs).await;
 
     return Ok(());
 }

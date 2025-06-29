@@ -1,4 +1,5 @@
 use crate::ai::handler::AI;
+use crate::user_model_preferences::handler::UserModelPreferences;
 use dashmap::DashMap;
 use sled::{Db, Tree};
 use std::sync::Arc;
@@ -21,15 +22,17 @@ pub struct CommandImageCollector {
     pendings: DashMap<(ChatId, i64), PendingCmd>,
     bot: Bot,
     db: Db,
+    user_model_prefs: UserModelPreferences,
     debounce_ms: u64,
 }
 
 impl CommandImageCollector {
-    pub fn new(bot: Bot, db: Db) -> Self {
+    pub fn new(bot: Bot, db: Db, user_model_prefs: UserModelPreferences) -> Self {
         Self {
             pendings: DashMap::new(),
             bot,
             db,
+            user_model_prefs,
             debounce_ms: 1000, // 1 second default
         }
     }
@@ -116,6 +119,7 @@ impl CommandImageCollector {
                         ai,
                         self.db.clone(),
                         tree,
+                        self.user_model_prefs.clone(),
                         text.to_string(),
                     )
                     .await
@@ -130,6 +134,7 @@ impl CommandImageCollector {
                         ai,
                         self.db.clone(),
                         tree,
+                        self.user_model_prefs.clone(),
                         text.to_string(),
                     )
                     .await
