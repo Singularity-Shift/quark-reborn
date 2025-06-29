@@ -26,6 +26,10 @@ pub enum Command {
     R(String),
     #[command(description = "Show example prompts.")]
     PromptExamples,
+    #[command(description = "Select reasoning model (O-series) and effort level.")]
+    SelectReasoningModel,
+    #[command(description = "Select chat model (4-series) and temperature.")]
+    SelectModel,
 }
 
 #[derive(Debug, Clone, Default)]
