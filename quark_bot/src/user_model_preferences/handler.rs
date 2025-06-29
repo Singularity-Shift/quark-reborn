@@ -166,6 +166,7 @@ pub fn get_effort_keyboard() -> InlineKeyboardMarkup {
     InlineKeyboardMarkup::new(vec![
         vec![
             InlineKeyboardButton::callback("Low", "set_effort:Low"),
+            InlineKeyboardButton::callback("Medium", "set_effort:Medium"),
             InlineKeyboardButton::callback("High", "set_effort:High"),
         ],
     ])

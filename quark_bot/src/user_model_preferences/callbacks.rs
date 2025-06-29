@@ -143,6 +143,7 @@ pub async fn handle_model_preferences_callback(
         let effort_str = data.strip_prefix("set_effort:").unwrap();
         let effort = match effort_str {
             "Low" => Effort::Low,
+            "Medium" => Effort::Medium,
             "High" => Effort::High,
             _ => Effort::Low, // fallback
         };
