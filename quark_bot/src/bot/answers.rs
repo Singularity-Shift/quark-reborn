@@ -11,7 +11,7 @@ use super::handler::{
     handle_add_files, handle_chat, handle_help, handle_list_files, handle_login_group,
     handle_login_user, handle_new_chat, handle_reasoning_chat,
 };
-use crate::user_model_preferences::handler::{handle_select_model, handle_select_reasoning_model};
+use crate::user_model_preferences::handler::{handle_select_model, handle_select_reasoning_model, handle_my_settings};
 use crate::assets::command_image_collector::CommandImageCollector;
 use crate::bot::handler::handle_aptos_connect;
 
@@ -66,6 +66,7 @@ pub async fn answers(
         }
         Command::SelectModel => handle_select_model(bot, msg, user_model_prefs.clone()).await?,
         Command::SelectReasoningModel => handle_select_reasoning_model(bot, msg, user_model_prefs.clone()).await?,
+        Command::MySettings => handle_my_settings(bot, msg, user_model_prefs.clone()).await?,
     };
     Ok(())
 }

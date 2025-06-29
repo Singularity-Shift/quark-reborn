@@ -108,6 +108,47 @@ pub async fn handle_select_reasoning_model(bot: Bot, msg: Message, _user_model_p
     Ok(())
 }
 
+pub async fn handle_my_settings(bot: Bot, msg: Message, user_model_prefs: UserModelPreferences) -> Result<()> {
+    let user = msg.from.as_ref();
+    if user.is_none() {
+        bot.send_message(msg.chat.id, "❌ Unable to verify user.")
+            .await?;
+        return Ok(());
+    }
+
+    let username = user.unwrap().username.as_ref();
+    if username.is_none() {
+        bot.send_message(msg.chat.id, "❌ Username not found, required for this feature")
+            .await?;
+        return Ok(());
+    }
+
+    // Get user's current preferences
+    let preferences = user_model_prefs.get_preferences(username.unwrap());
+
+    // Format the settings message
+    let settings_text = format!(
+        "⚙️ **Your Current Model Settings**\n\n\
+        💬 **Chat Model (for /c commands):**\n\
+        🤖 Model: {}\n\
+        🌡️ Temperature: {}\n\n\
+        🧠 **Reasoning Model (for /r commands):**\n\
+        🤖 Model: {}\n\
+        ⚡ Effort: {}\n\n\
+        💡 Use /selectmodel or /selectreasoningmodel to change these settings.",
+        preferences.chat_model.to_display_string(),
+        preferences.temperature,
+        preferences.reasoning_model.to_display_string(),
+        super::dto::effort_to_display_string(&preferences.effort)
+    );
+
+    bot.send_message(msg.chat.id, settings_text)
+        .parse_mode(teloxide::types::ParseMode::Markdown)
+        .await?;
+
+    Ok(())
+}
+
 pub fn get_temperature_keyboard() -> InlineKeyboardMarkup {
     InlineKeyboardMarkup::new(vec![
         vec![
