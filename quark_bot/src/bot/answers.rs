@@ -1,5 +1,6 @@
 use crate::ai::handler::AI;
 use crate::user_conversation::handler::UserConversations;
+use crate::user_model_preferences::handler::UserModelPreferences;
 use anyhow::Result;
 use quark_core::helpers::bot_commands::Command;
 use sled::{Db, Tree};
@@ -10,6 +11,7 @@ use super::handler::{
     handle_add_files, handle_chat, handle_help, handle_list_files, handle_login_group,
     handle_login_user, handle_new_chat, handle_reasoning_chat,
 };
+use crate::user_model_preferences::handler::{handle_select_model, handle_select_reasoning_model, handle_my_settings};
 use crate::assets::command_image_collector::CommandImageCollector;
 use crate::bot::handler::handle_aptos_connect;
 
@@ -20,6 +22,7 @@ pub async fn answers(
     db: Db,
     tree: Tree,
     user_convos: UserConversations,
+    user_model_prefs: UserModelPreferences,
     ai: AI,
     cmd_collector: Arc<CommandImageCollector>,
 ) -> Result<()> {
@@ -41,7 +44,7 @@ pub async fn answers(
                 )
                 .await?;
             } else {
-                handle_chat(bot, msg, ai, db, tree, prompt).await?;
+                handle_chat(bot, msg, ai, db, tree, user_model_prefs.clone(), prompt).await?;
             }
         }
         Command::R(prompt) => {
@@ -54,13 +57,16 @@ pub async fn answers(
                 )
                 .await?;
             } else {
-                handle_reasoning_chat(bot, msg, ai, db, tree, prompt).await?;
+                handle_reasoning_chat(bot, msg, ai, db, tree, user_model_prefs.clone(), prompt).await?;
             }
         }
         Command::PromptExamples => {
             bot.send_message(msg.chat.id, "Here are some example prompts you can use:\n\n💰 Wallet & Balance:\n- /prompt \"What's my wallet address?\" or /p \"What's my wallet address?\"\n- /prompt \"Show my balance\" or /p \"Show my balance\"\n- /prompt \"Check my SUI balance\" or /p \"Check my SUI balance\"\n- /prompt \"How much do I have?\" or /p \"How much do I have?\"\n\n💸 Transactions:\n- /prompt \"Send 10 SUI to @username\" or /p \"Send 10 SUI to @username\"\n- /prompt \"Withdraw 5 SUI\" or /p \"Withdraw 5 SUI\"\n- /prompt \"Send 100 SUI to everyone\" or /p \"Send 100 SUI to everyone\"\n\n❓ General:\n- /prompt \"What can you help me with?\" or /p \"What can you help me with?\"\n- /prompt \"Explain how this bot works\" or /p \"Explain how this bot works\"\n\n💡 Tip: Use /p as a shortcut for /prompt!").await?;
             ()
         }
+        Command::SelectModel => handle_select_model(bot, msg, user_model_prefs.clone()).await?,
+        Command::SelectReasoningModel => handle_select_reasoning_model(bot, msg, user_model_prefs.clone()).await?,
+        Command::MySettings => handle_my_settings(bot, msg, user_model_prefs.clone()).await?,
     };
     Ok(())
 }

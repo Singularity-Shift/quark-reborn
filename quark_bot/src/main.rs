@@ -8,11 +8,13 @@ mod middleware;
 mod panora;
 mod services;
 mod user_conversation;
+mod user_model_preferences;
 mod utils;
 
 use crate::{
     ai::{gcs::GcsImageUploader, handler::AI},
     user_conversation::handler::UserConversations,
+    user_model_preferences::handler::UserModelPreferences,
 };
 use quark_core::helpers::bot_commands::QuarkState;
 use std::env;
@@ -42,10 +44,6 @@ async fn main() {
         bot.clone(),
         db.clone(),
     ));
-    let cmd_collector = Arc::new(command_image_collector::CommandImageCollector::new(
-        bot.clone(),
-        db.clone(),
-    ));
 
     let google_cloud = GcsImageUploader::new(&gcs_creds, bucket_name)
         .await
@@ -54,6 +52,13 @@ async fn main() {
     let ai = AI::new(openai_api_key, google_cloud, aptos_network);
 
     let user_convos = UserConversations::new(&db).unwrap();
+    let user_model_prefs = UserModelPreferences::new(&db).unwrap();
+    
+    let cmd_collector = Arc::new(command_image_collector::CommandImageCollector::new(
+        bot.clone(),
+        db.clone(),
+        user_model_prefs.clone(),
+    ));
 
     let auth_db = db.open_tree("auth").unwrap();
 
@@ -67,6 +72,9 @@ async fn main() {
         BotCommand::new("newchat", "Start a new conversation thread."),
         BotCommand::new("c", "prompt to chat AI with the bot."),
         BotCommand::new("r", "prompt to chat AI with the bot with reasoning."),
+        BotCommand::new("selectreasoningmodel", "Select reasoning model (O-series) and effort level."),
+        BotCommand::new("selectmodel", "Select chat model (4-series) and temperature."),
+        BotCommand::new("mysettings", "View your current model preferences (DM only)."),
     ];
 
     bot.set_my_commands(commands).await.unwrap();
@@ -77,6 +85,7 @@ async fn main() {
             auth_db,
             db,
             user_convos,
+            user_model_prefs,
             ai,
             media_aggregator,
             cmd_collector
