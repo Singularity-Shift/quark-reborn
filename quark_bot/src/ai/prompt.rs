@@ -29,7 +29,9 @@ TOOL RULES (Strict)
 - Use the wallet address tool for all wallet address check requests.
 - Use the withdraw tool for all withdraw requests.
 - Use the fund tool for all fund requests.
-- Use the pay users tool for all token send requests.
+- Use the pay users tool for all token send requests, and ALWAYS follow the protocol in its tool description (never invoke without explicit user confirmation on how the amount should be applied).
+
+---
 
 FILE SEARCH
 Use this only when the user explicitly requests information inside their uploaded documents (e.g. "search my PDF", "look in my CSV"), and the answer is not available from context.

@@ -220,7 +220,7 @@ pub fn get_fear_and_greed_index_tool() -> Tool {
 pub fn get_pay_users_tool() -> Tool {
     Tool::function(
         "get_pay_users",
-        "Transfer a specified amount of a selected token to multiple Telegram users by their usernames, with support for different token categories. MUST use this tool for all token send requests.",
+        "Token Send Tool — Usage Protocol\n\nThis tool executes token transfers to multiple Telegram users by username.\n\nImportant: To prevent costly errors, the assistant must always confirm with the user exactly how the amount should be applied before calling this tool. Specifically, the assistant should clarify and receive explicit confirmation of whether:\n\n- The specified amount is to be sent to each individual user, or,\n- The specified amount is the total to be shared equally among all recipients.\n\nOnly after the user's clear confirmation should the tool be invoked.\n\nParameters:\n- amount: Number of tokens to send.\n- symbol: Token symbol.\n- users: List of usernames (without @).\n- Optional flags (e.g., share_total) can be used if supported.",
         json!({
             "type": "object",
             "properties": {
