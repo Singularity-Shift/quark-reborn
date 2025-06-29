@@ -105,7 +105,7 @@ pub fn handler_tree() -> Handler<'static, Result<()>, DpHandlerDescription> {
                         .filter(|cmd| {
                             matches!(
                                 cmd,
-                                Command::SelectModel | Command::SelectReasoningModel
+                                Command::SelectModel | Command::SelectReasoningModel | Command::MySettings
                             )
                         })
                         .filter(|msg: Message| msg.chat.is_private())

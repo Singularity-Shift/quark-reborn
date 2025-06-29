@@ -74,6 +74,7 @@ async fn main() {
         BotCommand::new("r", "prompt to chat AI with the bot with reasoning."),
         BotCommand::new("selectreasoningmodel", "Select reasoning model (O-series) and effort level."),
         BotCommand::new("selectmodel", "Select chat model (4-series) and temperature."),
+        BotCommand::new("mysettings", "View your current model preferences (DM only)."),
     ];
 
     bot.set_my_commands(commands).await.unwrap();
