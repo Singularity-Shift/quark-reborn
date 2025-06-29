@@ -121,7 +121,7 @@ pub fn handler_tree() -> Handler<'static, Result<()>, DpHandlerDescription> {
                         .endpoint(handle_message),
                 )
                 .branch(
-                    // Silently ignore DM-only commands when used in groups
+                    // Handle DM-only commands when used in groups - direct to DMs
                     dptree::entry()
                         .filter_command::<Command>()
                         .filter(|cmd| {
@@ -131,7 +131,14 @@ pub fn handler_tree() -> Handler<'static, Result<()>, DpHandlerDescription> {
                             )
                         })
                         .filter(|msg: Message| !msg.chat.is_private())
-                        .endpoint(|_bot: Bot, _msg: Message| async move { Ok(()) }),
+                        .endpoint(|bot: Bot, msg: Message| async move {
+                            bot.send_message(
+                                msg.chat.id,
+                                "❌ This command is only available in direct messages (DMs).\n\n💬 Please send me a private message to use this feature."
+                            )
+                            .await?;
+                            Ok(())
+                        }),
                 )
                 .branch(
                     dptree::entry()
