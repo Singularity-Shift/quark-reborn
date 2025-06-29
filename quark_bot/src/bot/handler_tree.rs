@@ -93,10 +93,22 @@ pub fn handler_tree() -> Handler<'static, Result<()>, DpHandlerDescription> {
                                     | Command::ListFiles
                                     | Command::NewChat
                                     | Command::PromptExamples
-                                    | Command::SelectModel
-                                    | Command::SelectReasoningModel
                             )
                         })
+                        .filter_async(auth)
+                        .endpoint(answers),
+                )
+                .branch(
+                    // DM-only authenticated commands
+                    dptree::entry()
+                        .filter_command::<Command>()
+                        .filter(|cmd| {
+                            matches!(
+                                cmd,
+                                Command::SelectModel | Command::SelectReasoningModel
+                            )
+                        })
+                        .filter(|msg: Message| msg.chat.is_private())
                         .filter_async(auth)
                         .endpoint(answers),
                 )
