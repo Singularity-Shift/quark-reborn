@@ -30,6 +30,8 @@ pub enum Command {
     SelectReasoningModel,
     #[command(description = "Select chat model (4-series) and temperature.")]
     SelectModel,
+    #[command(description = "View your current model preferences (DM only).")]
+    MySettings,
 }
 
 #[derive(Debug, Clone, Default)]
