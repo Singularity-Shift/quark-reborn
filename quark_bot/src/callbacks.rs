@@ -24,6 +24,7 @@ pub async fn handle_callback_query(
     query: teloxide::types::CallbackQuery,
     db: Db,
     user_convos: UserConversations,
+    user_model_prefs: crate::user_model_preferences::handler::UserModelPreferences,
     ai: AI,
 ) -> Result<()> {
     if let Some(data) = &query.data {
@@ -158,7 +159,7 @@ pub async fn handle_callback_query(
             || data.starts_with("select_reasoning_model:") 
             || data.starts_with("set_effort:") {
             // Handle model preference callbacks
-            handle_model_preferences_callback(bot, query, db).await?;
+            handle_model_preferences_callback(bot, query, user_model_prefs).await?;
         } else {
             bot.answer_callback_query(query.id)
                 .text("❌ Unknown action")

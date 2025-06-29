@@ -49,7 +49,7 @@ impl UserModelPreferences {
     }
 }
 
-pub async fn handle_select_model(bot: Bot, msg: Message, db: Db) -> Result<()> {
+pub async fn handle_select_model(bot: Bot, msg: Message, _user_model_prefs: UserModelPreferences) -> Result<()> {
     let user = msg.from.as_ref();
     if user.is_none() {
         bot.send_message(msg.chat.id, "❌ Unable to verify user.")
@@ -79,7 +79,7 @@ pub async fn handle_select_model(bot: Bot, msg: Message, db: Db) -> Result<()> {
     Ok(())
 }
 
-pub async fn handle_select_reasoning_model(bot: Bot, msg: Message, db: Db) -> Result<()> {
+pub async fn handle_select_reasoning_model(bot: Bot, msg: Message, _user_model_prefs: UserModelPreferences) -> Result<()> {
     let user = msg.from.as_ref();
     if user.is_none() {
         bot.send_message(msg.chat.id, "❌ Unable to verify user.")
@@ -131,14 +131,12 @@ pub fn get_effort_keyboard() -> InlineKeyboardMarkup {
 }
 
 /// Initialize default preferences for a new user
-pub async fn initialize_user_preferences(username: &str, db: &Db) -> Result<()> {
-    let prefs_handler = UserModelPreferences::new(db)?;
-    
+pub async fn initialize_user_preferences(username: &str, user_model_prefs: &UserModelPreferences) -> Result<()> {
     // Only set if user doesn't already have preferences
-    let existing = prefs_handler.tree.get(username)?;
+    let existing = user_model_prefs.tree.get(username)?;
     if existing.is_none() {
         let default_prefs = ModelPreferences::default();
-        prefs_handler.set_preferences(username, &default_prefs)?;
+        user_model_prefs.set_preferences(username, &default_prefs)?;
         log::info!("Initialized default model preferences for user: {}", username);
     }
     
