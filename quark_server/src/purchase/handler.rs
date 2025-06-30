@@ -4,8 +4,8 @@ use aptos_crypto::ed25519::Ed25519PublicKey;
 use aptos_rust_sdk_types::api_types::{
     module_id::ModuleId,
     transaction::{
-        EntryFunction, GenerateSigningMessage, RawTransaction, SignedTransaction,
-        TransactionPayload,
+        EntryFunction, GenerateSigningMessage, RawTransaction, RawTransactionWithData,
+        SignedTransaction, TransactionPayload,
     },
     transaction_authenticator::{AccountAuthenticator, TransactionAuthenticator},
     type_tag::TypeTag,
@@ -111,14 +111,17 @@ pub async fn purchase(
     let gas_unit_price = 100;
     let expiration_timestamp_secs = state.timestamp_usecs / 1000 / 1000 + 60 * 10;
 
-    let raw_transaction = RawTransaction::new(
-        admin,
-        sequence_number,
-        payload,
-        max_gas_amount,
-        gas_unit_price,
-        expiration_timestamp_secs,
-        chain_id,
+    let raw_transaction = RawTransactionWithData::new_multi_agent(
+        RawTransaction::new(
+            admin,
+            sequence_number,
+            payload,
+            max_gas_amount,
+            gas_unit_price,
+            expiration_timestamp_secs,
+            chain_id,
+        ),
+        vec![reviewer],
     );
 
     let message = raw_transaction
@@ -134,7 +137,7 @@ pub async fn purchase(
 
     let simulate_transaction = node
         .simulate_transaction(SignedTransaction::new(
-            raw_transaction.clone(),
+            raw_transaction.raw_txn().to_owned(),
             TransactionAuthenticator::multi_agent(
                 AccountAuthenticator::no_authenticator(),
                 vec![reviewer],
@@ -151,7 +154,7 @@ pub async fn purchase(
 
     let transaction = node
         .simulate_transaction(SignedTransaction::new(
-            raw_transaction,
+            raw_transaction.raw_txn().to_owned(),
             TransactionAuthenticator::multi_agent(
                 AccountAuthenticator::ed25519(Ed25519PublicKey::from(&signer), signature),
                 vec![admin],
