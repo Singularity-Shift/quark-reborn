@@ -5,8 +5,8 @@ use aptos_rust_sdk_types::api_types::{
     address::AccountAddress,
     module_id::ModuleId,
     transaction::{
-        EntryFunction, GenerateSigningMessage, RawTransaction, SignedTransaction,
-        TransactionPayload,
+        EntryFunction, GenerateSigningMessage, RawTransaction, RawTransactionWithData,
+        SignedTransaction, TransactionPayload,
     },
     transaction_authenticator::{AccountAuthenticator, TransactionAuthenticator},
     type_tag::TypeTag,
@@ -157,14 +157,17 @@ pub async fn pay_users(
     let gas_unit_price = 100;
     let expiration_timestamp_secs = state.timestamp_usecs / 1000 / 1000 + 60 * 10;
 
-    let raw_transaction = RawTransaction::new(
-        admin,
-        sequence_number,
-        payload,
-        max_gas_amount,
-        gas_unit_price,
-        expiration_timestamp_secs,
-        chain_id,
+    let raw_transaction = RawTransactionWithData::new_multi_agent(
+        RawTransaction::new(
+            admin,
+            sequence_number,
+            payload,
+            max_gas_amount,
+            gas_unit_price,
+            expiration_timestamp_secs,
+            chain_id,
+        ),
+        vec![reviewer],
     );
 
     let message = raw_transaction
@@ -178,16 +181,15 @@ pub async fn pay_users(
 
     let reviewer_signature = reviewer_signer.sign_message(&message);
 
+    println!("Start simulate transaction");
+
     let simulate_transaction = node
         .simulate_transaction(SignedTransaction::new(
-            raw_transaction.clone(),
+            raw_transaction.raw_txn().to_owned(),
             TransactionAuthenticator::multi_agent(
-                AccountAuthenticator::ed25519(Ed25519PublicKey::from(&signer), signature.clone()),
+                AccountAuthenticator::no_authenticator(),
                 vec![reviewer],
-                vec![AccountAuthenticator::ed25519(
-                    Ed25519PublicKey::from(&reviewer_signer),
-                    reviewer_signature.clone(),
-                )],
+                vec![AccountAuthenticator::no_authenticator()],
             ),
         ))
         .await
@@ -200,7 +202,7 @@ pub async fn pay_users(
 
     let transaction = node
         .submit_transaction(SignedTransaction::new(
-            raw_transaction,
+            raw_transaction.raw_txn().to_owned(),
             TransactionAuthenticator::multi_agent(
                 AccountAuthenticator::ed25519(Ed25519PublicKey::from(&signer), signature),
                 vec![reviewer],

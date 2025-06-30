@@ -27,6 +27,7 @@ pub fn get_admin() -> Result<(AccountAddress, Ed25519PrivateKey), ErrorServer> {
 
 pub fn get_reviewer_priv_acc() -> Result<(AccountAddress, Ed25519PrivateKey), ErrorServer> {
     let reviewer_priv_acc = decrypt_private_key_in_memory().expect("Failed to decrypt private key");
+
     let reviewer_priv_acc = reviewer_priv_acc.trim_matches('"').trim_start_matches("0x");
 
     let mut seed = [0u8; 32];
