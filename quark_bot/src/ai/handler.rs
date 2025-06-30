@@ -139,9 +139,6 @@ impl AI {
             tools.push(Tool::image_generation());
         }
 
-        // Add code interpreter for Python code execution
-        tools.push(Tool::code_interpreter(Some(Container::auto_type())));
-
         // Add web search for all models
         tools.push(Tool::web_search_preview());
 
