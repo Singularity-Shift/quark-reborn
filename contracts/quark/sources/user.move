@@ -1,4 +1,4 @@
-module quark_test::user_v3 {
+module quark_test::user_v4 {
     use std::signer;
     use std::option::{Self, Option};
     use std::account::{Self, SignerCapability};
@@ -11,14 +11,15 @@ module quark_test::user_v3 {
     use aptos_framework::fungible_asset::Metadata;
     use aptos_framework::primary_fungible_store;
     use sshift_gpt::fees;
-    use quark_test::admin_v3;
+    use quark_test::admin_v4;
 
     const EONLY_ADMIN_CAN_CALL: u64 = 1;
-    const ENOT_ENOUGH_FUNDS: u64 = 2;
-    const ENOT_COIN_PAYMENT_SET: u64 = 3;
-    const ECOINS_NOT_MATCH: u64 = 4;
-    const ERESOURCE_ACCOUNT_NOT_EXISTS: u64 = 5;
-    const EAMOUNT_MUST_BE_GREATER_THAN_ZERO: u64 = 6;
+    const EONLY_REVIEWER_CAN_CALL: u64 = 2;
+    const ENOT_ENOUGH_FUNDS: u64 = 3;
+    const ENOT_COIN_PAYMENT_SET: u64 = 4;
+    const ECOINS_NOT_MATCH: u64 = 5;
+    const ERESOURCE_ACCOUNT_NOT_EXISTS: u64 = 6;
+    const EAMOUNT_MUST_BE_GREATER_THAN_ZERO: u64 = 7;
 
     struct Account has key {
         telegram_id: String,
@@ -35,7 +36,7 @@ module quark_test::user_v3 {
 
     public entry fun set_coin_address<CoinType>(sender: &signer) acquires Config {
         let admin_address = signer::address_of(sender);
-        assert!(admin_v3::is_admin(admin_address), EONLY_ADMIN_CAN_CALL);
+        assert!(admin_v4::is_admin(admin_address), EONLY_ADMIN_CAN_CALL);
 
         let config = borrow_global_mut<Config>(@quark_test);
 
@@ -77,16 +78,22 @@ module quark_test::user_v3 {
         aptos_account::transfer_fungible_assets(&resource_account, metadata, user, amount);
     }
 
-    public entry fun pay_ai<CoinType>(sender: &signer, user: address, amount: u64) acquires Account, Config {
-        let admin_address = signer::address_of(sender);
-        assert!(admin_v3::is_admin(admin_address), EONLY_ADMIN_CAN_CALL);
+    public entry fun pay_ai<CoinType>(admin: &signer, reviewer: &signer, user: address, amount: u64) acquires Account, Config {
+        let admin_address = signer::address_of(admin);
+        assert!(admin_v4::is_admin(admin_address), EONLY_ADMIN_CAN_CALL);
+
+        let reviewer_address = signer::address_of(reviewer);
+        assert!(admin_v4::is_reviewer(reviewer_address), EONLY_REVIEWER_CAN_CALL);
 
         pay_ai_fee<CoinType>(user, amount);
     }
 
-    public entry fun pay_to_users_v1<CoinType>(sender: &signer, user: address, amount: u64, recipients: vector<address>) acquires Account {
-        let admin_address = signer::address_of(sender);
-        assert!(admin_v3::is_admin(admin_address), EONLY_ADMIN_CAN_CALL);
+    public entry fun pay_to_users_v1<CoinType>(admin: &signer, reviewer: &signer, user: address, amount: u64, recipients: vector<address>) acquires Account {
+        let admin_address = signer::address_of(admin);
+        assert!(admin_v4::is_admin(admin_address), EONLY_ADMIN_CAN_CALL);
+
+        let reviewer_address = signer::address_of(reviewer);
+        assert!(admin_v4::is_reviewer(reviewer_address), EONLY_REVIEWER_CAN_CALL);
 
         let user_account = borrow_global<Account>(user);
         let resource_account = account::create_signer_with_capability(&user_account.signer_cap);
@@ -96,9 +103,12 @@ module quark_test::user_v3 {
         });   
     }
 
-    public entry fun pay_to_users_v2(sender: &signer, user: address, amount: u64, currency: address, recipients: vector<address>) acquires Account {
-        let admin_address = signer::address_of(sender);
-        assert!(admin_v3::is_admin(admin_address), EONLY_ADMIN_CAN_CALL);
+    public entry fun pay_to_users_v2(admin: &signer, reviewer: &signer, user: address, amount: u64, currency: address, recipients: vector<address>) acquires Account {
+        let admin_address = signer::address_of(admin);
+        assert!(admin_v4::is_admin(admin_address), EONLY_ADMIN_CAN_CALL);
+
+        let reviewer_address = signer::address_of(reviewer);
+        assert!(admin_v4::is_reviewer(reviewer_address), EONLY_REVIEWER_CAN_CALL);
 
         let user_account = borrow_global<Account>(user);
         let resource_account = account::create_signer_with_capability(&user_account.signer_cap);
@@ -147,7 +157,7 @@ module quark_test::user_v3 {
     }
 
     #[test_only]
-    public fun test_init_account(sender: &signer) {
-        init_module(sender);
+    public fun test_init_account(admin: &signer) {
+        init_module(admin);
     }
 }

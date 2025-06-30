@@ -17,7 +17,11 @@ use axum::{
     http::StatusCode,
 };
 
-use crate::{admin::handler::get_admin, error::ErrorServer, state::ServerState};
+use crate::{
+    admin::handler::{get_admin, get_reviewer_priv_acc},
+    error::ErrorServer,
+    state::ServerState,
+};
 use quark_core::helpers::dto::{PayUsersRequest, PayUsersResponse, PayUsersVersion, UserPayload};
 
 #[utoipa::path(
@@ -37,6 +41,11 @@ pub async fn pay_users(
     Json(request): Json<PayUsersRequest>,
 ) -> Result<Json<PayUsersResponse>, ErrorServer> {
     let (admin, signer) = get_admin().map_err(|e| ErrorServer {
+        status: StatusCode::INTERNAL_SERVER_ERROR.into(),
+        message: e.to_string(),
+    })?;
+
+    let (reviewer, reviewer_signer) = get_reviewer_priv_acc().map_err(|e| ErrorServer {
         status: StatusCode::INTERNAL_SERVER_ERROR.into(),
         message: e.to_string(),
     })?;
@@ -77,7 +86,7 @@ pub async fn pay_users(
             })?;
 
             TransactionPayload::EntryFunction(EntryFunction::new(
-                ModuleId::new(contract_address, "user_v3".to_string()),
+                ModuleId::new(contract_address, "user_v4".to_string()),
                 "pay_to_users_v1".to_string(),
                 vec![token_type],
                 vec![
@@ -91,7 +100,7 @@ pub async fn pay_users(
             ))
         }
         PayUsersVersion::V2 => TransactionPayload::EntryFunction(EntryFunction::new(
-            ModuleId::new(contract_address, "user_v3".to_string()),
+            ModuleId::new(contract_address, "user_v4".to_string()),
             "pay_to_users_v2".to_string(),
             vec![],
             vec![
@@ -167,10 +176,19 @@ pub async fn pay_users(
 
     let signature = signer.sign_message(&message);
 
+    let reviewer_signature = reviewer_signer.sign_message(&message);
+
     let simulate_transaction = node
         .simulate_transaction(SignedTransaction::new(
             raw_transaction.clone(),
-            TransactionAuthenticator::single_sender(AccountAuthenticator::no_authenticator()),
+            TransactionAuthenticator::multi_agent(
+                AccountAuthenticator::ed25519(Ed25519PublicKey::from(&signer), signature.clone()),
+                vec![reviewer],
+                vec![AccountAuthenticator::ed25519(
+                    Ed25519PublicKey::from(&reviewer_signer),
+                    reviewer_signature.clone(),
+                )],
+            ),
         ))
         .await
         .map_err(|e| ErrorServer {
@@ -183,7 +201,14 @@ pub async fn pay_users(
     let transaction = node
         .submit_transaction(SignedTransaction::new(
             raw_transaction,
-            TransactionAuthenticator::ed25519(Ed25519PublicKey::from(&signer), signature),
+            TransactionAuthenticator::multi_agent(
+                AccountAuthenticator::ed25519(Ed25519PublicKey::from(&signer), signature),
+                vec![reviewer],
+                vec![AccountAuthenticator::ed25519(
+                    Ed25519PublicKey::from(&reviewer_signer),
+                    reviewer_signature,
+                )],
+            ),
         ))
         .await
         .map_err(|e| ErrorServer {
@@ -191,6 +216,8 @@ pub async fn pay_users(
             message: e.to_string(),
         })?
         .into_inner();
+
+    println!("Transaction: {:?}", transaction);
 
     let pay_users_response: PayUsersResponse =
         serde_json::from_value(transaction).map_err(|e| ErrorServer {

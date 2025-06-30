@@ -15,6 +15,7 @@ services:
       - CONTRACT_ADDRESS=${CONTRACT_ADDRESS}
       - TOKEN_PAYMENT_ADDRESS=${TOKEN_PAYMENT_ADDRESS}
       - SECRET=${SECRET}
+      - GPG_PASSPHRASE=${GPG_PASSPHRASE}
     networks:
       - quark-net
 

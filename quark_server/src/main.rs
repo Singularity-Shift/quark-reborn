@@ -1,6 +1,7 @@
 mod admin;
 mod docs;
 mod error;
+mod gpg;
 mod info;
 mod middlewares;
 mod pay_users;

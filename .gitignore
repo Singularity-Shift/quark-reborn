@@ -11,3 +11,5 @@ demo_script.rs
 .vscode/
 
 cargo-check.log
+*.asc
+*.gpg
