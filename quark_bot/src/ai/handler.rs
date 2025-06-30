@@ -124,6 +124,7 @@ impl AI {
         let user_convos = UserConversations::new(db)?;
         let previous_response_id = user_convos.get_response_id(user_id);
         let mut tool_called: Vec<FunctionCallInfo> = Vec::new();
+        let mut was_container_recovery = false;
 
         let vector_store_id = user_convos.get_vector_store_id(user_id);
 
@@ -241,32 +242,40 @@ impl AI {
                     ));
                 }
 
-                // Handle previous response not found errors  
-                if error_msg.contains("Previous response") && error_msg.contains("not found") {
-                    log::warn!("Previous response not found, clearing conversation history for user {}", user_id);
+                // Handle container expiry and previous response not found errors  
+                let error_lower = error_msg.to_lowercase();
+                if error_lower.contains("container") && (error_lower.contains("expired") || error_lower.contains("not found")) 
+                    || error_msg.contains("Previous response") && error_msg.contains("not found") {
+                    log::warn!("Container expired for user {}, continuing conversation without code interpreter", user_id);
                     user_convos.clear_response_id(user_id)?;
+                    was_container_recovery = true;
                     
-                    // Rebuild request without previous_response_id
-                    let retry_request = Request::builder()
+                    // Rebuild request without code interpreter tool
+                    let mut tools_without_code = tools.clone();
+                    tools_without_code.retain(|tool| {
+                        !matches!(tool.function.as_ref().map(|f| f.name.as_str()), Some("code_interpreter"))
+                    });
+                    
+                    let fallback_request = Request::builder()
                         .model(model.clone())
                         .instructions(self.system_prompt.clone())
-                        .tools(tools.clone())
+                        .tools(tools_without_code) // No code interpreter
                         .tool_choice(ToolChoice::auto())
                         .parallel_tool_calls(true)
                         .max_output_tokens(max_tokens)
                         .user(&format!("user-{}", user_id))
                         .store(true)
-                        .input(input)
+                        .input(&format!("Note: Python code execution is temporarily unavailable. {}", input))
                         .build();
 
-                    log::info!("Retrying OpenAI API call without conversation history");
-                    match self.openai_client.responses.create(retry_request).await {
+                    log::info!("Retrying request without code interpreter for user {}", user_id);
+                    match self.openai_client.responses.create(fallback_request).await {
                         Ok(response) => {
-                            log::info!("Retry successful, response ID: {}", response.id());
+                            log::info!("Fallback successful for user {}", user_id);
                             response
                         }
                         Err(retry_err) => {
-                            log::error!("Retry also failed: {}", retry_err);
+                            log::error!("Fallback also failed: {}", retry_err);
                             return Err(retry_err.into());
                         }
                     }
@@ -411,6 +420,11 @@ impl AI {
         // Extract text and potentially image data from the final response
         let mut reply = current_response.output_text();
         let response_id = current_response.id().to_string();
+        
+        // Append container expiry explanation if this was a recovery
+        if was_container_recovery {
+            reply = format!("{}\n\n---\n*Note: The previous code execution environment expired after 20 minutes of inactivity, so this is a fresh conversation session.*", reply);
+        }
 
         // Save response ID for future conversation context (remove O-series container check)
         user_convos.set_response_id(user_id, &response_id)?;
