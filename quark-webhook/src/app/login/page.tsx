@@ -114,6 +114,12 @@ const LoginPage = () => {
             style={{ color: "var(--tg-theme-hint-color)" }}
           >
             Connect your wallet and create your Quark account
+            <span
+              className="text-sm"
+              style={{ color: "var(--tg-theme-hint-color)" }}
+            >
+              SEED: {ACCOUNT_SEED}
+            </span>
           </p>
         </div>
 
