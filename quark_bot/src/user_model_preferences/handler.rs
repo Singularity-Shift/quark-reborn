@@ -66,9 +66,9 @@ pub async fn handle_select_model(bot: Bot, msg: Message, _user_model_prefs: User
 
     // Step 1: Show chat model selection
     let keyboard = InlineKeyboardMarkup::new(vec![
-        vec![InlineKeyboardButton::callback("GPT-4o", "select_chat_model:GPT4o")],
-        vec![InlineKeyboardButton::callback("GPT-4.1", "select_chat_model:GPT41")],
-        vec![InlineKeyboardButton::callback("GPT-4.1-Mini", "select_chat_model:GPT41Mini")],
+        vec![InlineKeyboardButton::callback("GPT-4o (💰 Expensive)", "select_chat_model:GPT4o")],
+        vec![InlineKeyboardButton::callback("GPT-4.1 (💸 Cheap)", "select_chat_model:GPT41")],
+        vec![InlineKeyboardButton::callback("GPT-4.1-Mini (💵 Cheapest)", "select_chat_model:GPT41Mini")],
     ]);
 
     bot.send_message(msg.chat.id, "🤖 **Select your chat model:**\n\nChoose which model to use for regular chat commands (/c):")
@@ -96,8 +96,8 @@ pub async fn handle_select_reasoning_model(bot: Bot, msg: Message, _user_model_p
 
     // Step 1: Show reasoning model selection
     let keyboard = InlineKeyboardMarkup::new(vec![
-        vec![InlineKeyboardButton::callback("O3", "select_reasoning_model:O3")],
-        vec![InlineKeyboardButton::callback("O4-Mini", "select_reasoning_model:O4Mini")],
+        vec![InlineKeyboardButton::callback("O3 (💰 Expensive)", "select_reasoning_model:O3")],
+        vec![InlineKeyboardButton::callback("O4-Mini (💵 Cheapest)", "select_reasoning_model:O4Mini")],
     ]);
 
     bot.send_message(msg.chat.id, "🧠 **Select your reasoning model:**\n\nChoose which model to use for reasoning commands (/r):")
@@ -164,11 +164,9 @@ pub fn get_temperature_keyboard() -> InlineKeyboardMarkup {
 
 pub fn get_effort_keyboard() -> InlineKeyboardMarkup {
     InlineKeyboardMarkup::new(vec![
-        vec![
-            InlineKeyboardButton::callback("Low", "set_effort:Low"),
-            InlineKeyboardButton::callback("Medium", "set_effort:Medium"),
-            InlineKeyboardButton::callback("High", "set_effort:High"),
-        ],
+        vec![InlineKeyboardButton::callback("Low (💸 Cheap)", "set_effort:Low")],
+        vec![InlineKeyboardButton::callback("Medium (💰 Standard)", "set_effort:Medium")],
+        vec![InlineKeyboardButton::callback("High (💸💸 Very Expensive)", "set_effort:High")],
     ])
 }
 
