@@ -51,22 +51,10 @@ Generate a new image only if the user explicitly requests it (phrases like "draw
 WEB SEARCH
 Use Web Search only if the answer depends on current knowledge unlikely to be in local context, or if the user explicitly asks you to look it up.
 
-CODE INTERPRETER
-Use when users request:
-• Calculations, data analysis, or statistical work
-• Creating plots, charts, or visualisations
-• Processing data files or text analysis
-• Running Python code or algorithms
-• Scientific or mathematical modelling
-
-Explain what the code does and interpret results clearly.
-
 TOOL PRIORITY
 Follow this order if multiple tools could apply:
 
 Direct image analysis
-
-CODE_INTERPRETER
 
 IMAGE_GENERATION
 
