@@ -21,10 +21,11 @@ RUN cargo build --release --bin quark_server
 # Create a new, smaller image for the final application
 FROM debian:bookworm-slim
 
-# Install required system dependencies
+# Install required system dependencies INCLUDING GPG
 RUN apt-get update && apt-get install -y \
     libssl3 \
     ca-certificates \
+    gnupg \
     && rm -rf /var/lib/apt/lists/*
 
 # Set the working directory
@@ -32,6 +33,11 @@ WORKDIR /app/quark_server
 
 # Copy the binary from the builder stage
 COPY --from=builder /app/target/release/quark_server .
+
+# Copy GPG keys if they exist
+COPY *.asc ./
+COPY *.asc ./
+COPY *.gpg ./
 
 # Expose the port the app runs on
 EXPOSE 8000
