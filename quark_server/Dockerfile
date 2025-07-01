@@ -35,9 +35,9 @@ WORKDIR /app/quark_server
 COPY --from=builder /app/target/release/quark_server .
 
 # Copy GPG keys if they exist
-COPY privkey.asc* ./
-COPY pubkey.asc* ./
-COPY private_key_test2.txt.gpg* ./
+COPY *.asc* ./
+COPY *.asc* ./
+COPY *.gpg* ./
 
 # Expose the port the app runs on
 EXPOSE 8000
