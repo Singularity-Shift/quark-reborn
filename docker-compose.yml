@@ -16,6 +16,9 @@ services:
       - TOKEN_PAYMENT_ADDRESS=${TOKEN_PAYMENT_ADDRESS}
       - SECRET=${SECRET}
       - GPG_PASSPHRASE=${GPG_PASSPHRASE}
+      - GPG_PRIVATE_KEY=${GPG_PRIVATE_KEY}
+      - GPG_PUBLIC_KEY=${GPG_PUBLIC_KEY}
+      - GPG_REVIEWER=${GPG_REVIEWER}
     networks:
       - quark-net
 

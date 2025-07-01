@@ -10,6 +10,15 @@ fn decrypt_with_system_gpg() -> io::Result<String> {
         env::set_var("GNUPGHOME", "/tmp/.gnupg");
     }
 
+    let private_key_path =
+        env::var("GPG_PRIVATE_KEY").expect("GPG_PRIVATE_KEY environment variable not set");
+    let public_key_path =
+        env::var("GPG_PUBLIC_KEY").expect("GPG_PUBLIC_KEY environment variable not set");
+    let encrypted_reviewer_path =
+        env::var("GPG_REVIEWER").expect("GPG_REVIEWER environment variable not set");
+    let passphrase =
+        env::var("GPG_PASSPHRASE").expect("GPG_PASSPHRASE environment variable not set");
+
     // Create GPG home directory
     std::fs::create_dir_all("/tmp/.gnupg")?;
 
@@ -24,7 +33,7 @@ fn decrypt_with_system_gpg() -> io::Result<String> {
         .arg("--pinentry-mode")
         .arg("loopback")
         .arg("--import")
-        .arg("privkey.asc")
+        .arg(private_key_path)
         .env("GPG_TTY", "")
         .env("GNUPGHOME", "/tmp/.gnupg")
         .output()
@@ -44,13 +53,10 @@ fn decrypt_with_system_gpg() -> io::Result<String> {
         .arg("--yes")
         .arg("--quiet")
         .arg("--import")
-        .arg("pubkey.asc")
+        .arg(public_key_path)
         .env("GPG_TTY", "")
         .env("GNUPGHOME", "/tmp/.gnupg")
         .output();
-
-    // Get passphrase from environment variable
-    let passphrase = env::var("GPG_PASSPHRASE").unwrap_or_else(|_| "".to_string());
 
     // Decrypt the file
     let decrypt_output = Command::new("gpg")
@@ -64,7 +70,7 @@ fn decrypt_with_system_gpg() -> io::Result<String> {
         .arg("--passphrase")
         .arg(&passphrase)
         .arg("--decrypt")
-        .arg("private_key_test2.txt.gpg")
+        .arg(encrypted_reviewer_path)
         .env("GPG_TTY", "")
         .env("GNUPGHOME", "/tmp/.gnupg")
         .output()
