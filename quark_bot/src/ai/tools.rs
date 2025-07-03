@@ -1,5 +1,5 @@
 use super::actions::{
-    execute_fear_and_greed_index, execute_get_time, execute_get_wallet_address, execute_new_pools,
+    execute_fear_and_greed_index, execute_get_pool_ta_analysis, execute_get_time, execute_get_wallet_address, execute_new_pools,
     execute_pay_users, execute_search_pools, execute_trending_pools,
 };
 use crate::{
@@ -262,6 +262,41 @@ pub fn get_pay_users_tool() -> Tool {
     )
 }
 
+/// Get OHLCV data tool - returns a Tool for fetching OHLCV data for a pool
+pub fn get_pool_ohlcv_tool() -> Tool {
+    Tool::function(
+        "get_pool_ta_analysis",
+        "Get technical analysis (TA) for a specific DEX pool including OHLCV data, chart plotting, and TA indicators. Supports 3 key TA methods: MA Crossover, RSI Divergence, and Bollinger Bands Squeeze.",
+        json!({
+            "type": "object",
+            "properties": {
+                "network": {
+                    "type": "string",
+                    "description": "Blockchain network identifier (e.g., 'aptos', 'eth', 'bsc', etc.)",
+                    "enum": ["aptos", "sui", "eth", "bsc", "polygon_pos", "avax", "ftm", "cro", "arbitrum", "base", "solana"]
+                },
+                "pool_address": {
+                    "type": "string",
+                    "description": "The address of the pool to analyze."
+                },
+                "ta_method": {
+                    "type": "string",
+                    "description": "The technical analysis method to apply",
+                    "enum": ["ma_crossover", "rsi_divergence", "bollinger_squeeze"],
+                    "default": "ma_crossover"
+                },
+                "timeframe": {
+                    "type": "string",
+                    "description": "The timeframe for analysis (e.g., '1h', '4h', '1d'). Recommended: '1d' for MA crossover, '4h' for RSI, '1h' for Bollinger.",
+                    "enum": ["1m", "5m", "15m", "1h", "4h", "1d"],
+                    "default": "1d"
+                }
+            },
+            "required": ["network", "pool_address"]
+        }),
+    )
+}
+
 /// Execute a custom tool and return the result
 pub async fn execute_custom_tool(
     tool_name: &str,
@@ -289,6 +324,7 @@ pub async fn execute_custom_tool(
         "get_current_time" => execute_get_time(arguments).await,
         "get_fear_and_greed_index" => execute_fear_and_greed_index(arguments).await,
         "get_pay_users" => execute_pay_users(arguments, msg, service, tree, panora).await,
+        "get_pool_ta_analysis" => execute_get_pool_ta_analysis(arguments).await,
         _ => {
             format!("Error: Unknown custom tool '{}'", tool_name)
         }
@@ -324,5 +360,6 @@ pub fn get_all_custom_tools() -> Vec<Tool> {
         get_time_tool(),
         get_fear_and_greed_index_tool(),
         get_pay_users_tool(),
+        get_pool_ohlcv_tool(),
     ]
 }

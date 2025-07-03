@@ -1682,3 +1682,135 @@ pub async fn execute_fund_account(
 
     url
 }
+
+/// Execute Technical Analysis for a specific pool using GeckoTerminal OHLCV data
+pub async fn execute_get_pool_ta_analysis(arguments: &serde_json::Value) -> String {
+    // Parse arguments
+    let network = arguments
+        .get("network")
+        .and_then(|v| v.as_str())
+        .unwrap_or("aptos");
+
+    let pool_address = match arguments.get("pool_address").and_then(|v| v.as_str()) {
+        Some(addr) if !addr.trim().is_empty() => addr,
+        _ => {
+            log::error!("Pool TA analysis called without required pool_address parameter");
+            return "❌ Error: 'pool_address' is required for technical analysis.".to_string();
+        }
+    };
+
+    let ta_method = arguments
+        .get("ta_method")
+        .and_then(|v| v.as_str())
+        .unwrap_or("ma_crossover");
+
+    let timeframe = arguments
+        .get("timeframe")
+        .and_then(|v| v.as_str())
+        .unwrap_or("1d");
+
+    // Construct GeckoTerminal OHLCV API URL
+    let url = format!(
+        "https://api.geckoterminal.com/api/v2/networks/{}/pools/{}/ohlcv/{}",
+        network, pool_address, timeframe
+    );
+
+    // Make HTTP request
+    let client = reqwest::Client::new();
+    let result = match client
+        .get(&url)
+        .header("Accept", "application/json")
+        .header("User-Agent", "QuarkBot/1.0")
+        .send()
+        .await
+    {
+        Ok(response) => {
+            if response.status().is_success() {
+                match response.json::<serde_json::Value>().await {
+                    Ok(data) => {
+                        format_ta_analysis_response(&data, network, pool_address, ta_method, timeframe)
+                    }
+                    Err(e) => {
+                        log::error!("Failed to parse OHLCV API response: {}", e);
+                        format!("❌ Error parsing API response: {}", e)
+                    }
+                }
+            } else if response.status() == 404 {
+                log::error!("Pool '{}' not found on network '{}'", pool_address, network);
+                format!(
+                    "❌ Pool '{}' not found on network '{}'. Please check the pool address and network.",
+                    pool_address, network
+                )
+            } else if response.status() == 429 {
+                log::error!("Rate limit exceeded for OHLCV API");
+                "⚠️ Rate limit exceeded. GeckoTerminal allows 30 requests per minute. Please try again later.".to_string()
+            } else {
+                let status = response.status();
+                let error_text = response
+                    .text()
+                    .await
+                    .unwrap_or_else(|_| "Unknown error".to_string());
+                log::error!(
+                    "OHLCV API request failed with status: {} - {}",
+                    status,
+                    error_text
+                );
+                format!(
+                    "❌ API request failed with status: {} - {}",
+                    status, error_text
+                )
+            }
+        }
+        Err(e) => {
+            log::error!(
+                "Network error when calling OHLCV GeckoTerminal API: {}",
+                e
+            );
+            format!("❌ Network error when calling GeckoTerminal API: {}", e)
+        }
+    };
+
+    // Final safety check to prevent empty responses
+    if result.trim().is_empty() {
+        format!(
+            "🔧 Debug: Function completed but result was empty. Pool: {}, Network: {}",
+            pool_address, network
+        )
+    } else {
+        result
+    }
+}
+
+/// Format the technical analysis response with OHLCV data and TA indicators
+fn format_ta_analysis_response(
+    data: &serde_json::Value,
+    network: &str,
+    pool_address: &str,
+    ta_method: &str,
+    timeframe: &str,
+) -> String {
+    // TODO: Implement TA analysis logic based on OHLCV data
+    format!(
+        "📊 **Technical Analysis for Pool on {}**\n\n\
+        🏊 **Pool:** `{}`\n\
+        📈 **Method:** {}\n\
+        ⏰ **Timeframe:** {}\n\n\
+        [TODO: Implement TA calculations and chart generation]\n\n\
+        Raw OHLCV data received: {} candles",
+        network.to_uppercase(),
+        pool_address,
+        match ta_method {
+            "ma_crossover" => "50/200 Moving Average Crossover (Golden/Death Cross)",
+            "rsi_divergence" => "RSI Divergence (14-period)",
+            "bollinger_squeeze" => "Bollinger Bands Squeeze & Pop (20-SMA, 2σ)",
+            _ => "Unknown TA Method"
+        },
+        timeframe,
+        data.get("data")
+            .and_then(|d| d.get("attributes"))
+            .and_then(|attr| attr.get("ohlcv_list"))
+            .and_then(|list| list.as_array())
+            .map(|arr| arr.len())
+            .unwrap_or(0)
+    )
+}
