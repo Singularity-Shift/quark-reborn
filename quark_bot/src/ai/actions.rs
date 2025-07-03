@@ -1708,7 +1708,7 @@ pub async fn execute_get_pool_ta_analysis(arguments: &serde_json::Value) -> Stri
     let timeframe = arguments
         .get("timeframe")
         .and_then(|v| v.as_str())
-        .unwrap_or("1d");
+        .unwrap_or("1h");
 
     // Map user timeframe to API params
     let (api_timeframe, aggregate_opt) = match map_timeframe(timeframe) {
@@ -1837,14 +1837,13 @@ pub async fn execute_get_pool_ta_analysis(arguments: &serde_json::Value) -> Stri
 /// Map user-friendly timeframe to GeckoTerminal API params
 fn map_timeframe(user_timeframe: &str) -> Result<(String, Option<u32>), String> {
     match user_timeframe {
-        "1d" | "day" => Ok(("day".to_string(), None)),
         "1h" | "hour" => Ok(("hour".to_string(), Some(1))),
         "4h" => Ok(("hour".to_string(), Some(4))),
         "12h" => Ok(("hour".to_string(), Some(12))),
         "1m" | "minute" => Ok(("minute".to_string(), Some(1))),
         "5m" => Ok(("minute".to_string(), Some(5))),
         "15m" => Ok(("minute".to_string(), Some(15))),
-        _ => Err(format!("Unsupported timeframe: {}. Use 1d, 1h, 4h, 12h, 1m, 5m, or 15m.", user_timeframe)),
+        _ => Err(format!("Unsupported timeframe: {}. Use 1h, 4h, 12h, 1m, 5m, or 15m.", user_timeframe)),
     }
 }
 

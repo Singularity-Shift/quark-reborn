@@ -81,96 +81,92 @@ fn calculate_bollinger_bands(prices: &[f64], period: usize, std_dev: f64) -> Vec
     bands
 }
 
-/// MA Crossover Analysis (50/200 Golden/Death Cross)
+/// MA Crossover Analysis (20/50 Golden/Death Cross) tuned for <=100 candles
 pub fn calculate_ma_crossover(candles: &[OhlcvCandle]) -> Result<TaAnalysis> {
-    if candles.len() < 200 {
-        return Err(anyhow::anyhow!("Insufficient data for MA crossover analysis (need at least 200 candles)"));
+    if candles.len() < 50 {
+        return Err(anyhow::anyhow!("Insufficient data for MA crossover analysis (need at least 50 candles)"));
     }
-    
+
     let closes: Vec<f64> = candles.iter().map(|c| c.close).collect();
+    let sma20 = calculate_sma(&closes, 20);
     let sma50 = calculate_sma(&closes, 50);
-    let sma200 = calculate_sma(&closes, 200);
-    
-    if sma50.is_empty() || sma200.is_empty() {
+
+    if sma20.is_empty() || sma50.is_empty() {
         return Err(anyhow::anyhow!("Failed to calculate moving averages"));
     }
-    
+
     let current_price = closes.last().unwrap_or(&0.0);
+    let current_sma20 = sma20.last().unwrap_or(&0.0);
     let current_sma50 = sma50.last().unwrap_or(&0.0);
-    let current_sma200 = sma200.last().unwrap_or(&0.0);
-    
+
     // Determine trend
-    let current_trend = if current_sma50 > current_sma200 {
+    let current_trend = if current_sma20 > current_sma50 {
         Trend::Bullish
-    } else if current_sma50 < current_sma200 {
+    } else if current_sma20 < current_sma50 {
         Trend::Bearish
     } else {
         Trend::Neutral
     };
-    
+
     let mut signals = Vec::new();
-    
+
     // Check for recent crossover
-    if sma50.len() >= 2 && sma200.len() >= 2 {
+    if sma20.len() >= 2 && sma50.len() >= 2 {
+        let prev_sma20 = sma20[sma20.len() - 2];
         let prev_sma50 = sma50[sma50.len() - 2];
-        let prev_sma200 = sma200[sma200.len() - 2];
-        
-        // Golden Cross (bullish)
-        if prev_sma50 <= prev_sma200 && current_sma50 > current_sma200 {
+
+        if prev_sma20 <= prev_sma50 && current_sma20 > current_sma50 {
             signals.push(Signal {
                 signal_type: "Golden Cross".to_string(),
                 strength: SignalStrength::Strong,
-                description: "50-MA crossed above 200-MA - Strong bullish signal".to_string(),
+                description: "20-MA crossed above 50-MA - Bullish momentum".to_string(),
                 price_level: Some(*current_price),
             });
-        }
-        // Death Cross (bearish)
-        else if prev_sma50 >= prev_sma200 && current_sma50 < current_sma200 {
+        } else if prev_sma20 >= prev_sma50 && current_sma20 < current_sma50 {
             signals.push(Signal {
                 signal_type: "Death Cross".to_string(),
                 strength: SignalStrength::Strong,
-                description: "50-MA crossed below 200-MA - Strong bearish signal".to_string(),
+                description: "20-MA crossed below 50-MA - Bearish momentum".to_string(),
                 price_level: Some(*current_price),
             });
         }
     }
-    
-    // Price position relative to MAs
-    if current_price > current_sma50 && current_price > current_sma200 {
+
+    // Price relative to MAs
+    if current_price > current_sma20 && current_price > current_sma50 {
         signals.push(Signal {
             signal_type: "Price Above MAs".to_string(),
             strength: SignalStrength::Moderate,
-            description: "Price trading above both moving averages".to_string(),
+            description: "Price trading above both MAs".to_string(),
             price_level: Some(*current_price),
         });
-    } else if current_price < current_sma50 && current_price < current_sma200 {
+    } else if current_price < current_sma20 && current_price < current_sma50 {
         signals.push(Signal {
             signal_type: "Price Below MAs".to_string(),
             strength: SignalStrength::Moderate,
-            description: "Price trading below both moving averages".to_string(),
+            description: "Price trading below both MAs".to_string(),
             price_level: Some(*current_price),
         });
     }
-    
+
     let key_levels = KeyLevels {
-        support: Some(current_sma50.min(*current_sma200)),
-        resistance: Some(current_sma50.max(*current_sma200)),
+        support: Some(current_sma20.min(*current_sma50)),
+        resistance: Some(current_sma20.max(*current_sma50)),
         current_price: *current_price,
     };
-    
+
     let summary = format!(
-        "50-MA: ${:.4} | 200-MA: ${:.4} | Current: ${:.4}\n\
-        Trend: {} | Distance from 50-MA: {:.2}%",
+        "20-MA: ${:.4} | 50-MA: ${:.4} | Current: ${:.4}\nTrend: {} | Gap vs 20-MA: {:.2}%",
+        current_sma20,
         current_sma50,
-        current_sma200,
         current_price,
         current_trend,
-        ((current_price - current_sma50) / current_sma50 * 100.0)
+        ((current_price - current_sma20) / current_sma20 * 100.0)
     );
-    
+
     Ok(TaAnalysis {
-        method: "50/200 Moving Average Crossover".to_string(),
-        timeframe: "".to_string(), // Will be filled by caller
+        method: "20/50 Moving Average Crossover".to_string(),
+        timeframe: "".to_string(),
         current_trend,
         signals,
         key_levels,
@@ -179,10 +175,10 @@ pub fn calculate_ma_crossover(candles: &[OhlcvCandle]) -> Result<TaAnalysis> {
     })
 }
 
-/// RSI Divergence Analysis (14-period)
+/// RSI Divergence Analysis tuned for 100-candle window (14-period RSI)
 pub fn calculate_rsi_divergence(candles: &[OhlcvCandle]) -> Result<TaAnalysis> {
-    if candles.len() < 50 {
-        return Err(anyhow::anyhow!("Insufficient data for RSI divergence analysis (need at least 50 candles)"));
+    if candles.len() < 30 {
+        return Err(anyhow::anyhow!("Insufficient data for RSI divergence analysis (need at least 30 candles)"));
     }
     
     let closes: Vec<f64> = candles.iter().map(|c| c.close).collect();
