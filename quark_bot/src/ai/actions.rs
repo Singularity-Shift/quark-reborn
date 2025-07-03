@@ -7,6 +7,7 @@ use teloxide::types::Message;
 
 use crate::{
     credentials::helpers::get_credentials, panora::handler::Panora, services::handler::Services,
+    ai::ta::{OhlcvCandle, calculate_ma_crossover, calculate_rsi_divergence, calculate_bollinger_squeeze},
 };
 
 /// Execute trending pools fetch from GeckoTerminal
@@ -1709,11 +1710,31 @@ pub async fn execute_get_pool_ta_analysis(arguments: &serde_json::Value) -> Stri
         .and_then(|v| v.as_str())
         .unwrap_or("1d");
 
-    // Construct GeckoTerminal OHLCV API URL
-    let url = format!(
+    // Map user timeframe to API params
+    let (api_timeframe, aggregate_opt) = match map_timeframe(timeframe) {
+        Ok(v) => v,
+        Err(e) => {
+            log::error!("{}", e);
+            return format!("❌ {}", e);
+        }
+    };
+
+    // Construct GeckoTerminal OHLCV API URL with correct params
+    let mut url = format!(
         "https://api.geckoterminal.com/api/v2/networks/{}/pools/{}/ohlcv/{}",
-        network, pool_address, timeframe
+        network, pool_address, api_timeframe
     );
+    let mut query_params = vec![];
+    if let Some(agg) = aggregate_opt {
+        if !(api_timeframe == "day" && agg == 1) { // 'day' only supports aggregate=1, which is default
+            query_params.push(format!("aggregate={}", agg));
+        }
+    }
+    // Optionally add more query params here (limit, currency, etc.)
+    if !query_params.is_empty() {
+        url.push('?');
+        url.push_str(&query_params.join("&"));
+    }
 
     // Make HTTP request
     let client = reqwest::Client::new();
@@ -1728,7 +1749,39 @@ pub async fn execute_get_pool_ta_analysis(arguments: &serde_json::Value) -> Stri
             if response.status().is_success() {
                 match response.json::<serde_json::Value>().await {
                     Ok(data) => {
-                        format_ta_analysis_response(&data, network, pool_address, ta_method, timeframe)
+                        // Parse OHLCV data and run TA analysis
+                        match parse_ohlcv_data(&data) {
+                            Ok(candles) => {
+                                if candles.is_empty() {
+                                    return "❌ No OHLCV data found for this pool/timeframe combination.".to_string();
+                                }
+                                
+                                // Run the appropriate TA analysis
+                                let analysis_result = match ta_method {
+                                    "ma_crossover" => calculate_ma_crossover(&candles),
+                                    "rsi_divergence" => calculate_rsi_divergence(&candles),
+                                    "bollinger_squeeze" => calculate_bollinger_squeeze(&candles),
+                                    _ => {
+                                        return format!("❌ Unknown TA method: {}", ta_method);
+                                    }
+                                };
+                                
+                                match analysis_result {
+                                    Ok(mut analysis) => {
+                                        analysis.timeframe = timeframe.to_string();
+                                        format_ta_analysis_response(&analysis, network, pool_address)
+                                    }
+                                    Err(e) => {
+                                        log::error!("TA calculation failed: {}", e);
+                                        format!("❌ Technical analysis failed: {}", e)
+                                    }
+                                }
+                            }
+                            Err(e) => {
+                                log::error!("Failed to parse OHLCV data: {}", e);
+                                format!("❌ Failed to parse OHLCV data: {}", e)
+                            }
+                        }
                     }
                     Err(e) => {
                         log::error!("Failed to parse OHLCV API response: {}", e);
@@ -1781,36 +1834,121 @@ pub async fn execute_get_pool_ta_analysis(arguments: &serde_json::Value) -> Stri
     }
 }
 
-/// Format the technical analysis response with OHLCV data and TA indicators
+/// Map user-friendly timeframe to GeckoTerminal API params
+fn map_timeframe(user_timeframe: &str) -> Result<(String, Option<u32>), String> {
+    match user_timeframe {
+        "1d" | "day" => Ok(("day".to_string(), None)),
+        "1h" | "hour" => Ok(("hour".to_string(), Some(1))),
+        "4h" => Ok(("hour".to_string(), Some(4))),
+        "12h" => Ok(("hour".to_string(), Some(12))),
+        "1m" | "minute" => Ok(("minute".to_string(), Some(1))),
+        "5m" => Ok(("minute".to_string(), Some(5))),
+        "15m" => Ok(("minute".to_string(), Some(15))),
+        _ => Err(format!("Unsupported timeframe: {}. Use 1d, 1h, 4h, 12h, 1m, 5m, or 15m.", user_timeframe)),
+    }
+}
+
+/// Parse OHLCV data from GeckoTerminal API response
+fn parse_ohlcv_data(data: &serde_json::Value) -> Result<Vec<OhlcvCandle>, String> {
+    let ohlcv_list = data
+        .get("data")
+        .and_then(|d| d.get("attributes"))
+        .and_then(|attr| attr.get("ohlcv_list"))
+        .and_then(|list| list.as_array())
+        .ok_or("Missing or invalid ohlcv_list in API response")?;
+
+    let mut candles = Vec::new();
+    
+    for item in ohlcv_list {
+        if let Some(candle_array) = item.as_array() {
+            if candle_array.len() >= 6 {
+                let timestamp = candle_array[0].as_i64().unwrap_or(0);
+                let open = candle_array[1].as_str().and_then(|s| s.parse::<f64>().ok()).unwrap_or(0.0);
+                let high = candle_array[2].as_str().and_then(|s| s.parse::<f64>().ok()).unwrap_or(0.0);
+                let low = candle_array[3].as_str().and_then(|s| s.parse::<f64>().ok()).unwrap_or(0.0);
+                let close = candle_array[4].as_str().and_then(|s| s.parse::<f64>().ok()).unwrap_or(0.0);
+                let volume = candle_array[5].as_str().and_then(|s| s.parse::<f64>().ok()).unwrap_or(0.0);
+                
+                candles.push(OhlcvCandle {
+                    timestamp,
+                    open,
+                    high,
+                    low,
+                    close,
+                    volume,
+                });
+            }
+        }
+    }
+    
+    // Sort by timestamp to ensure chronological order
+    candles.sort_by_key(|c| c.timestamp);
+    
+    Ok(candles)
+}
+
+/// Format the technical analysis response with calculated TA indicators
 fn format_ta_analysis_response(
-    data: &serde_json::Value,
+    analysis: &crate::ai::ta::TaAnalysis,
     network: &str,
     pool_address: &str,
-    ta_method: &str,
-    timeframe: &str,
 ) -> String {
-    // TODO: Implement TA analysis logic based on OHLCV data
-    format!(
-        "📊 **Technical Analysis for Pool on {}**\n\n\
+    let mut result = format!(
+        "📊 **Technical Analysis: {} Pool**\n\n\
         🏊 **Pool:** `{}`\n\
         📈 **Method:** {}\n\
-        ⏰ **Timeframe:** {}\n\n\
-        [TODO: Implement TA calculations and chart generation]\n\n\
-        Raw OHLCV data received: {} candles",
+        ⏰ **Timeframe:** {} ({} candles)\n\
+        📍 **Current Price:** ${:.6}\n\n",
         network.to_uppercase(),
         pool_address,
-        match ta_method {
-            "ma_crossover" => "50/200 Moving Average Crossover (Golden/Death Cross)",
-            "rsi_divergence" => "RSI Divergence (14-period)",
-            "bollinger_squeeze" => "Bollinger Bands Squeeze & Pop (20-SMA, 2σ)",
-            _ => "Unknown TA Method"
-        },
-        timeframe,
-        data.get("data")
-            .and_then(|d| d.get("attributes"))
-            .and_then(|attr| attr.get("ohlcv_list"))
-            .and_then(|list| list.as_array())
-            .map(|arr| arr.len())
-            .unwrap_or(0)
-    )
+        analysis.method,
+        analysis.timeframe,
+        analysis.candle_count,
+        analysis.key_levels.current_price
+    );
+
+    // Current trend
+    result.push_str(&format!(
+        "📈 **Current Trend:** {}\n\n",
+        analysis.current_trend
+    ));
+
+    // Key levels
+    if let Some(support) = analysis.key_levels.support {
+        result.push_str(&format!("🟢 **Support:** ${:.6}\n", support));
+    }
+    if let Some(resistance) = analysis.key_levels.resistance {
+        result.push_str(&format!("🔴 **Resistance:** ${:.6}\n", resistance));
+    }
+    result.push('\n');
+
+    // Signals
+    if !analysis.signals.is_empty() {
+        result.push_str("🎯 **Key Signals:**\n");
+        for signal in &analysis.signals {
+            result.push_str(&format!(
+                "• {} {} - {}\n",
+                signal.strength,
+                signal.signal_type,
+                signal.description
+            ));
+        }
+        result.push('\n');
+    }
+
+    // Summary
+    result.push_str(&format!(
+        "💡 **Analysis Summary:**\n{}\n\n",
+        analysis.summary
+    ));
+
+    // Footer
+    result.push_str(&format!(
+        "🔗 [View Pool on GeckoTerminal](https://www.geckoterminal.com/{}/pools/{})\n\
+        📈 Data from GeckoTerminal • Real-time TA Analysis",
+        network,
+        pool_address
+    ));
+
+    result
 }

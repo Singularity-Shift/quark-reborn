@@ -266,7 +266,9 @@ pub fn get_pay_users_tool() -> Tool {
 pub fn get_pool_ohlcv_tool() -> Tool {
     Tool::function(
         "get_pool_ta_analysis",
-        "Get technical analysis (TA) for a specific DEX pool including OHLCV data, chart plotting, and TA indicators. Supports 3 key TA methods: MA Crossover, RSI Divergence, and Bollinger Bands Squeeze.",
+        "Get technical analysis (TA) for a specific DEX pool including OHLCV data, chart plotting, and TA indicators.\n\
+        **Timeframe options:** '1d', '1h', '4h', '12h', '1m', '5m', '15m'. These are mapped to GeckoTerminal's API as follows:\n\
+        - '1d' → day\n        - '1h' → hour (aggregate=1)\n        - '4h' → hour (aggregate=4)\n        - '12h' → hour (aggregate=12)\n        - '1m' → minute (aggregate=1)\n        - '5m' → minute (aggregate=5)\n        - '15m' → minute (aggregate=15)",
         json!({
             "type": "object",
             "properties": {
@@ -287,8 +289,8 @@ pub fn get_pool_ohlcv_tool() -> Tool {
                 },
                 "timeframe": {
                     "type": "string",
-                    "description": "The timeframe for analysis (e.g., '1h', '4h', '1d'). Recommended: '1d' for MA crossover, '4h' for RSI, '1h' for Bollinger.",
-                    "enum": ["1m", "5m", "15m", "1h", "4h", "1d"],
+                    "description": "The timeframe for analysis. Valid: '1d', '1h', '4h', '12h', '1m', '5m', '15m' (see description for mapping).",
+                    "enum": ["1d", "1h", "4h", "12h", "1m", "5m", "15m"],
                     "default": "1d"
                 }
             },
