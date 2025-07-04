@@ -6,6 +6,7 @@ module quark_test::account_test {
     use std::string;
     use std::object::{Self, Object};
     use std::option;
+    use aptos_framework::timestamp;
     use aptos_framework::account;
     use aptos_framework::coin;
     use aptos_framework::aptos_coin::{Self, AptosCoin};
@@ -58,7 +59,6 @@ module quark_test::account_test {
         fees::create_collector_object(admin);
     }
 
-    #[test_only]
     fun create_fa(): Object<Metadata> {
         let fa_owner_obj_constructor_ref = &object::create_object(@sshift_gpt_addr);
         let fa_owner_obj_signer = &object::generate_signer(fa_owner_obj_constructor_ref);
@@ -94,15 +94,15 @@ module quark_test::account_test {
         fa_obj
     }
 
-    #[test_only]
     fun mint_fa(sender: &signer, mint_ref: &MintRef, amount: u64) {
         let account_addr = signer::address_of(sender);
 
         primary_fungible_store::mint(mint_ref, account_addr, amount);
     }
 
-    #[test(quark_test = @quark_test, user = @0x2)]
-    fun test_create_account(quark_test: &signer, user: &signer) {
+    #[test(aptos_framework = @0x1,quark_test = @quark_test, user = @0x2)]
+    fun test_create_account(aptos_framework: &signer, quark_test: &signer, user: &signer) {
+        timestamp::set_time_has_started_for_testing(aptos_framework);
         init_module(quark_test);
         user_v4::create_account(user, string::utf8(b"1234567890"));
     }
@@ -110,6 +110,7 @@ module quark_test::account_test {
     #[test(aptos_framework = @0x1, quark_test = @quark_test, user = @0x2)]
     fun test_withdraw_funds_v1(aptos_framework: &signer, quark_test: &signer, user: &signer) {
         let (burn_cap, mint_cap) = aptos_coin::initialize_for_test(aptos_framework);
+        timestamp::set_time_has_started_for_testing(aptos_framework);
 
         let user_address = signer::address_of(user);
 
@@ -134,6 +135,7 @@ module quark_test::account_test {
     #[test(aptos_framework = @0x1, quark_test = @quark_test, user = @0x2)]
     fun test_withdraw_funds_v2(aptos_framework: &signer, quark_test: &signer, user: &signer) acquires FAController {
         let (burn_cap, mint_cap) = aptos_coin::initialize_for_test(aptos_framework);
+        timestamp::set_time_has_started_for_testing(aptos_framework);
 
         let user_address = signer::address_of(user);
 
@@ -165,6 +167,7 @@ module quark_test::account_test {
     #[test(aptos_framework = @0x1, quark_test = @quark_test, admin = @0x2, reviewer = @0x3, user = @0x4)]
     fun test_pay_ai(aptos_framework: &signer, quark_test: &signer, admin: &signer, reviewer: &signer, user: &signer) {
         let (burn_cap, mint_cap) = aptos_coin::initialize_for_test(aptos_framework);
+        timestamp::set_time_has_started_for_testing(aptos_framework);
 
         let user_address = signer::address_of(user);
 
@@ -198,6 +201,7 @@ module quark_test::account_test {
     #[test(aptos_framework = @0x1, quark_test = @quark_test, reviewer = @0x2, user = @0x3, user2 = @0x4, user3 = @0x5)]
     fun test_pay_to_users_v1(aptos_framework: &signer, quark_test: &signer, reviewer: &signer, user: &signer, user2: &signer, user3: &signer) {
         let (burn_cap, mint_cap) = aptos_coin::initialize_for_test(aptos_framework);
+        timestamp::set_time_has_started_for_testing(aptos_framework);
 
         let user_address = signer::address_of(user);
         let user2_address = signer::address_of(user2);
@@ -227,9 +231,9 @@ module quark_test::account_test {
 
         user_v4::pay_to_users_v1<TestCoin>(quark_test, reviewer, user_address, 1000, vector[user2_address, user3_address]);
 
-        assert!(coin::balance<TestCoin>(resource_account_address) == 3000, EIS_BALANCE_NOT_EQUAL);
-        assert!(coin::balance<TestCoin>(user2_address) == 1000, EIS_BALANCE_NOT_EQUAL);
-        assert!(coin::balance<TestCoin>(user3_address) == 1000, EIS_BALANCE_NOT_EQUAL);
+        assert!(coin::balance<TestCoin>(resource_account_address) == 4000, EIS_BALANCE_NOT_EQUAL);
+        assert!(coin::balance<TestCoin>(user2_address) == 500, EIS_BALANCE_NOT_EQUAL);
+        assert!(coin::balance<TestCoin>(user3_address) == 500, EIS_BALANCE_NOT_EQUAL);
         coin::destroy_burn_cap(burn_cap);
         coin::destroy_mint_cap(mint_cap);
     }
@@ -237,6 +241,7 @@ module quark_test::account_test {
     #[test(aptos_framework = @0x1, quark_test = @quark_test, reviewer=@0x2, user = @0x3, user2 = @0x4, user3 = @0x5)]
     fun test_pay_to_users_v2(aptos_framework: &signer, quark_test: &signer, reviewer: &signer, user: &signer, user2: &signer, user3: &signer) acquires FAController {
         let (burn_cap, mint_cap) = aptos_coin::initialize_for_test(aptos_framework);
+        timestamp::set_time_has_started_for_testing(aptos_framework);
 
         let user_address = signer::address_of(user);
         let user2_address = signer::address_of(user2);
@@ -269,9 +274,9 @@ module quark_test::account_test {
 
         user_v4::pay_to_users_v2(quark_test, reviewer, user_address, 1000, fa_addr, vector[user2_address, user3_address]);
 
-        assert!(primary_fungible_store::balance(resource_account_address, fa_metadata) == 3000, EIS_BALANCE_NOT_EQUAL);
-        assert!(primary_fungible_store::balance(user2_address, fa_metadata) == 1000, EIS_BALANCE_NOT_EQUAL);
-        assert!(primary_fungible_store::balance(user3_address, fa_metadata) == 1000, EIS_BALANCE_NOT_EQUAL);
+        assert!(primary_fungible_store::balance(resource_account_address, fa_metadata) == 4000, EIS_BALANCE_NOT_EQUAL);
+        assert!(primary_fungible_store::balance(user2_address, fa_metadata) == 500, EIS_BALANCE_NOT_EQUAL);
+        assert!(primary_fungible_store::balance(user3_address, fa_metadata) == 500, EIS_BALANCE_NOT_EQUAL);
         coin::destroy_burn_cap(burn_cap);
         coin::destroy_mint_cap(mint_cap);
     }
@@ -287,6 +292,7 @@ module quark_test::account_test {
     #[expected_failure(abort_code = 1, location = user_v4)]
     fun test_not_admin_should_not_pay_ai(aptos_framework: &signer, quark_test: &signer, admin: &signer, reviewer: &signer, user: &signer, user2: &signer) {
         let (burn_cap, mint_cap) = aptos_coin::initialize_for_test(aptos_framework);
+        timestamp::set_time_has_started_for_testing(aptos_framework);
 
         let user_address = signer::address_of(user);
 
@@ -319,6 +325,7 @@ module quark_test::account_test {
     #[expected_failure(abort_code = 1, location = user_v4)]
     fun test_not_admin_should_not_pay_to_users_v1(aptos_framework: &signer, quark_test: &signer, reviewer: &signer, user: &signer, user2: &signer, user3: &signer) {
         let (burn_cap, mint_cap) = aptos_coin::initialize_for_test(aptos_framework);
+        timestamp::set_time_has_started_for_testing(aptos_framework);
 
         let user_address = signer::address_of(user);
         let user2_address = signer::address_of(user2);
@@ -356,6 +363,7 @@ module quark_test::account_test {
     #[expected_failure(abort_code = 1, location = user_v4)]
     fun test_not_admin_should_not_pay_to_users_v2(aptos_framework: &signer, quark_test: &signer, reviewer: &signer, user: &signer, user2: &signer, user3: &signer) acquires FAController {
         let (burn_cap, mint_cap) = aptos_coin::initialize_for_test(aptos_framework);
+        timestamp::set_time_has_started_for_testing(aptos_framework);
 
         let user_address = signer::address_of(user);
         let user2_address = signer::address_of(user2);
@@ -396,6 +404,7 @@ module quark_test::account_test {
     #[expected_failure(abort_code = 2, location = user_v4)]
     fun test_with_fake_reviewer_should_not_pay_ai(aptos_framework: &signer, quark_test: &signer, admin: &signer, reviewer: &signer, user: &signer, user2: &signer) {
         let (burn_cap, mint_cap) = aptos_coin::initialize_for_test(aptos_framework);
+        timestamp::set_time_has_started_for_testing(aptos_framework);
 
         let user_address = signer::address_of(user);
 
@@ -428,6 +437,7 @@ module quark_test::account_test {
     #[expected_failure(abort_code = 2, location = user_v4)]
     fun test_with_fake_reviewer_should_not_pay_to_users_v1(aptos_framework: &signer, quark_test: &signer, reviewer: &signer, user: &signer, user2: &signer, user3: &signer) {
         let (burn_cap, mint_cap) = aptos_coin::initialize_for_test(aptos_framework);
+        timestamp::set_time_has_started_for_testing(aptos_framework);
 
         let user_address = signer::address_of(user);
         let user2_address = signer::address_of(user2);
@@ -465,6 +475,7 @@ module quark_test::account_test {
     #[expected_failure(abort_code = 2, location = user_v4)]
     fun test_with_fake_reviewer_should_not_pay_to_users_v2(aptos_framework: &signer, quark_test: &signer, reviewer: &signer, user: &signer, user2: &signer, user3: &signer) acquires FAController {
         let (burn_cap, mint_cap) = aptos_coin::initialize_for_test(aptos_framework);
+        timestamp::set_time_has_started_for_testing(aptos_framework);
 
         let user_address = signer::address_of(user);
         let user2_address = signer::address_of(user2);
