@@ -49,7 +49,7 @@ async fn main() {
         .await
         .expect("Failed to create GCS image uploader");
 
-    let ai = AI::new(openai_api_key, google_cloud, aptos_network);
+    let ai = AI::new(openai_api_key.clone(), google_cloud, aptos_network);
 
     let user_convos = UserConversations::new(&db).unwrap();
     let user_model_prefs = UserModelPreferences::new(&db).unwrap();
