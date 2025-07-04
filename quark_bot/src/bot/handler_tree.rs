@@ -93,6 +93,8 @@ pub fn handler_tree() -> Handler<'static, Result<()>, DpHandlerDescription> {
                                     | Command::ListFiles
                                     | Command::NewChat
                                     | Command::PromptExamples
+                                    | Command::Monitor(_)
+                                    | Command::Mod
                             )
                         })
                         .filter_async(auth)
