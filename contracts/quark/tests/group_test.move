@@ -28,6 +28,33 @@ module quark_test::group_test {
     const TEST_TOTAL_USERS: u64 = 5;
     const EIS_BALANCE_NOT_EQUAL: u64 = 1;
 
+    // Error constants for mock functions (matching the original contract)
+    const EONLY_ADMIN_CAN_CALL: u64 = 1;
+    const EONLY_REVIEWER_CAN_CALL: u64 = 2;
+    const ENOT_ENOUGH_FUNDS: u64 = 3;
+    const ENOT_COIN_PAYMENT_SET: u64 = 4;
+    const ECOINS_NOT_MATCH: u64 = 5;
+    const ENOT_USER_PASSED: u64 = 6;
+    const EGROUP_NOT_EXISTS: u64 = 7;
+    const EAMOUNT_MUST_BE_GREATER_THAN_ZERO: u64 = 8;
+    const EPOOL_NOT_EXISTS: u64 = 9;
+    const EUSER_ALREADY_CLAIMED: u64 = 10;
+    const EPOOLS_REWARDS_NOT_EXISTS: u64 = 11;
+    const EPOOL_REWARD_ALREADY_CLAIMED: u64 = 12;
+    const EPOOL_REWARD_ALREADY_EXISTS: u64 = 13;
+    const EPOOL_REWARD_TOKEN_NOT_MATCH: u64 = 14;
+    const EGROUP_ALREADY_EXISTS: u64 = 15;
+    const EDAO_ALREADY_EXISTS: u64 = 16;
+    const EDAO_NOT_EXISTS: u64 = 17;
+    const EFROM_TO_NOT_VALID: u64 = 18;
+    const ENOT_IN_TIME: u64 = 19;
+    const ECHOICE_NOT_EXISTS: u64 = 20;
+    const ECOIN_TYPE_NOT_MATCH: u64 = 21;
+    const ECURRENCY_NOT_MATCH: u64 = 22;
+    const EUSER_ALREADY_VOTED: u64 = 23;
+    const EUSER_NOT_VOTED: u64 = 24;
+    
+
     struct TestCoin {}
 
     struct FAController has key {
@@ -211,23 +238,23 @@ module quark_test::group_test {
         let reviewer_address = signer::address_of(reviewer);
         let amount_to_claim;
 
-        assert!(admin_v4::is_admin(admin_address), 1); // EONLY_ADMIN_CAN_CALL
-        assert!(admin_v4::is_reviewer(reviewer_address), 2); // EONLY_REVIEWER_CAN_CALL
+        assert!(admin_v4::is_admin(admin_address), EONLY_ADMIN_CAN_CALL);
+        assert!(admin_v4::is_reviewer(reviewer_address), EONLY_REVIEWER_CAN_CALL);
 
         let admin_addr = signer::address_of(admin);
         let pools_rewards = borrow_global_mut<MockPoolsRewardsV1>(admin_addr);
 
         let (exists_pool, pool_index) = vector::find<MockPoolRewardV1>(&pools_rewards.pools, |pool| pool.pool_id == pool_id);
-        assert!(exists_pool, 9); // EPOOL_NOT_EXISTS
+        assert!(exists_pool, EPOOL_NOT_EXISTS);
 
         let pool_reward = vector::borrow_mut(&mut pools_rewards.pools, pool_index);
 
-        assert!(vector::length(&pool_reward.claimed_users) < pool_reward.total_users, 12); // EPOOL_REWARD_ALREADY_CLAIMED
-        assert!(!vector::contains<address>(&pool_reward.claimed_users, &user), 10); // EUSER_ALREADY_CLAIMED
+        assert!(vector::length(&pool_reward.claimed_users) < pool_reward.total_users, EPOOL_REWARD_ALREADY_CLAIMED);
+        assert!(!vector::contains<address>(&pool_reward.claimed_users, &user), EUSER_ALREADY_CLAIMED);
         
         let coin_type = type_info::type_of<CoinType>();
         let coin_address = type_info::account_address(&coin_type);
-        assert!(pool_reward.reward_token == coin_address, 14); // EPOOL_REWARD_TOKEN_NOT_MATCH
+        assert!(pool_reward.reward_token == coin_address, EPOOL_REWARD_TOKEN_NOT_MATCH);
         
         let users_claimed = vector::length(&pool_reward.claimed_users);
         let user_left = pool_reward.total_users - users_claimed;
@@ -260,19 +287,19 @@ module quark_test::group_test {
         let reviewer_address = signer::address_of(reviewer);
         let amount_to_claim;
 
-        assert!(admin_v4::is_admin(admin_address), 1); // EONLY_ADMIN_CAN_CALL
-        assert!(admin_v4::is_reviewer(reviewer_address), 2); // EONLY_REVIEWER_CAN_CALL
+        assert!(admin_v4::is_admin(admin_address), EONLY_ADMIN_CAN_CALL);
+        assert!(admin_v4::is_reviewer(reviewer_address), EONLY_REVIEWER_CAN_CALL);
 
         let admin_addr = signer::address_of(admin);
         let pools_rewards = borrow_global_mut<MockPoolsRewardsV2>(admin_addr);
 
         let (exists_pool, pool_index) = vector::find<MockPoolRewardV2>(&pools_rewards.pools, |pool| pool.pool_id == pool_id);
-        assert!(exists_pool, 9); // EPOOL_NOT_EXISTS
+        assert!(exists_pool, EPOOL_NOT_EXISTS);
 
         let pool_reward = vector::borrow_mut(&mut pools_rewards.pools, pool_index);
 
-        assert!(vector::length(&pool_reward.claimed_users) < pool_reward.total_users, 12); // EPOOL_REWARD_ALREADY_CLAIMED
-        assert!(!vector::contains<address>(&pool_reward.claimed_users, &user), 10); // EUSER_ALREADY_CLAIMED
+        assert!(vector::length(&pool_reward.claimed_users) < pool_reward.total_users, EPOOL_REWARD_ALREADY_CLAIMED);
+        assert!(!vector::contains<address>(&pool_reward.claimed_users, &user), EUSER_ALREADY_CLAIMED);
         
         let users_claimed = vector::length(&pool_reward.claimed_users);
         let user_left = pool_reward.total_users - users_claimed;
@@ -1046,20 +1073,20 @@ module quark_test::group_test {
         let reviewer_address = signer::address_of(reviewer);
         let amount_to_claim;
 
-        assert!(admin_v4::is_admin(admin_address), 1); // EONLY_ADMIN_CAN_CALL
-        assert!(admin_v4::is_reviewer(reviewer_address), 2); // EONLY_REVIEWER_CAN_CALL
+        assert!(admin_v4::is_admin(admin_address), EONLY_ADMIN_CAN_CALL);
+        assert!(admin_v4::is_reviewer(reviewer_address), EONLY_REVIEWER_CAN_CALL);
 
         let _group_account = group_v4::get_group_account(group_id);
 
         // Get pool reward info to calculate claim amount
         let (reward_amount, reward_token, total_users, claimed_users, _holder_object) = group_v4::get_pool_reward_v1(group_id, pool_id);
 
-        assert!(vector::length(&claimed_users) < total_users, 12); // EPOOL_REWARD_ALREADY_CLAIMED
-        assert!(!vector::contains<address>(&claimed_users, &user), 10); // EUSER_ALREADY_CLAIMED
+        assert!(vector::length(&claimed_users) < total_users, EPOOL_REWARD_ALREADY_CLAIMED);
+        assert!(!vector::contains<address>(&claimed_users, &user), EUSER_ALREADY_CLAIMED);
         
         let coin_type = type_info::type_of<CoinType>();
         let coin_address = type_info::account_address(&coin_type);
-        assert!(reward_token == coin_address, 14); // EPOOL_REWARD_TOKEN_NOT_MATCH
+        assert!(reward_token == coin_address, EPOOL_REWARD_TOKEN_NOT_MATCH);
         
         let users_claimed = vector::length(&claimed_users);
         let user_left = total_users - users_claimed;
@@ -1074,44 +1101,5 @@ module quark_test::group_test {
         // For testing, we'll use a simplified transfer - the real function handles the complex holder object logic
         // This is a mock so we'll just transfer a fixed amount for predictable testing
         aptos_account::transfer_coins<CoinType>(admin, user, amount_to_claim);
-    }
-
-    #[lint::allow_unsafe_randomness]
-    public fun mock_claim_reward_v2(admin: &signer, reviewer: &signer, user: address, currency: address, pool_id: String, group_id: String) {
-        use aptos_framework::aptos_account;
-        use aptos_framework::randomness;
-        use aptos_framework::fungible_asset::Metadata;
-        use std::vector;
-        use std::object;
-        use quark_test::group_v4;
-        
-        let admin_address = signer::address_of(admin);
-        let reviewer_address = signer::address_of(reviewer);
-        let amount_to_claim;
-
-        assert!(admin_v4::is_admin(admin_address), 1); // EONLY_ADMIN_CAN_CALL
-        assert!(admin_v4::is_reviewer(reviewer_address), 2); // EONLY_REVIEWER_CAN_CALL
-
-        let _group_account = group_v4::get_group_account(group_id);
-
-        // Get pool reward info
-        let (reward_amount, _reward_token, total_users, claimed_users, _holder_object) = group_v4::get_pool_reward_v2(group_id, pool_id);
-
-        assert!(vector::length(&claimed_users) < total_users, 12); // EPOOL_REWARD_ALREADY_CLAIMED
-        assert!(!vector::contains<address>(&claimed_users, &user), 10); // EUSER_ALREADY_CLAIMED
-        
-        let users_claimed = vector::length(&claimed_users);
-        let user_left = total_users - users_claimed;
-
-        // Use actual randomness with allow_unsafe_randomness
-        if (user_left > 1) {
-            amount_to_claim = randomness::u64_range(1, reward_amount - user_left + 1);
-        } else {
-            amount_to_claim = reward_amount;
-        };
-
-        // For testing, simplified transfer
-        let fa_metadata = object::address_to_object<Metadata>(currency);
-        aptos_account::transfer_fungible_assets(admin, fa_metadata, user, amount_to_claim);
     }
 }
