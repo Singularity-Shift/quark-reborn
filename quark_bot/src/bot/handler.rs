@@ -11,7 +11,7 @@ use crate::{
 use anyhow::Result as AnyResult;
 
 use crate::{
-    ai::{handler::AI, vector_store::list_user_files_with_names},
+    ai::{handler::AI, vector_store::list_user_files_with_names, moderation::ModerationService},
     credentials::helpers::generate_new_jwt,
     user_conversation::handler::UserConversations,
     user_model_preferences::handler::{UserModelPreferences, initialize_user_preferences},
@@ -986,18 +986,68 @@ pub async fn handle_monitor(bot: Bot, msg: Message, param: String) -> AnyResult<
 pub async fn handle_mod(bot: Bot, msg: Message) -> AnyResult<()> {
     // Check if the command is used in reply to a message
     if let Some(reply_to_msg) = msg.reply_to_message() {
-        // This is a reply to a message, proceed with moderation
-        bot.send_message(
-            msg.chat.id,
-            format!("🛡️ <b>Content Moderation</b>\n\n⚠️ <i>Feature under development</i>\n\n📝 Message ID: <code>{}</code>\n\n🚧 This feature is not yet implemented. Stay tuned for updates!", reply_to_msg.id)
-        )
-        .parse_mode(ParseMode::Html)
-        .await?;
+        // Extract text from the replied message
+        let message_text = reply_to_msg.text()
+            .or_else(|| reply_to_msg.caption())
+            .unwrap_or_default();
+
+        if message_text.is_empty() {
+            bot.send_message(
+                msg.chat.id,
+                format!("⚠️ <b>No Text Found</b>\n\n📝 Message ID: <code>{}</code>\n\n❌ The replied message contains no text to moderate.", reply_to_msg.id)
+            )
+            .parse_mode(ParseMode::Html)
+            .await?;
+            return Ok(());
+        }
+
+        // Create moderation service using environment API key
+        let openai_api_key = std::env::var("OPENAI_API_KEY")
+            .map_err(|_| anyhow::anyhow!("OPENAI_API_KEY not found in environment"))?;
+        
+        let moderation_service = ModerationService::new(openai_api_key)
+            .map_err(|e| anyhow::anyhow!("Failed to create moderation service: {}", e))?;
+
+        // Moderate the message
+        match moderation_service.moderate_message(message_text).await {
+            Ok(result) => {
+                let status_emoji = if result == "F" { "❌" } else { "✅" };
+                let status_text = if result == "F" { "FLAGGED" } else { "PASSED" };
+                let status_color = if result == "F" { "🔴" } else { "🟢" };
+                
+                bot.send_message(
+                    msg.chat.id,
+                    format!(
+                        "🛡️ <b>Content Moderation Result</b>\n\n📝 Message ID: <code>{}</code>\n\n{} Status: <b>{}</b> {}\n\n💬 <i>Analyzed message:</i>\n<blockquote>{}</blockquote>",
+                        reply_to_msg.id,
+                        status_emoji,
+                        status_text,
+                        status_color,
+                        message_text
+                    )
+                )
+                .parse_mode(ParseMode::Html)
+                .await?;
+            }
+            Err(e) => {
+                log::error!("Moderation failed: {}", e);
+                bot.send_message(
+                    msg.chat.id,
+                    format!(
+                        "🛡️ <b>Content Moderation</b>\n\n📝 Message ID: <code>{}</code>\n\n❌ <b>Error:</b> Failed to analyze message. Please try again later.\n\n🔧 <i>Technical details:</i> {}",
+                        reply_to_msg.id,
+                        e
+                    )
+                )
+                .parse_mode(ParseMode::Html)
+                .await?;
+            }
+        }
     } else {
         // Not a reply to a message, show usage instructions
         bot.send_message(
             msg.chat.id,
-            "❌ <b>Invalid Usage</b>\n\n📝 The <code>/mod</code> command must be used in reply to a message.\n\n💡 <b>How to use:</b>\n1. Find the message you want to moderate\n2. Reply to that message with <code>/mod</code>\n\n🛡️ This will allow you to moderate the content of the replied message."
+            "❌ <b>Invalid Usage</b>\n\n📝 The <code>/mod</code> command must be used in reply to a message.\n\n💡 <b>How to use:</b>\n1. Find the message you want to moderate\n2. Reply to that message with <code>/mod</code>\n\n🛡️ This will analyze the content of the replied message for violations."
         )
         .parse_mode(ParseMode::Html)
         .await?;
