@@ -267,8 +267,9 @@ pub fn get_pool_ohlcv_tool() -> Tool {
     Tool::function(
         "get_pool_ta_analysis",
         "Get technical analysis (TA) for a specific DEX pool including OHLCV data, chart plotting, and TA indicators.\n\
-        **Timeframe options:** '1d', '1h', '4h', '12h', '1m', '5m', '15m'. These are mapped to GeckoTerminal's API as follows:\n\
-        - '1d' → day\n        - '1h' → hour (aggregate=1)\n        - '4h' → hour (aggregate=4)\n        - '12h' → hour (aggregate=12)\n        - '1m' → minute (aggregate=1)\n        - '5m' → minute (aggregate=5)\n        - '15m' → minute (aggregate=15)",
+        **Timeframe options:** '1h', '4h', '12h', '1m', '5m', '15m'. These are mapped to GeckoTerminal's API as follows:\n\
+        - '1h' → hour (aggregate=1)\n        - '4h' → hour (aggregate=4)\n        - '12h' → hour (aggregate=12)\n        - '1m' → minute (aggregate=1)\n        - '5m' → minute (aggregate=5)\n        - '15m' → minute (aggregate=15)\n\
+        NOTE: Daily timeframes are not supported due to insufficient data for memecoin pools. Use minute/hour timeframes for active trading analysis.",
         json!({
             "type": "object",
             "properties": {
@@ -279,7 +280,7 @@ pub fn get_pool_ohlcv_tool() -> Tool {
                 },
                 "pool_address": {
                     "type": "string",
-                    "description": "The address of the pool to analyze."
+                    "description": "Pool identifier. Accepts GeckoTerminal pool ID (0x…), token pair ticker (e.g. 'APT/USDC'), or on-chain resource address. The tool will automatically resolve it to a valid GeckoTerminal pool ID."
                 },
                 "ta_method": {
                     "type": "string",
@@ -289,9 +290,9 @@ pub fn get_pool_ohlcv_tool() -> Tool {
                 },
                 "timeframe": {
                     "type": "string",
-                    "description": "The timeframe for analysis. Valid: '1d', '1h', '4h', '12h', '1m', '5m', '15m' (see description for mapping).",
-                    "enum": ["1d", "1h", "4h", "12h", "1m", "5m", "15m"],
-                    "default": "1d"
+                    "description": "The timeframe for analysis. Valid: '1h', '4h', '12h', '1m', '5m', '15m'. Use minute timeframes for memecoin/flip trading analysis.",
+                    "enum": ["1h", "4h", "12h", "1m", "5m", "15m"],
+                    "default": "15m"
                 }
             },
             "required": ["network", "pool_address"]

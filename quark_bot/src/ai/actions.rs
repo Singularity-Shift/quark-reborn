@@ -4,6 +4,7 @@ use aptos_rust_sdk::client::rest_api::AptosFullnodeClient;
 use quark_core::helpers::dto::{PayUsersRequest, PayUsersVersion};
 use sled::Tree;
 use teloxide::types::Message;
+use regex::Regex;
 
 use crate::{
     credentials::helpers::get_credentials, panora::handler::Panora, services::handler::Services,
@@ -349,6 +350,10 @@ fn format_trending_pools_response(
                         .unwrap_or("Unknown DEX")
                 };
 
+                if let Some(pool_id) = pool.get("id").and_then(|v| v.as_str()) {
+                    result.push_str(&format!("🏊 Pool ID: `{}`\n", pool_id));
+                }
+
                 result.push_str(&format!(
                     "**{}. {} ({})** {}\n\
 🔹 **Base Token:** {} ({})\n  - Address: `{}`\n  - Decimals: {}\n  - CoinGecko: {}\n\
@@ -672,13 +677,23 @@ fn format_search_pools_response(
                     let liquidity_formatted = format_large_number(reserve_usd);
                     let base_price_formatted = format_price(base_token_price);
                     let quote_price_formatted = format_price(quote_token_price);
+                    
+                    // Add Pool ID if available
+                    let pool_id_line = if let Some(pool_id) = pool.get("id").and_then(|v| v.as_str()) {
+                        format!("🏊 **Pool ID:** `{}`\n", pool_id)
+                    } else {
+                        String::new()
+                    };
+                    
                     result.push_str(&format!(
                         "**{}. {} ({})**\n\
-🔹 **Base Token:** {} ({})\n  - Address: `{}`\n🔹 **Quote Token:** {} ({})\n  - Address: `{}`\n💧 **Liquidity:** ${}\n💰 **Base Price:** ${} | **Quote Price:** ${}\n📅 **Created:** {}\n🏊 **Pool:** `{}`\n\
+{}\
+🔹 **Base Token:** {} ({})\n  - Address: `{}`\n🔹 **Quote Token:** {} ({})\n  - Address: `{}`\n💧 **Liquidity:** ${}\n💰 **Base Price:** ${} | **Quote Price:** ${}\n📅 **Created:** {}\n🏊 **Pool Address:** `{}`\n\
 🔗 [View on GeckoTerminal](https://www.geckoterminal.com/{}/pools/{})\n\n",
                         index + 1,
                         name,
                         dex_name,
+                        pool_id_line,
                         base_name, base_symbol, base_addr,
                         quote_name, quote_symbol, quote_addr,
                         liquidity_formatted,
@@ -1708,13 +1723,33 @@ pub async fn execute_get_pool_ta_analysis(arguments: &serde_json::Value) -> Stri
     let timeframe = arguments
         .get("timeframe")
         .and_then(|v| v.as_str())
-        .unwrap_or("1h");
+        .unwrap_or("15m");
+
+    log::info!(
+        "[TA ANALYSIS] Starting analysis: pool='{}' network='{}' method='{}' timeframe='{}'",
+        pool_address, network, ta_method, timeframe
+    );
+
+    // Translate pool identifier to GeckoTerminal pool ID if necessary
+    let pool_id = match translate_pool_identifier(pool_address, network).await {
+        Some(id) => {
+            log::info!("[TA ANALYSIS] Pool identifier '{}' translated to ID '{}'", pool_address, id);
+            id
+        },
+        None => {
+            log::error!("[TA ANALYSIS] Failed to translate pool identifier: {}", pool_address);
+            return format!(
+                "❌ Unable to find pool '{}' on {} network. Try using the search_pools tool first to locate the correct pool, or use a valid GeckoTerminal pool ID.",
+                pool_address, network
+            );
+        }
+    };
 
     // Map user timeframe to API params
     let (api_timeframe, aggregate_opt) = match map_timeframe(timeframe) {
         Ok(v) => v,
         Err(e) => {
-            log::error!("{}", e);
+            log::error!("[TA ANALYSIS] Timeframe error: {}", e);
             return format!("❌ {}", e);
         }
     };
@@ -1722,7 +1757,7 @@ pub async fn execute_get_pool_ta_analysis(arguments: &serde_json::Value) -> Stri
     // Construct GeckoTerminal OHLCV API URL with correct params
     let mut url = format!(
         "https://api.geckoterminal.com/api/v2/networks/{}/pools/{}/ohlcv/{}",
-        network, pool_address, api_timeframe
+        network, pool_id, api_timeframe
     );
     let mut query_params = vec![];
     if let Some(agg) = aggregate_opt {
@@ -1735,6 +1770,8 @@ pub async fn execute_get_pool_ta_analysis(arguments: &serde_json::Value) -> Stri
         url.push('?');
         url.push_str(&query_params.join("&"));
     }
+
+    log::info!("[TA ANALYSIS] Fetching OHLCV data from: {}", url);
 
     // Make HTTP request
     let client = reqwest::Client::new();
@@ -1749,12 +1786,61 @@ pub async fn execute_get_pool_ta_analysis(arguments: &serde_json::Value) -> Stri
             if response.status().is_success() {
                 match response.json::<serde_json::Value>().await {
                     Ok(data) => {
+                        log::info!("[TA ANALYSIS] Successfully received OHLCV data");
                         // Parse OHLCV data and run TA analysis
                         match parse_ohlcv_data(&data) {
                             Ok(candles) => {
-                                if candles.is_empty() {
-                                    return "❌ No OHLCV data found for this pool/timeframe combination.".to_string();
+                                // ---- Data verification logs ----
+                                if !candles.is_empty() {
+                                    let close_prices: Vec<f64> = candles.iter().map(|c| c.close).collect();
+                                    let first_close = close_prices.first().unwrap();
+                                    let last_close = close_prices.last().unwrap();
+                                    let min_close = close_prices
+                                        .iter()
+                                        .cloned()
+                                        .fold(f64::INFINITY, f64::min);
+                                    let max_close = close_prices
+                                        .iter()
+                                        .cloned()
+                                        .fold(f64::NEG_INFINITY, f64::max);
+                                    log::info!(
+                                        "[TA DEBUG] Pool {} timeframe {}: candles={} first_close={:.6} last_close={:.6} min_close={:.6} max_close={:.6}",
+                                        pool_address,
+                                        timeframe,
+                                        candles.len(),
+                                        first_close,
+                                        last_close,
+                                        min_close,
+                                        max_close
+                                    );
+
+                                    // Detect constant or zero prices which break indicators
+                                    if (max_close - min_close).abs() < 1e-10 {
+                                        log::warn!(
+                                            "[TA DEBUG] Detected constant price series (close {:.6}) – indicators may be invalid",
+                                            first_close
+                                        );
+                                    }
+                                    if max_close == 0.0 {
+                                        log::warn!(
+                                            "[TA DEBUG] Detected zero close prices – data feed may be invalid"
+                                        );
+                                        return format!(
+                                            "❌ Invalid price data detected (all prices are zero). This pool may not have valid OHLCV data on GeckoTerminal. Pool ID used: {}", 
+                                            pool_id
+                                        );
+                                    }
                                 }
+                                // ---- End verification logs ----
+                                
+                                if candles.is_empty() {
+                                    return format!(
+                                        "❌ No OHLCV data found for pool '{}' on {} network with {} timeframe. Pool ID used: {}",
+                                        pool_address, network, timeframe, pool_id
+                                    );
+                                }
+                                
+                                log::info!("[TA ANALYSIS] Running {} analysis on {} candles", ta_method, candles.len());
                                 
                                 // Run the appropriate TA analysis
                                 let analysis_result = match ta_method {
@@ -1762,37 +1848,42 @@ pub async fn execute_get_pool_ta_analysis(arguments: &serde_json::Value) -> Stri
                                     "rsi_divergence" => calculate_rsi_divergence(&candles),
                                     "bollinger_squeeze" => calculate_bollinger_squeeze(&candles),
                                     _ => {
-                                        return format!("❌ Unknown TA method: {}", ta_method);
+                                        return format!("❌ Unknown TA method: {}. Use: ma_crossover, rsi_divergence, or bollinger_squeeze", ta_method);
                                     }
                                 };
                                 
                                 match analysis_result {
                                     Ok(mut analysis) => {
                                         analysis.timeframe = timeframe.to_string();
-                                        format_ta_analysis_response(&analysis, network, pool_address)
+                                        log::info!("[TA ANALYSIS] Analysis completed successfully");
+                                        format_ta_analysis_response(&analysis, network, &pool_id)
                                     }
                                     Err(e) => {
-                                        log::error!("TA calculation failed: {}", e);
+                                        log::error!("[TA ANALYSIS] TA calculation failed: {}", e);
                                         format!("❌ Technical analysis failed: {}", e)
                                     }
                                 }
                             }
                             Err(e) => {
-                                log::error!("Failed to parse OHLCV data: {}", e);
+                                log::error!("[TA ANALYSIS] Failed to parse OHLCV data: {}", e);
                                 format!("❌ Failed to parse OHLCV data: {}", e)
                             }
                         }
                     }
                     Err(e) => {
-                        log::error!("Failed to parse OHLCV API response: {}", e);
+                        log::error!("[TA ANALYSIS] Failed to parse OHLCV API response: {}", e);
                         format!("❌ Error parsing API response: {}", e)
                     }
                 }
             } else if response.status() == 404 {
-                log::error!("Pool '{}' not found on network '{}'", pool_address, network);
+                log::error!("[TA ANALYSIS] Pool '{}' (ID: '{}') not found on network '{}'", pool_address, pool_id, network);
                 format!(
-                    "❌ Pool '{}' not found on network '{}'. Please check the pool address and network.",
-                    pool_address, network
+                    "❌ Pool not found on {} network.\n\
+                    • Input: '{}'\n\
+                    • Translated to Pool ID: '{}'\n\
+                    • This ID was not found in GeckoTerminal's OHLCV data.\n\
+                    Try using the search_pools tool to find the correct pool first.",
+                    network, pool_address, pool_id
                 )
             } else if response.status() == 429 {
                 log::error!("Rate limit exceeded for OHLCV API");
@@ -1804,7 +1895,7 @@ pub async fn execute_get_pool_ta_analysis(arguments: &serde_json::Value) -> Stri
                     .await
                     .unwrap_or_else(|_| "Unknown error".to_string());
                 log::error!(
-                    "OHLCV API request failed with status: {} - {}",
+                    "[TA ANALYSIS] OHLCV API request failed with status: {} - {}",
                     status,
                     error_text
                 );
@@ -1816,7 +1907,7 @@ pub async fn execute_get_pool_ta_analysis(arguments: &serde_json::Value) -> Stri
         }
         Err(e) => {
             log::error!(
-                "Network error when calling OHLCV GeckoTerminal API: {}",
+                "[TA ANALYSIS] Network error when calling OHLCV GeckoTerminal API: {}",
                 e
             );
             format!("❌ Network error when calling GeckoTerminal API: {}", e)
@@ -1845,6 +1936,101 @@ fn map_timeframe(user_timeframe: &str) -> Result<(String, Option<u32>), String> 
         "15m" => Ok(("minute".to_string(), Some(15))),
         _ => Err(format!("Unsupported timeframe: {}. Use 1h, 4h, 12h, 1m, 5m, or 15m.", user_timeframe)),
     }
+}
+
+/// Translate a user-supplied pool identifier (ticker, address, resource type) into GeckoTerminal pool ID
+async fn translate_pool_identifier(input: &str, network: &str) -> Option<String> {
+    // If input already looks like a 0x...66-char hex and no "::", return as-is
+    let re = Regex::new(r"^0x[0-9a-fA-F]{64}$").unwrap();
+    if re.is_match(input) {
+        log::info!("[POOL TRANSLATE] Input '{}' matches pool ID format, using as-is", input);
+        return Some(input.to_string());
+    }
+
+    // If input contains a slash (e.g., "PENGU/SOL"), use only the base token before the slash
+    let sanitized = if input.contains('/') {
+        input.split('/').next().unwrap_or(input).trim()
+    } else {
+        input
+    };
+
+    log::info!("[POOL TRANSLATE] Searching for pool with query '{}' on network '{}'", sanitized, network);
+
+    // Otherwise call search endpoint
+    let query = urlencoding::encode(sanitized);
+    let url = format!(
+        "https://api.geckoterminal.com/api/v2/search/pools?query={}&page=1&network={}",
+        query, network
+    );
+    let client = reqwest::Client::new();
+    match client
+        .get(&url)
+        .header("Accept", "application/json")
+        .header("User-Agent", "QuarkBot/1.0")
+        .send()
+        .await
+    {
+        Ok(resp) => {
+            if resp.status().is_success() {
+                if let Ok(json) = resp.json::<serde_json::Value>().await {
+                    if let Some(arr) = json.get("data").and_then(|v| v.as_array()) {
+                        log::info!("[POOL TRANSLATE] Found {} pools in search results", arr.len());
+                        
+                        // Prefer first result on the requested network
+                        for (idx, item) in arr.iter().enumerate() {
+                            let item_network = item.get("attributes")
+                                  .and_then(|a| a.get("network"))
+                                  .and_then(|v| v.as_str());
+                            let pool_id = item.get("id").and_then(|v| v.as_str());
+                            let pool_address = item.get("attributes")
+                                  .and_then(|a| a.get("address"))
+                                  .and_then(|v| v.as_str());
+                            let pool_name = item.get("attributes")
+                                  .and_then(|a| a.get("name"))
+                                  .and_then(|v| v.as_str());
+                            
+                            log::info!(
+                                "[POOL TRANSLATE] Pool {}: name='{}' id='{}' address='{}' network='{}'",
+                                idx + 1,
+                                pool_name.unwrap_or("?"),
+                                pool_id.unwrap_or("?"),
+                                pool_address.unwrap_or("?"),
+                                item_network.unwrap_or("?")
+                            );
+                            
+                            if item_network.map(|net| net.eq_ignore_ascii_case(network)).unwrap_or(false) {
+                                if let Some(id) = pool_id {
+                                    log::info!("[POOL TRANSLATE] Selected pool ID '{}' (network match)", id);
+                                    return Some(id.to_string());
+                                }
+                            }
+                        }
+                        // Fallback: take first result's ID (not address)
+                        if let Some(first) = arr.first() {
+                            if let Some(id) = first.get("id").and_then(|v| v.as_str()) {
+                                log::info!("[POOL TRANSLATE] Using fallback pool ID '{}' (first result)", id);
+                                return Some(id.to_string());
+                            }
+                        }
+                        
+                        log::warn!("[POOL TRANSLATE] No valid pool ID found in search results");
+                    } else {
+                        log::warn!("[POOL TRANSLATE] No 'data' array in search response");
+                    }
+                } else {
+                    log::error!("[POOL TRANSLATE] Failed to parse search response JSON");
+                }
+            } else {
+                log::error!("[POOL TRANSLATE] Search API returned status: {}", resp.status());
+            }
+        }
+        Err(e) => {
+            log::error!("[POOL TRANSLATE] Pool ID translation search error: {}", e);
+        }
+    }
+    
+    log::error!("[POOL TRANSLATE] Failed to translate '{}' to pool ID", input);
+    None
 }
 
 /// Parse OHLCV data from GeckoTerminal API response
