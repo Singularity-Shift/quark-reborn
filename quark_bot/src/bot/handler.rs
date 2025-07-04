@@ -950,3 +950,57 @@ pub async fn handle_message(
     }
     Ok(())
 }
+
+pub async fn handle_monitor(bot: Bot, msg: Message, param: String) -> AnyResult<()> {
+    let param = param.trim().to_lowercase();
+    
+    match param.as_str() {
+        "on" => {
+            bot.send_message(
+                msg.chat.id,
+                "🔧 <b>Monitor System</b>\n\n⚠️ <i>Feature under development</i>\n\n📊 Monitor mode: <code>ON</code> requested\n\n🚧 This feature is not yet implemented. Stay tuned for updates!"
+            )
+            .parse_mode(ParseMode::Html)
+            .await?;
+        }
+        "off" => {
+            bot.send_message(
+                msg.chat.id,
+                "🔧 <b>Monitor System</b>\n\n⚠️ <i>Feature under development</i>\n\n📊 Monitor mode: <code>OFF</code> requested\n\n🚧 This feature is not yet implemented. Stay tuned for updates!"
+            )
+            .parse_mode(ParseMode::Html)
+            .await?;
+        }
+        _ => {
+            bot.send_message(
+                msg.chat.id,
+                "❌ <b>Invalid Parameter</b>\n\n📝 Usage: <code>/monitor on</code> or <code>/monitor off</code>\n\n💡 Please specify either 'on' or 'off' to control the monitor system."
+            )
+            .parse_mode(ParseMode::Html)
+            .await?;
+        }
+    }
+    Ok(())
+}
+
+pub async fn handle_mod(bot: Bot, msg: Message) -> AnyResult<()> {
+    // Check if the command is used in reply to a message
+    if let Some(reply_to_msg) = msg.reply_to_message() {
+        // This is a reply to a message, proceed with moderation
+        bot.send_message(
+            msg.chat.id,
+            format!("🛡️ <b>Content Moderation</b>\n\n⚠️ <i>Feature under development</i>\n\n📝 Message ID: <code>{}</code>\n\n🚧 This feature is not yet implemented. Stay tuned for updates!", reply_to_msg.id)
+        )
+        .parse_mode(ParseMode::Html)
+        .await?;
+    } else {
+        // Not a reply to a message, show usage instructions
+        bot.send_message(
+            msg.chat.id,
+            "❌ <b>Invalid Usage</b>\n\n📝 The <code>/mod</code> command must be used in reply to a message.\n\n💡 <b>How to use:</b>\n1. Find the message you want to moderate\n2. Reply to that message with <code>/mod</code>\n\n🛡️ This will allow you to moderate the content of the replied message."
+        )
+        .parse_mode(ParseMode::Html)
+        .await?;
+    }
+    Ok(())
+}

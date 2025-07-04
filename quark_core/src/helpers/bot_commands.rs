@@ -32,6 +32,10 @@ pub enum Command {
     SelectModel,
     #[command(description = "View your current model preferences (DM only).")]
     MySettings,
+    #[command(description = "Monitor system status (on/off).")]
+    Monitor(String),
+    #[command(description = "Moderate content (reply to message).")]
+    Mod,
 }
 
 #[derive(Debug, Clone, Default)]
