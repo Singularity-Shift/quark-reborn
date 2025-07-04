@@ -4,7 +4,7 @@ use sled::{Db, IVec};
 
 const TREE_NAME: &str = "user_conversations";
 
-#[derive(Serialize, Deserialize, Debug, Default, Clone)]
+#[derive(Serialize, Deserialize, Debug, Default, Clone, bincode::Encode, bincode::Decode)]
 pub struct UserData {
     pub response_id: Option<String>,
     pub vector_store_id: Option<String>,
@@ -26,18 +26,18 @@ impl UserConversations {
 
     pub fn set_user_data(&self, user_id: i64, data: &UserData) -> sled::Result<()> {
         let key = user_id.to_be_bytes();
-        let encoded = bincode::serialize(data).unwrap();
+        let encoded = bincode::encode_to_vec(data, bincode::config::standard()).unwrap();
         self.tree.insert(key, encoded)?;
         Ok(())
     }
 
     pub fn get_user_data(&self, user_id: i64) -> Option<UserData> {
         let key = user_id.to_be_bytes();
-        self.tree
-            .get(key)
-            .ok()
-            .flatten()
-            .and_then(|ivec: IVec| bincode::deserialize(&ivec).ok())
+        self.tree.get(key).ok().flatten().and_then(|ivec: IVec| {
+            bincode::decode_from_slice(&ivec, bincode::config::standard())
+                .ok()
+                .map(|(data, _)| data)
+        })
     }
 
     pub fn set_response_id(&self, user_id: i64, response_id: &str) -> sled::Result<()> {
