@@ -452,30 +452,31 @@ pub async fn handle_reasoning_chat(
     typing_indicator_handle.abort();
 
     match response_result {
-        Ok(response) => {
-            log::info!("Reasoning response generated successfully");
+        Ok(ai_response) => {
+            log::info!("Reasoning response generated successfully for user {} (tokens: input={}, output={}, total={})", 
+                      user_id, ai_response.prompt_tokens, ai_response.output_tokens, ai_response.total_tokens);
 
             // Check for image data and send as a photo if present
-            if let Some(image_data) = response.image_data {
+            if let Some(image_data) = ai_response.image_data {
                 let photo = InputFile::memory(image_data);
-                let caption = if response.text.len() > 1024 {
-                    &response.text[..1024]
+                let caption = if ai_response.text.len() > 1024 {
+                    &ai_response.text[..1024]
                 } else {
-                    &response.text
+                    &ai_response.text
                 };
                 bot.send_photo(msg.chat.id, photo)
                     .caption(caption)
                     .parse_mode(ParseMode::Markdown)
                     .await?;
                 // If the text is longer than 1024, send the rest as a follow-up message
-                if response.text.len() > 1024 {
-                    send_long_message(&bot, msg.chat.id, &response.text[1024..]).await?;
+                if ai_response.text.len() > 1024 {
+                    send_long_message(&bot, msg.chat.id, &ai_response.text[1024..]).await?;
                 }
             } else {
-                let text_to_send = if response.text.is_empty() {
+                let text_to_send = if ai_response.text.is_empty() {
                     "_(The model processed the request but returned no text.)_".to_string()
                 } else {
-                    response.text
+                    ai_response.text
                 };
                 // Use the new send_long_message function for text responses
                 send_long_message(&bot, msg.chat.id, &text_to_send).await?;
@@ -619,36 +620,38 @@ pub async fn handle_chat(
     typing_indicator_handle.abort();
 
     match response_result {
-        Ok(response) => {
-            // Check for image data and send as a photo if present
-            if let Some(image_data) = response.image_data {
+        Ok(ai_response) => {
+            log::info!("Chat response generated successfully for user {} (tokens: input={}, output={}, total={})", 
+                      user_id, ai_response.prompt_tokens, ai_response.output_tokens, ai_response.total_tokens);
+            
+            if let Some(image_data) = ai_response.image_data {
                 let photo = InputFile::memory(image_data);
                 bot.send_photo(msg.chat.id, photo)
-                    .caption(response.text)
-                    .parse_mode(ParseMode::Markdown)
+                    .caption(&ai_response.text)
                     .await?;
-            } else if let Some(ref tool_calls) = response.tool_calls {
+            } else if let Some(ref tool_calls) = ai_response.tool_calls {
                 if tool_calls
                     .iter()
                     .any(|tool_call| tool_call.name == "withdraw_funds")
                 {
-                    withdraw_funds_hook(bot, msg, response.text).await?;
+                    withdraw_funds_hook(bot, msg, ai_response.text).await?;
                 } else if tool_calls
                     .iter()
                     .any(|tool_call| tool_call.name == "fund_account")
                 {
-                    fund_account_hook(bot, msg, response.text).await?;
+                    fund_account_hook(bot, msg, ai_response.text).await?;
                 } else {
-                    let html_text = utils::markdown_to_html(&response.text);
-                    bot.send_message(msg.chat.id, html_text)
-                        .parse_mode(ParseMode::Html)
-                        .await?;
+                    send_long_message(&bot, msg.chat.id, &ai_response.text).await?;
                 }
             } else {
-                let html_text = utils::markdown_to_html(&response.text);
-                bot.send_message(msg.chat.id, html_text)
-                    .parse_mode(ParseMode::Html)
-                    .await?;
+                send_long_message(&bot, msg.chat.id, &ai_response.text).await?;
+            }
+
+            // Log tool calls if any
+            if let Some(tool_calls) = &ai_response.tool_calls {
+                if !tool_calls.is_empty() {
+                    log::info!("Tool calls executed: {:?}", tool_calls);
+                }
             }
         }
         Err(e) => {
@@ -953,8 +956,8 @@ pub async fn handle_message(
             let message_text = msg.text().or_else(|| msg.caption()).unwrap_or("");
             match moderation_service.moderate_message(message_text, &bot, &msg, &msg).await {
                 Ok(result) => {
-                    log::info!("Sentinal moderation result: {} for message: {}", result, message_text);
-                    if result == "F" {
+                    log::info!("Sentinal moderation result: {} for message: {} (tokens: {})", result.verdict, message_text, result.total_tokens);
+                    if result.verdict == "F" {
                         // Mute the user
                         if let Some(flagged_user) = &msg.from {
                             let restricted_permissions = teloxide::types::ChatPermissions::empty();
@@ -1111,8 +1114,9 @@ pub async fn handle_mod(bot: Bot, msg: Message, db: Db) -> AnyResult<()> {
         // Moderate the message
         match moderation_service.moderate_message(message_text, &bot, &msg, &reply_to_msg).await {
             Ok(result) => {
+                log::info!("Manual moderation result: {} for message: {} (tokens: {})", result.verdict, message_text, result.total_tokens);
                 // Only respond if the message is flagged
-                if result == "F" {
+                if result.verdict == "F" {
                     // First, mute the user who sent the flagged message
                     if let Some(flagged_user) = &reply_to_msg.from {
                         // Create restricted permissions (muted)
