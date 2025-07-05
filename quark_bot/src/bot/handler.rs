@@ -950,9 +950,10 @@ pub async fn handle_message(
             }
             // Use the same moderation logic as /mod
             let moderation_service = ModerationService::new(std::env::var("OPENAI_API_KEY").unwrap()).unwrap();
-            let message_text = msg.text().unwrap_or("");
+            let message_text = msg.text().or_else(|| msg.caption()).unwrap_or("");
             match moderation_service.moderate_message(message_text, &bot, &msg, &msg).await {
                 Ok(result) => {
+                    log::info!("Sentinal moderation result: {} for message: {}", result, message_text);
                     if result == "F" {
                         // Mute the user
                         if let Some(flagged_user) = &msg.from {
