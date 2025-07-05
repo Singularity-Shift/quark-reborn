@@ -122,6 +122,12 @@ pub fn handler_tree() -> Handler<'static, Result<()>, DpHandlerDescription> {
                         .filter(|msg: Message| msg.chat.is_private())
                         .endpoint(handle_message),
                 )
+                // Handle group messages for sentinal auto-moderation
+                .branch(
+                    dptree::entry()
+                        .filter(|msg: Message| !msg.chat.is_private())
+                        .endpoint(handle_message),
+                )
                 .branch(
                     // Handle DM-only commands when used in groups - direct to DMs
                     dptree::entry()
