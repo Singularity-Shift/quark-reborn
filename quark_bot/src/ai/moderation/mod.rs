@@ -1,5 +1,6 @@
 use anyhow::Result;
 use open_ai_rust_responses_by_sshift::{Client, Request, Model};
+use teloxide::{Bot, types::Message, prelude::*};
 
 pub struct ModerationService {
     client: Client,
@@ -11,7 +12,23 @@ impl ModerationService {
         Ok(Self { client })
     }
 
-    pub async fn moderate_message(&self, message_text: &str) -> Result<String> {
+    pub async fn moderate_message(&self, message_text: &str, bot: &Bot, original_msg: &Message, replied_msg: &Message) -> Result<String> {
+        // Check if the user who sent the replied message has admin role
+        if let Some(user) = &replied_msg.from {
+            let user_id = user.id;
+            
+            // Get chat administrators
+            if let Ok(admins) = bot.get_chat_administrators(original_msg.chat.id).await {
+                let is_admin = admins.iter().any(|member| member.user.id == user_id);
+                
+                if is_admin {
+                    // Admin users automatically pass moderation
+                    return Ok("P".to_string());
+                }
+            }
+        }
+
+        // Proceed with AI moderation for non-admin users
         let prompt = format!(
             "Analyze the following message and determine if it violates any of these rules:
 
