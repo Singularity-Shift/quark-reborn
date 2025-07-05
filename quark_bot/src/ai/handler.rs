@@ -124,6 +124,11 @@ impl AI {
         let user_convos = UserConversations::new(db)?;
         let previous_response_id = user_convos.get_response_id(user_id);
         let mut tool_called: Vec<FunctionCallInfo> = Vec::new();
+        
+        // Track token usage across all API calls
+        let mut total_prompt_tokens = 0u32;
+        let mut total_output_tokens = 0u32;
+        let mut total_tokens_used = 0u32;
 
         let vector_store_id = user_convos.get_vector_store_id(user_id);
 
@@ -219,6 +224,18 @@ impl AI {
         {
             Ok(response) => {
                 log::info!("OpenAI API call successful, response ID: {}", response.id());
+                
+                // Extract and accumulate token usage
+                if let Some(usage) = &response.usage {
+                    total_prompt_tokens += usage.input_tokens;
+                    total_output_tokens += usage.output_tokens;
+                    total_tokens_used += usage.total_tokens;
+                    log::info!("Initial API call tokens: input={}, output={}, total={}", 
+                              usage.input_tokens, 
+                              usage.output_tokens, 
+                              usage.total_tokens);
+                }
+                
                 response
             }
             Err(e) => {
@@ -365,6 +382,17 @@ impl AI {
                     .create(continuation_request)
                     .await?;
                 log::info!("Continuation request completed");
+                
+                // Extract and accumulate token usage from continuation
+                if let Some(usage) = &current_response.usage {
+                    total_prompt_tokens += usage.input_tokens;
+                    total_output_tokens += usage.output_tokens;
+                    total_tokens_used += usage.total_tokens;
+                    log::info!("Continuation API call tokens: input={}, output={}, total={}", 
+                              usage.input_tokens, 
+                              usage.output_tokens, 
+                              usage.total_tokens);
+                }
             } else {
                 // No custom function calls, break the loop
                 // (Built-in tools like web_search and file_search are handled automatically by OpenAI)
@@ -418,6 +446,9 @@ impl AI {
 
         }
 
-        Ok(AIResponse::from((reply, image_data, Some(tool_called))))
+        log::info!("Total conversation tokens: input={}, output={}, total={}", 
+                  total_prompt_tokens, total_output_tokens, total_tokens_used);
+
+        Ok(AIResponse::from((reply, image_data, Some(tool_called), total_prompt_tokens, total_output_tokens, total_tokens_used)))
     }
 }
