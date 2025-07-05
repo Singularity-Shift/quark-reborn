@@ -95,6 +95,7 @@ pub fn handler_tree() -> Handler<'static, Result<()>, DpHandlerDescription> {
                                     | Command::PromptExamples
                                     | Command::Sentinal(_)
                                     | Command::Mod
+                                    | Command::ModerationRules
                             )
                         })
                         .filter_async(auth)
