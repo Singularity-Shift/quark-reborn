@@ -1189,3 +1189,38 @@ pub async fn handle_mod(bot: Bot, msg: Message, db: Db) -> AnyResult<()> {
     }
     Ok(())
 }
+
+pub async fn handle_moderation_rules(bot: Bot, msg: Message) -> AnyResult<()> {
+    let rules = r#"
+<b>🛡️ Moderation Rules</b>
+
+To avoid being muted or banned, please follow these rules:
+
+<b>1. No Promotion or Selling</b>
+- Do not offer services, products, access, or benefits
+- Do not position yourself as an authority/leader to gain trust
+- Do not promise exclusive opportunities or deals
+- No commercial solicitation of any kind
+
+<b>2. No Private Communication Invites</b>
+- Do not request to move conversation to DM/private
+- Do not offer to send details privately
+- Do not ask for personal contact information
+- Do not attempt to bypass public group discussion
+
+<b>Examples (not exhaustive):</b>
+- "I can offer you whitelist access"
+- "DM me for details"
+- "React and I'll message you"
+- "I'm a [title] and can help you"
+- "Send me your wallet address"
+- "Contact me privately"
+- "I'll send you the link"
+
+If you have questions, ask an admin before posting.
+"#;
+    bot.send_message(msg.chat.id, rules)
+        .parse_mode(ParseMode::Html)
+        .await?;
+    Ok(())
+}

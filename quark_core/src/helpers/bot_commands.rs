@@ -37,6 +37,8 @@ pub enum Command {
     Sentinal(String),
     #[command(description = "Moderate content (reply to message).")]
     Mod,
+    #[command(description = "Display the moderation rules to avoid getting muted.")]
+    ModerationRules,
 }
 
 #[derive(Debug, Clone, Default)]
