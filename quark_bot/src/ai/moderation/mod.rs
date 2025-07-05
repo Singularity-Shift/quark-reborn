@@ -6,13 +6,21 @@ pub struct ModerationService {
     client: Client,
 }
 
+#[derive(Debug, Clone)]
+pub struct ModerationResult {
+    pub verdict: String,           // "P" or "F"
+    pub prompt_tokens: u32,
+    pub output_tokens: u32,
+    pub total_tokens: u32,
+}
+
 impl ModerationService {
     pub fn new(api_key: String) -> Result<Self> {
         let client = Client::new(&api_key)?;
         Ok(Self { client })
     }
 
-    pub async fn moderate_message(&self, message_text: &str, bot: &Bot, original_msg: &Message, replied_msg: &Message) -> Result<String> {
+    pub async fn moderate_message(&self, message_text: &str, bot: &Bot, original_msg: &Message, replied_msg: &Message) -> Result<ModerationResult> {
         // Check if the user who sent the replied message has admin role
         if let Some(user) = &replied_msg.from {
             let user_id = user.id;
@@ -22,8 +30,13 @@ impl ModerationService {
                 let is_admin = admins.iter().any(|member| member.user.id == user_id);
                 
                 if is_admin {
-                    // Admin users automatically pass moderation
-                    return Ok("P".to_string());
+                    // Admin users automatically pass moderation (no API call, no tokens used)
+                    return Ok(ModerationResult {
+                        verdict: "P".to_string(),
+                        prompt_tokens: 0,
+                        output_tokens: 0,
+                        total_tokens: 0,
+                    });
                 }
             }
         }
@@ -44,11 +57,29 @@ impl ModerationService {
         let response = self.client.responses.create(request).await?;
         let result = response.output_text().trim().to_uppercase();
         
-        // Ensure we only return P or F
-        if result.contains('F') {
-            Ok("F".to_string())
+        // Extract token usage
+        let (prompt_tokens, output_tokens, total_tokens) = if let Some(usage) = &response.usage {
+            (
+                usage.input_tokens,
+                usage.output_tokens,
+                usage.total_tokens
+            )
         } else {
-            Ok("P".to_string())
-        }
+            (0, 0, 0)
+        };
+        
+        // Ensure we only return P or F
+        let verdict = if result.contains('F') {
+            "F".to_string()
+        } else {
+            "P".to_string()
+        };
+
+        Ok(ModerationResult {
+            verdict,
+            prompt_tokens,
+            output_tokens,
+            total_tokens,
+        })
     }
 } 
