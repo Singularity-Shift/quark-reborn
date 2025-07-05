@@ -42,7 +42,7 @@ Message to analyze: \"{}\"",
         );
 
         let request = Request::builder()
-            .model(Model::GPT4oMini)
+            .model(Model::GPT41Nano)
             .input(prompt)
             .max_output_tokens(20)
             .temperature(0.1)
