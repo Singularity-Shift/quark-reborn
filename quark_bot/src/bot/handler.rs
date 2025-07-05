@@ -928,6 +928,73 @@ pub async fn handle_message(
     db: Db,
     tree: Tree,
 ) -> AnyResult<()> {
+    // Sentinal: moderate every message in group if sentinal is on
+    if !msg.chat.is_private() {
+        let sentinal_tree = db.open_tree("sentinal_state").unwrap();
+        let chat_id = msg.chat.id.0.to_be_bytes();
+        let sentinal_on = sentinal_tree.get(chat_id).unwrap().map(|v| v == b"on").unwrap_or(false);
+        if sentinal_on {
+            // Don't moderate admin or bot messages
+            if let Some(user) = &msg.from {
+                if user.is_bot {
+                    return Ok(());
+                }
+                // Check admin status
+                let admins = bot.get_chat_administrators(msg.chat.id).await?;
+                let is_admin = admins.iter().any(|member| member.user.id == user.id);
+                if is_admin {
+                    return Ok(());
+                }
+            } else {
+                return Ok(());
+            }
+            // Use the same moderation logic as /mod
+            let moderation_service = ModerationService::new(std::env::var("OPENAI_API_KEY").unwrap()).unwrap();
+            let message_text = msg.text().or_else(|| msg.caption()).unwrap_or("");
+            match moderation_service.moderate_message(message_text, &bot, &msg, &msg).await {
+                Ok(result) => {
+                    log::info!("Sentinal moderation result: {} for message: {}", result, message_text);
+                    if result == "F" {
+                        // Mute the user
+                        if let Some(flagged_user) = &msg.from {
+                            let restricted_permissions = teloxide::types::ChatPermissions::empty();
+                            if let Err(mute_error) = bot
+                                .restrict_chat_member(msg.chat.id, flagged_user.id, restricted_permissions)
+                                .await
+                            {
+                                log::error!("Failed to mute user {}: {}", flagged_user.id, mute_error);
+                            } else {
+                                log::info!("Successfully muted user {} for flagged content (sentinal)", flagged_user.id);
+                            }
+                            // Add admin buttons
+                            let keyboard = InlineKeyboardMarkup::new(vec![
+                                vec![
+                                    InlineKeyboardButton::callback("🔇 Unmute", format!("unmute:{}", flagged_user.id)),
+                                    InlineKeyboardButton::callback("🚫 Ban", format!("ban:{}", flagged_user.id)),
+                                ],
+                            ]);
+                            bot.send_message(
+                                msg.chat.id,
+                                format!(
+                                    "🛡️ <b>Content Flagged & User Muted</b>\n\n📝 Message ID: <code>{}</code>\n\n❌ Status: <b>FLAGGED</b> 🔴\n🔇 User has been muted\n\n💬 <i>Flagged message:</i>\n<blockquote>{}</blockquote>",
+                                    msg.id,
+                                    message_text
+                                )
+                            )
+                            .parse_mode(ParseMode::Html)
+                            .reply_markup(keyboard)
+                            .await?;
+                        }
+                    }
+                }
+                Err(e) => {
+                    log::error!("Sentinal moderation failed: {}", e);
+                }
+            }
+            return Ok(());
+        }
+    }
+
     if msg.media_group_id().is_some() && msg.photo().is_some() {
         media_aggregator.add_message(msg, ai, tree).await;
         return Ok(());
@@ -951,22 +1018,40 @@ pub async fn handle_message(
     Ok(())
 }
 
-pub async fn handle_monitor(bot: Bot, msg: Message, param: String) -> AnyResult<()> {
-    let param = param.trim().to_lowercase();
-    
-    match param.as_str() {
-        "on" => {
+pub async fn handle_sentinal(bot: Bot, msg: Message, param: String, db: Db) -> AnyResult<()> {
+    // Only admins can use /sentinal
+    if !msg.chat.is_private() {
+        let admins = bot.get_chat_administrators(msg.chat.id).await?;
+        let requester_id = msg.from.as_ref().map(|u| u.id);
+        let is_admin = requester_id.map(|uid| admins.iter().any(|member| member.user.id == uid)).unwrap_or(false);
+        if !is_admin {
             bot.send_message(
                 msg.chat.id,
-                "🔧 <b>Monitor System</b>\n\n⚠️ <i>Feature under development</i>\n\n📊 Monitor mode: <code>ON</code> requested\n\n🚧 This feature is not yet implemented. Stay tuned for updates!"
+                "❌ <b>Permission Denied</b>\n\nOnly group administrators can use /sentinal."
+            )
+            .parse_mode(ParseMode::Html)
+            .await?;
+            return Ok(());
+        }
+    }
+    let param = param.trim().to_lowercase();
+    let sentinal_tree = db.open_tree("sentinal_state").unwrap();
+    let chat_id = msg.chat.id.0.to_be_bytes();
+    match param.as_str() {
+        "on" => {
+            sentinal_tree.insert(chat_id, b"on").unwrap();
+            bot.send_message(
+                msg.chat.id,
+                "🛡️ <b>Sentinal System</b>\n\n✅ <b>Sentinal is now ON</b>\n\nAll messages will be automatically moderated. /mod command is disabled."
             )
             .parse_mode(ParseMode::Html)
             .await?;
         }
         "off" => {
+            sentinal_tree.insert(chat_id, b"off").unwrap();
             bot.send_message(
                 msg.chat.id,
-                "🔧 <b>Monitor System</b>\n\n⚠️ <i>Feature under development</i>\n\n📊 Monitor mode: <code>OFF</code> requested\n\n🚧 This feature is not yet implemented. Stay tuned for updates!"
+                "🛡️ <b>Sentinal System</b>\n\n⏹️ <b>Sentinal is now OFF</b>\n\nManual moderation via /mod is re-enabled."
             )
             .parse_mode(ParseMode::Html)
             .await?;
@@ -974,7 +1059,7 @@ pub async fn handle_monitor(bot: Bot, msg: Message, param: String) -> AnyResult<
         _ => {
             bot.send_message(
                 msg.chat.id,
-                "❌ <b>Invalid Parameter</b>\n\n📝 Usage: <code>/monitor on</code> or <code>/monitor off</code>\n\n💡 Please specify either 'on' or 'off' to control the monitor system."
+                "❌ <b>Invalid Parameter</b>\n\n📝 Usage: <code>/sentinal on</code> or <code>/sentinal off</code>\n\n💡 Please specify either 'on' or 'off' to control the sentinal system."
             )
             .parse_mode(ParseMode::Html)
             .await?;
@@ -983,7 +1068,22 @@ pub async fn handle_monitor(bot: Bot, msg: Message, param: String) -> AnyResult<
     Ok(())
 }
 
-pub async fn handle_mod(bot: Bot, msg: Message) -> AnyResult<()> {
+pub async fn handle_mod(bot: Bot, msg: Message, db: Db) -> AnyResult<()> {
+    // Check if sentinal is on for this chat
+    if !msg.chat.is_private() {
+        let sentinal_tree = db.open_tree("sentinal_state").unwrap();
+        let chat_id = msg.chat.id.0.to_be_bytes();
+        let sentinal_on = sentinal_tree.get(chat_id).unwrap().map(|v| v == b"on").unwrap_or(false);
+        if sentinal_on {
+            bot.send_message(
+                msg.chat.id,
+                "🛡️ <b>Sentinal Mode Active</b>\n\n/mod is disabled while sentinal is ON. All messages are being automatically moderated."
+            )
+            .parse_mode(ParseMode::Html)
+            .await?;
+            return Ok(());
+        }
+    }
     // Check if the command is used in reply to a message
     if let Some(reply_to_msg) = msg.reply_to_message() {
         // Extract text from the replied message
@@ -1087,5 +1187,40 @@ pub async fn handle_mod(bot: Bot, msg: Message) -> AnyResult<()> {
         .parse_mode(ParseMode::Html)
         .await?;
     }
+    Ok(())
+}
+
+pub async fn handle_moderation_rules(bot: Bot, msg: Message) -> AnyResult<()> {
+    let rules = r#"
+<b>🛡️ Moderation Rules</b>
+
+To avoid being muted or banned, please follow these rules:
+
+<b>1. No Promotion or Selling</b>
+- Do not offer services, products, access, or benefits
+- Do not position yourself as an authority/leader to gain trust
+- Do not promise exclusive opportunities or deals
+- No commercial solicitation of any kind
+
+<b>2. No Private Communication Invites</b>
+- Do not request to move conversation to DM/private
+- Do not offer to send details privately
+- Do not ask for personal contact information
+- Do not attempt to bypass public group discussion
+
+<b>Examples (not exhaustive):</b>
+- "I can offer you whitelist access"
+- "DM me for details"
+- "React and I'll message you"
+- "I'm a [title] and can help you"
+- "Send me your wallet address"
+- "Contact me privately"
+- "I'll send you the link"
+
+If you have questions, ask an admin before posting.
+"#;
+    bot.send_message(msg.chat.id, rules)
+        .parse_mode(ParseMode::Html)
+        .await?;
     Ok(())
 }

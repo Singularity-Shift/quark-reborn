@@ -93,8 +93,9 @@ pub fn handler_tree() -> Handler<'static, Result<()>, DpHandlerDescription> {
                                     | Command::ListFiles
                                     | Command::NewChat
                                     | Command::PromptExamples
-                                    | Command::Monitor(_)
+                                    | Command::Sentinal(_)
                                     | Command::Mod
+                                    | Command::ModerationRules
                             )
                         })
                         .filter_async(auth)
@@ -120,6 +121,12 @@ pub fn handler_tree() -> Handler<'static, Result<()>, DpHandlerDescription> {
                 .branch(
                     dptree::entry()
                         .filter(|msg: Message| msg.chat.is_private())
+                        .endpoint(handle_message),
+                )
+                // Handle group messages for sentinal auto-moderation
+                .branch(
+                    dptree::entry()
+                        .filter(|msg: Message| !msg.chat.is_private())
                         .endpoint(handle_message),
                 )
                 .branch(
