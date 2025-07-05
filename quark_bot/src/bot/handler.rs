@@ -11,7 +11,7 @@ use crate::{
 use anyhow::Result as AnyResult;
 
 use crate::{
-    ai::{handler::AI, vector_store::list_user_files_with_names},
+    ai::{handler::AI, vector_store::list_user_files_with_names, moderation::ModerationService},
     credentials::helpers::generate_new_jwt,
     user_conversation::handler::UserConversations,
     user_model_preferences::handler::{UserModelPreferences, initialize_user_preferences},
@@ -947,6 +947,145 @@ pub async fn handle_message(
             || msg.audio().is_some())
     {
         handle_file_upload(bot, msg, db, ai).await?;
+    }
+    Ok(())
+}
+
+pub async fn handle_monitor(bot: Bot, msg: Message, param: String) -> AnyResult<()> {
+    let param = param.trim().to_lowercase();
+    
+    match param.as_str() {
+        "on" => {
+            bot.send_message(
+                msg.chat.id,
+                "🔧 <b>Monitor System</b>\n\n⚠️ <i>Feature under development</i>\n\n📊 Monitor mode: <code>ON</code> requested\n\n🚧 This feature is not yet implemented. Stay tuned for updates!"
+            )
+            .parse_mode(ParseMode::Html)
+            .await?;
+        }
+        "off" => {
+            bot.send_message(
+                msg.chat.id,
+                "🔧 <b>Monitor System</b>\n\n⚠️ <i>Feature under development</i>\n\n📊 Monitor mode: <code>OFF</code> requested\n\n🚧 This feature is not yet implemented. Stay tuned for updates!"
+            )
+            .parse_mode(ParseMode::Html)
+            .await?;
+        }
+        _ => {
+            bot.send_message(
+                msg.chat.id,
+                "❌ <b>Invalid Parameter</b>\n\n📝 Usage: <code>/monitor on</code> or <code>/monitor off</code>\n\n💡 Please specify either 'on' or 'off' to control the monitor system."
+            )
+            .parse_mode(ParseMode::Html)
+            .await?;
+        }
+    }
+    Ok(())
+}
+
+pub async fn handle_mod(bot: Bot, msg: Message) -> AnyResult<()> {
+    // Check if the command is used in reply to a message
+    if let Some(reply_to_msg) = msg.reply_to_message() {
+        // Extract text from the replied message
+        let message_text = reply_to_msg.text()
+            .or_else(|| reply_to_msg.caption())
+            .unwrap_or_default();
+
+        if message_text.is_empty() {
+            bot.send_message(
+                msg.chat.id,
+                format!("⚠️ <b>No Text Found</b>\n\n📝 Message ID: <code>{}</code>\n\n❌ The replied message contains no text to moderate.", reply_to_msg.id)
+            )
+            .parse_mode(ParseMode::Html)
+            .await?;
+            return Ok(());
+        }
+
+        // Create moderation service using environment API key
+        let openai_api_key = std::env::var("OPENAI_API_KEY")
+            .map_err(|_| anyhow::anyhow!("OPENAI_API_KEY not found in environment"))?;
+        
+        let moderation_service = ModerationService::new(openai_api_key)
+            .map_err(|e| anyhow::anyhow!("Failed to create moderation service: {}", e))?;
+
+        // Moderate the message
+        match moderation_service.moderate_message(message_text, &bot, &msg, &reply_to_msg).await {
+            Ok(result) => {
+                // Only respond if the message is flagged
+                if result == "F" {
+                    // First, mute the user who sent the flagged message
+                    if let Some(flagged_user) = &reply_to_msg.from {
+                        // Create restricted permissions (muted)
+                        let restricted_permissions = teloxide::types::ChatPermissions::empty();
+                        
+                        // Mute the user indefinitely 
+                        if let Err(mute_error) = bot
+                            .restrict_chat_member(msg.chat.id, flagged_user.id, restricted_permissions)
+                            .await
+                        {
+                            log::error!("Failed to mute user {}: {}", flagged_user.id, mute_error);
+                        } else {
+                            log::info!("Successfully muted user {} for flagged content", flagged_user.id);
+                        }
+
+                        // Create keyboard with admin controls
+                        let keyboard = InlineKeyboardMarkup::new(vec![
+                            vec![
+                                InlineKeyboardButton::callback("🔇 Unmute", format!("unmute:{}", flagged_user.id)),
+                                InlineKeyboardButton::callback("🚫 Ban", format!("ban:{}", flagged_user.id)),
+                            ],
+                        ]);
+
+                        // Send the flagged message response
+                        bot.send_message(
+                            msg.chat.id,
+                            format!(
+                                "🛡️ <b>Content Flagged & User Muted</b>\n\n📝 Message ID: <code>{}</code>\n\n❌ Status: <b>FLAGGED</b> 🔴\n🔇 User has been muted\n\n💬 <i>Flagged message:</i>\n<blockquote>{}</blockquote>",
+                                reply_to_msg.id,
+                                message_text
+                            )
+                        )
+                        .parse_mode(ParseMode::Html)
+                        .reply_markup(keyboard)
+                        .await?;
+                    } else {
+                        // Fallback if no user found in the replied message
+                        bot.send_message(
+                            msg.chat.id,
+                            format!(
+                                "🛡️ <b>Content Flagged</b>\n\n📝 Message ID: <code>{}</code>\n\n❌ Status: <b>FLAGGED</b> 🔴\n⚠️ Could not identify user to mute\n\n💬 <i>Flagged message:</i>\n<blockquote>{}</blockquote>",
+                                reply_to_msg.id,
+                                message_text
+                            )
+                        )
+                        .parse_mode(ParseMode::Html)
+                        .await?;
+                    }
+                }
+                // Silent when passed (P) - no response
+            }
+            Err(e) => {
+                log::error!("Moderation failed: {}", e);
+                bot.send_message(
+                    msg.chat.id,
+                    format!(
+                        "🛡️ <b>Moderation Error</b>\n\n📝 Message ID: <code>{}</code>\n\n❌ <b>Error:</b> Failed to analyze message. Please try again later.\n\n🔧 <i>Technical details:</i> {}",
+                        reply_to_msg.id,
+                        e
+                    )
+                )
+                .parse_mode(ParseMode::Html)
+                .await?;
+            }
+        }
+    } else {
+        // Not a reply to a message, show usage instructions
+        bot.send_message(
+            msg.chat.id,
+            "❌ <b>Invalid Usage</b>\n\n📝 The <code>/mod</code> command must be used in reply to a message.\n\n💡 <b>How to use:</b>\n1. Find the message you want to moderate\n2. Reply to that message with <code>/mod</code>\n\n🛡️ This will analyze the content of the replied message for violations."
+        )
+        .parse_mode(ParseMode::Html)
+        .await?;
     }
     Ok(())
 }
