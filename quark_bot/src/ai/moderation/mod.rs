@@ -30,14 +30,7 @@ impl ModerationService {
 
         // Proceed with AI moderation for non-admin users
         let prompt = format!(
-            "Analyze the following message and determine if it violates any of these rules:
-
-1. Is this message promoting something or trying to sell services? If yes then F
-2. Is the message inviting either an individual or many to communicate in private? If yes then F
-
-Return only either a P for pass or F for fail.
-
-Message to analyze: \"{}\"",
+            "You are an expert in language analysis and motivation detection. Analyze the following message with a high degree of nuance and context awareness.\n\nCheck for these violations:\n1. Is this message promoting something or trying to sell services?\n   - Only answer 'F' if the intent to promote or sell is clear and unambiguous.\n   - Do not flag casual mentions, jokes, or indirect references.\n\n2. Is the message inviting either an individual or many to communicate in private?\n   - Only answer 'F' if the invitation to private communication is explicit and intentional.\n   - Ignore vague, joking, or non-serious references.\n\nReturn only a single character:\n- 'P' for pass (no violation)\n- 'F' for fail (violation detected)\n\nMessage to analyze: \"{}\"",
             message_text
         );
 
