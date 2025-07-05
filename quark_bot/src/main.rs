@@ -49,7 +49,7 @@ async fn main() {
         .await
         .expect("Failed to create GCS image uploader");
 
-    let ai = AI::new(openai_api_key, google_cloud, aptos_network);
+    let ai = AI::new(openai_api_key.clone(), google_cloud, aptos_network);
 
     let user_convos = UserConversations::new(&db).unwrap();
     let user_model_prefs = UserModelPreferences::new(&db).unwrap();
@@ -75,6 +75,8 @@ async fn main() {
         BotCommand::new("selectreasoningmodel", "Select reasoning model (O-series) and effort level."),
         BotCommand::new("selectmodel", "Select chat model (4-series) and temperature."),
         BotCommand::new("mysettings", "View your current model preferences (DM only)."),
+        BotCommand::new("monitor", "Monitor system status (on/off)."),
+        BotCommand::new("mod", "Moderate content (reply to message)."),
     ];
 
     bot.set_my_commands(commands).await.unwrap();
