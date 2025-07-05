@@ -93,7 +93,7 @@ pub fn handler_tree() -> Handler<'static, Result<()>, DpHandlerDescription> {
                                     | Command::ListFiles
                                     | Command::NewChat
                                     | Command::PromptExamples
-                                    | Command::Monitor(_)
+                                    | Command::Sentinal(_)
                                     | Command::Mod
                             )
                         })
