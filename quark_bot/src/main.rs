@@ -75,8 +75,9 @@ async fn main() {
         BotCommand::new("selectreasoningmodel", "Select reasoning model (O-series) and effort level."),
         BotCommand::new("selectmodel", "Select chat model (4-series) and temperature."),
         BotCommand::new("mysettings", "View your current model preferences (DM only)."),
-        BotCommand::new("monitor", "Monitor system status (on/off)."),
+        BotCommand::new("sentinal", "Monitor system status (on/off)."),
         BotCommand::new("mod", "Moderate content (reply to message)."),
+        BotCommand::new("moderationrules", "Display the moderation rules to avoid getting muted."),
     ];
 
     bot.set_my_commands(commands).await.unwrap();

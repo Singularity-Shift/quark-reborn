@@ -30,14 +30,7 @@ impl ModerationService {
 
         // Proceed with AI moderation for non-admin users
         let prompt = format!(
-            "Analyze the following message and determine if it violates any of these rules:
-
-1. Is this message promoting something or trying to sell services? If yes then F
-2. Is the message inviting either an individual or many to communicate in private? If yes then F
-
-Return only either a P for pass or F for fail.
-
-Message to analyze: \"{}\"",
+            "You are an expert content moderator. Analyze this message for violations:\n\nRULE 1 - PROMOTION/SELLING:\n- Offering services, products, access, or benefits\n- Positioning as authority/leader to gain trust\n- Promising exclusive opportunities or deals\n- Any form of commercial solicitation\n\nRULE 2 - PRIVATE COMMUNICATION:\n- Requesting to move conversation to DM/private\n- Offering to send details privately\n- Asking for personal contact information\n- Any attempt to bypass public group discussion\n\nEXAMPLES TO FLAG (NOT EXHAUSTIVE - look for similar patterns):\n- \"I can offer you whitelist access\"\n- \"DM me for details\"\n- \"React and I'll message you\"\n- \"I'm a [title] and can help you\"\n- \"Send me your wallet address\"\n- \"Contact me privately\"\n- \"I'll send you the link\"\n\nIMPORTANT: These examples are just patterns. Flag ANY message that violates the rules above, even if worded differently.\n\nReturn only:\n- 'F' if ANY rule is violated\n- 'P' if completely clean\n\nMessage: \"{}\"",
             message_text
         );
 
