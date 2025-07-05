@@ -1009,32 +1009,67 @@ pub async fn handle_mod(bot: Bot, msg: Message) -> AnyResult<()> {
             .map_err(|e| anyhow::anyhow!("Failed to create moderation service: {}", e))?;
 
         // Moderate the message
-        match moderation_service.moderate_message(message_text).await {
+        match moderation_service.moderate_message(message_text, &bot, &msg, &reply_to_msg).await {
             Ok(result) => {
-                let status_emoji = if result == "F" { "❌" } else { "✅" };
-                let status_text = if result == "F" { "FLAGGED" } else { "PASSED" };
-                let status_color = if result == "F" { "🔴" } else { "🟢" };
-                
-                bot.send_message(
-                    msg.chat.id,
-                    format!(
-                        "🛡️ <b>Content Moderation Result</b>\n\n📝 Message ID: <code>{}</code>\n\n{} Status: <b>{}</b> {}\n\n💬 <i>Analyzed message:</i>\n<blockquote>{}</blockquote>",
-                        reply_to_msg.id,
-                        status_emoji,
-                        status_text,
-                        status_color,
-                        message_text
-                    )
-                )
-                .parse_mode(ParseMode::Html)
-                .await?;
+                // Only respond if the message is flagged
+                if result == "F" {
+                    // First, mute the user who sent the flagged message
+                    if let Some(flagged_user) = &reply_to_msg.from {
+                        // Create restricted permissions (muted)
+                        let restricted_permissions = teloxide::types::ChatPermissions::empty();
+                        
+                        // Mute the user indefinitely 
+                        if let Err(mute_error) = bot
+                            .restrict_chat_member(msg.chat.id, flagged_user.id, restricted_permissions)
+                            .await
+                        {
+                            log::error!("Failed to mute user {}: {}", flagged_user.id, mute_error);
+                        } else {
+                            log::info!("Successfully muted user {} for flagged content", flagged_user.id);
+                        }
+
+                        // Create keyboard with admin controls
+                        let keyboard = InlineKeyboardMarkup::new(vec![
+                            vec![
+                                InlineKeyboardButton::callback("🔇 Unmute", format!("unmute:{}", flagged_user.id)),
+                                InlineKeyboardButton::callback("🚫 Ban", format!("ban:{}", flagged_user.id)),
+                            ],
+                        ]);
+
+                        // Send the flagged message response
+                        bot.send_message(
+                            msg.chat.id,
+                            format!(
+                                "🛡️ <b>Content Flagged & User Muted</b>\n\n📝 Message ID: <code>{}</code>\n\n❌ Status: <b>FLAGGED</b> 🔴\n🔇 User has been muted\n\n💬 <i>Flagged message:</i>\n<blockquote>{}</blockquote>",
+                                reply_to_msg.id,
+                                message_text
+                            )
+                        )
+                        .parse_mode(ParseMode::Html)
+                        .reply_markup(keyboard)
+                        .await?;
+                    } else {
+                        // Fallback if no user found in the replied message
+                        bot.send_message(
+                            msg.chat.id,
+                            format!(
+                                "🛡️ <b>Content Flagged</b>\n\n📝 Message ID: <code>{}</code>\n\n❌ Status: <b>FLAGGED</b> 🔴\n⚠️ Could not identify user to mute\n\n💬 <i>Flagged message:</i>\n<blockquote>{}</blockquote>",
+                                reply_to_msg.id,
+                                message_text
+                            )
+                        )
+                        .parse_mode(ParseMode::Html)
+                        .await?;
+                    }
+                }
+                // Silent when passed (P) - no response
             }
             Err(e) => {
                 log::error!("Moderation failed: {}", e);
                 bot.send_message(
                     msg.chat.id,
                     format!(
-                        "🛡️ <b>Content Moderation</b>\n\n📝 Message ID: <code>{}</code>\n\n❌ <b>Error:</b> Failed to analyze message. Please try again later.\n\n🔧 <i>Technical details:</i> {}",
+                        "🛡️ <b>Moderation Error</b>\n\n📝 Message ID: <code>{}</code>\n\n❌ <b>Error:</b> Failed to analyze message. Please try again later.\n\n🔧 <i>Technical details:</i> {}",
                         reply_to_msg.id,
                         e
                     )
