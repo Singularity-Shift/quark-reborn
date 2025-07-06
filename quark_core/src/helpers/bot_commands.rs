@@ -32,6 +32,13 @@ pub enum Command {
     SelectModel,
     #[command(description = "View your current model preferences (DM only).")]
     MySettings,
+    // Change Monitor to Sentinal
+    #[command(description = "Monitor system status (on/off).", rename = "sentinal")]
+    Sentinal(String),
+    #[command(description = "Moderate content (reply to message).")]
+    Mod,
+    #[command(description = "Display the moderation rules to avoid getting muted.")]
+    ModerationRules,
 }
 
 #[derive(Debug, Clone, Default)]
