@@ -1,27 +1,14 @@
-use std::{str::FromStr, sync::Arc};
+use std::sync::Arc;
 
-use aptos_crypto::ed25519::Ed25519PublicKey;
-use aptos_rust_sdk_types::api_types::{
-    module_id::ModuleId,
-    transaction::{
-        EntryFunction, GenerateSigningMessage, RawTransaction, RawTransactionWithData,
-        SignedTransaction, TransactionPayload,
-    },
-    transaction_authenticator::{AccountAuthenticator, TransactionAuthenticator},
-    type_tag::TypeTag,
-};
 use axum::{
     Extension,
     extract::{Json, State},
     http::StatusCode,
 };
-use quark_core::helpers::dto::{PurchaseRequest, UserPayload};
+use quark_core::helpers::dto::{PurchaseMessage, PurchaseRequest, UserPayload};
+use redis::AsyncCommands;
 
-use crate::{
-    admin::handler::{get_admin, get_reviewer_priv_acc},
-    error::ErrorServer,
-    state::ServerState,
-};
+use crate::{error::ErrorServer, state::ServerState};
 
 #[utoipa::path(
     post,
@@ -39,138 +26,19 @@ pub async fn purchase(
     Extension(user): Extension<UserPayload>,
     Json(request): Json<PurchaseRequest>,
 ) -> Result<Json<()>, ErrorServer> {
-    let (admin, signer) = get_admin().map_err(|e| ErrorServer {
-        status: StatusCode::INTERNAL_SERVER_ERROR.into(),
-        message: e.to_string(),
-    })?;
+    let purchase_message: PurchaseMessage = (request, user.account_address).into();
 
-    let (reviewer, reviewer_signer) = get_reviewer_priv_acc().map_err(|e| ErrorServer {
-        status: StatusCode::INTERNAL_SERVER_ERROR.into(),
-        message: e.to_string(),
-    })?;
+    let message = serde_json::to_string(&purchase_message).unwrap();
 
-    let node = server_state.node();
-    let chain_id = server_state.chain_id();
-    let contract_address = server_state.contract_address();
-    let token_payment_address = server_state.token_payment_address();
-    let state = node.get_state().await.map_err(|e| ErrorServer {
-        status: StatusCode::INTERNAL_SERVER_ERROR.into(),
-        message: e.to_string(),
-    })?;
+    let mut redis_client = server_state.redis_client().clone();
 
-    let account_address = user.account_address;
-    let amount = request.amount;
-
-    let token_type =
-        TypeTag::from_str(token_payment_address.to_string().as_str()).map_err(|e| ErrorServer {
-            status: StatusCode::INTERNAL_SERVER_ERROR.into(),
-            message: e.to_string(),
-        })?;
-
-    let payload = TransactionPayload::EntryFunction(EntryFunction::new(
-        ModuleId::new(contract_address, "user_v3".to_string()),
-        "pay_ai".to_string(),
-        vec![token_type],
-        vec![account_address.into(), amount.to_le_bytes().to_vec()],
-    ));
-
-    let resource = node
-        .get_account_resources(admin.to_string())
-        .await
-        .map_err(|e| ErrorServer {
-            status: StatusCode::INTERNAL_SERVER_ERROR.into(),
-            message: e.to_string(),
-        })?
-        .into_inner();
-
-    let sequence_number = resource
-        .iter()
-        .find(|r| r.type_ == "0x1::account::Account")
-        .ok_or(ErrorServer {
-            status: StatusCode::NOT_FOUND.into(),
-            message: "Account resource not found".to_string(),
-        })?
-        .data
-        .get("sequence_number")
-        .ok_or(ErrorServer {
-            status: StatusCode::NOT_FOUND.into(),
-            message: "Sequence number not found".to_string(),
-        })?
-        .as_str()
-        .ok_or(ErrorServer {
-            status: StatusCode::NOT_FOUND.into(),
-            message: "Sequence number not found".to_string(),
-        })?
-        .parse::<u64>()
-        .map_err(|e| ErrorServer {
-            status: StatusCode::INTERNAL_SERVER_ERROR.into(),
-            message: e.to_string(),
-        })?;
-
-    let max_gas_amount = 1500;
-    let gas_unit_price = 100;
-    let expiration_timestamp_secs = state.timestamp_usecs / 1000 / 1000 + 60 * 10;
-
-    let raw_transaction = RawTransactionWithData::new_multi_agent(
-        RawTransaction::new(
-            admin,
-            sequence_number,
-            payload,
-            max_gas_amount,
-            gas_unit_price,
-            expiration_timestamp_secs,
-            chain_id,
-        ),
-        vec![reviewer],
-    );
-
-    let message = raw_transaction
-        .generate_signing_message()
-        .map_err(|e| ErrorServer {
-            status: StatusCode::INTERNAL_SERVER_ERROR.into(),
-            message: e.to_string(),
-        })?;
-
-    let signature = signer.sign_message(&message);
-
-    let reviewer_signature = reviewer_signer.sign_message(&message);
-
-    let simulate_transaction = node
-        .simulate_transaction(SignedTransaction::new(
-            raw_transaction.raw_txn().to_owned(),
-            TransactionAuthenticator::multi_agent(
-                AccountAuthenticator::no_authenticator(),
-                vec![reviewer],
-                vec![AccountAuthenticator::no_authenticator()],
-            ),
-        ))
+    let _: () = redis_client
+        .lpush("purchase", message)
         .await
         .map_err(|e| ErrorServer {
             status: StatusCode::INTERNAL_SERVER_ERROR.into(),
             message: e.to_string(),
         })?;
-
-    println!("Simulate Transaction: {:?}", simulate_transaction);
-
-    let transaction = node
-        .simulate_transaction(SignedTransaction::new(
-            raw_transaction.raw_txn().to_owned(),
-            TransactionAuthenticator::multi_agent(
-                AccountAuthenticator::ed25519(Ed25519PublicKey::from(&signer), signature),
-                vec![admin],
-                vec![AccountAuthenticator::ed25519(
-                    Ed25519PublicKey::from(&reviewer_signer),
-                    reviewer_signature,
-                )],
-            ),
-        ))
-        .await
-        .map_err(|e| ErrorServer {
-            status: StatusCode::INTERNAL_SERVER_ERROR.into(),
-            message: e.to_string(),
-        })?;
-
-    println!("Transaction: {:?}", transaction);
 
     Ok(Json(()))
 }
