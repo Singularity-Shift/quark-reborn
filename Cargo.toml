@@ -1,9 +1,9 @@
 [workspace]
-resolver = "3"
+resolver = "2"
 members = [
     "quark_core",
     "quark_bot",
-    "quark_server"]
+    "quark_server", "quark_consumer"]
 
 [workspace.dependencies]
 teloxide = { version = "0.16.0", features = ["macros"] }
@@ -29,3 +29,7 @@ aptos-rust-sdk = {git = "https://github.com/aptos-labs/aptos-rust-sdk.git", bran
 aptos-rust-sdk-types = {git = "https://github.com/aptos-labs/aptos-rust-sdk.git", branch = "main", package="aptos-rust-sdk-types"}
 aptos-crypto = {git = "https://github.com/aptos-labs/aptos-rust-sdk.git", branch="main",  package="aptos-crypto"}
 aptos-crypto-derive = {git = "https://github.com/aptos-labs/aptos-rust-sdk.git", branch="main", package="aptos-crypto-derive"}
+redis = {version = "0.32.3", features = ["tokio-comp"]}
+open-ai-rust-responses-by-sshift = "0.2.8"
+ron= {version = "0.10.1"}
+bincode = "2.0.1"

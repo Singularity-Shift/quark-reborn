@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   quark-server:
     container_name: quark-server
@@ -8,6 +6,8 @@ services:
       dockerfile: quark_server/Dockerfile
     ports:
       - "3200:3200"
+    depends_on:
+      - valkey
     environment:
       - SERVER_DOMAIN=${SERVER_DOMAIN}
       - APTOS_NETWORK=${APTOS_NETWORK}
@@ -19,6 +19,7 @@ services:
       - GPG_PRIVATE_KEY=${GPG_PRIVATE_KEY}
       - GPG_PUBLIC_KEY=${GPG_PUBLIC_KEY}
       - GPG_REVIEWER=${GPG_REVIEWER}
+      - REDIS_URL=redis://:${VALKEY_PASSWORD}@valkey:6379
     networks:
       - quark-net
 
@@ -62,8 +63,56 @@ services:
     networks:
       - quark-net
 
+  valkey:
+    image: bitnami/valkey:latest
+    environment:
+      - ALLOW_EMPTY_PASSWORD=no
+      - VALKEY_PASSWORD=${VALKEY_PASSWORD}
+      - VALKEY_DISABLE_COMMANDS=FLUSHDB,FLUSHALL
+    ports:
+      - '6379:6379'
+    volumes:
+      - 'valkey_data:/app/valkey_data'
+    networks:
+      - quark-net
+
+  quark-consumer-one:
+    container_name: quark-consumer-one
+    build:
+      context: .
+      dockerfile: quark_consumer/Dockerfile
+    depends_on:
+      - valkey
+      - quark-server
+    environment:
+      - REDIS_URL=redis://:${VALKEY_PASSWORD}@valkey:6379
+      - CONSUMER_ID=consumer-one
+    restart: unless-stopped
+    networks:
+      - quark-net
+
+  quark-consumer-two:
+    container_name: quark-consumer-two
+    build:
+      context: .
+      dockerfile: quark_consumer/Dockerfile
+    depends_on:
+      - valkey
+      - quark-server
+    environment:
+      - REDIS_URL=redis://:${VALKEY_PASSWORD}@valkey:6379
+      - CONSUMER_ID=consumer-two
+    restart: unless-stopped
+    networks:
+      - quark-net
+
 volumes:
   quark-data:
+    driver: local
+  valkey_data:
+    driver: local
+  quark_redis_data:
+    driver: local
 
 networks:
   quark-net:

@@ -19,13 +19,20 @@ use crate::{
     state::ServerState,
 };
 
+use redis::Client;
+
 pub async fn router() -> Router {
     let network = env::var("APTOS_NETWORK").expect("APTOS_NETWORK environment variable not set");
     let contract_address =
         env::var("CONTRACT_ADDRESS").expect("CONTRACT_ADDRESS environment variable not set");
+    let redis_url = env::var("REDIS_URL").expect("REDIS_URL environment variable not set");
 
-    let token_payment_address = env::var("TOKEN_PAYMENT_ADDRESS")
-        .expect("TOKEN_PAYMENT_ADDRESS environment variable not set");
+    let redis_client = Client::open(redis_url).expect("Failed to connect to Redis");
+
+    let redis_connection = redis_client
+        .get_multiplexed_async_connection()
+        .await
+        .expect("Failed to get Redis connection");
 
     let (builder, chain_id) = match network.as_str() {
         "mainnet" => (
@@ -55,7 +62,7 @@ pub async fn router() -> Router {
         node,
         chain_id,
         contract_address,
-        token_payment_address,
+        redis_connection,
     )));
 
     let doc = ApiDoc::openapi();

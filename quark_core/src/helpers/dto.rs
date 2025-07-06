@@ -1,3 +1,4 @@
+use open_ai_rust_responses_by_sshift::Model;
 use serde::{Deserialize, Serialize};
 use std::{env, fmt};
 use teloxide::types::UserId;
@@ -23,7 +24,25 @@ pub struct UserPayload {
 
 #[derive(Deserialize, Serialize, Debug, ToSchema)]
 pub struct PurchaseRequest {
-    pub amount: u64,
+    #[schema(value_type = String)]
+    pub model: Model,
+    pub tokens_used: u32,
+    pub tools_used: AITool,
+}
+
+#[derive(Deserialize, Serialize, Debug, ToSchema)]
+pub struct PurchaseMessage {
+    #[schema(value_type = String)]
+    pub model: Model,
+    pub tokens_used: u32,
+    pub tools_used: AITool,
+    pub account_address: String,
+}
+
+#[derive(Deserialize, Serialize, Debug, ToSchema)]
+pub enum AITool {
+    FileSearch,
+    GPTImage1,
 }
 
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
@@ -54,6 +73,21 @@ impl fmt::Display for Endpoints {
         match self {
             &Endpoints::PayUsers => write!(f, "{}/pay-users", backend_url),
             &Endpoints::Purchase => write!(f, "{}/purchase", backend_url),
+        }
+    }
+}
+
+impl From<(PurchaseRequest, String)> for PurchaseMessage {
+    fn from((request, account_address): (PurchaseRequest, String)) -> Self {
+        let model = request.model;
+        let tokens_used = request.tokens_used;
+        let tools_used = request.tools_used;
+
+        PurchaseMessage {
+            model,
+            tokens_used,
+            tools_used,
+            account_address,
         }
     }
 }
