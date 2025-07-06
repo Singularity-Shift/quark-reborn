@@ -11,7 +11,7 @@ use crate::{
 use anyhow::Result as AnyResult;
 
 use crate::{
-    ai::{handler::AI, vector_store::list_user_files_with_names},
+    ai::{handler::AI, vector_store::list_user_files_with_names, moderation::ModerationService},
     credentials::helpers::generate_new_jwt,
     user_conversation::handler::UserConversations,
     user_model_preferences::handler::{UserModelPreferences, initialize_user_preferences},
@@ -452,30 +452,31 @@ pub async fn handle_reasoning_chat(
     typing_indicator_handle.abort();
 
     match response_result {
-        Ok(response) => {
-            log::info!("Reasoning response generated successfully");
+        Ok(ai_response) => {
+            log::info!("Reasoning response generated successfully for user {} (tokens: input={}, output={}, total={})", 
+                      user_id, ai_response.prompt_tokens, ai_response.output_tokens, ai_response.total_tokens);
 
             // Check for image data and send as a photo if present
-            if let Some(image_data) = response.image_data {
+            if let Some(image_data) = ai_response.image_data {
                 let photo = InputFile::memory(image_data);
-                let caption = if response.text.len() > 1024 {
-                    &response.text[..1024]
+                let caption = if ai_response.text.len() > 1024 {
+                    &ai_response.text[..1024]
                 } else {
-                    &response.text
+                    &ai_response.text
                 };
                 bot.send_photo(msg.chat.id, photo)
                     .caption(caption)
                     .parse_mode(ParseMode::Markdown)
                     .await?;
                 // If the text is longer than 1024, send the rest as a follow-up message
-                if response.text.len() > 1024 {
-                    send_long_message(&bot, msg.chat.id, &response.text[1024..]).await?;
+                if ai_response.text.len() > 1024 {
+                    send_long_message(&bot, msg.chat.id, &ai_response.text[1024..]).await?;
                 }
             } else {
-                let text_to_send = if response.text.is_empty() {
+                let text_to_send = if ai_response.text.is_empty() {
                     "_(The model processed the request but returned no text.)_".to_string()
                 } else {
-                    response.text
+                    ai_response.text
                 };
                 // Use the new send_long_message function for text responses
                 send_long_message(&bot, msg.chat.id, &text_to_send).await?;
@@ -619,36 +620,38 @@ pub async fn handle_chat(
     typing_indicator_handle.abort();
 
     match response_result {
-        Ok(response) => {
-            // Check for image data and send as a photo if present
-            if let Some(image_data) = response.image_data {
+        Ok(ai_response) => {
+            log::info!("Chat response generated successfully for user {} (tokens: input={}, output={}, total={})", 
+                      user_id, ai_response.prompt_tokens, ai_response.output_tokens, ai_response.total_tokens);
+            
+            if let Some(image_data) = ai_response.image_data {
                 let photo = InputFile::memory(image_data);
                 bot.send_photo(msg.chat.id, photo)
-                    .caption(response.text)
-                    .parse_mode(ParseMode::Markdown)
+                    .caption(&ai_response.text)
                     .await?;
-            } else if let Some(ref tool_calls) = response.tool_calls {
+            } else if let Some(ref tool_calls) = ai_response.tool_calls {
                 if tool_calls
                     .iter()
                     .any(|tool_call| tool_call.name == "withdraw_funds")
                 {
-                    withdraw_funds_hook(bot, msg, response.text).await?;
+                    withdraw_funds_hook(bot, msg, ai_response.text).await?;
                 } else if tool_calls
                     .iter()
                     .any(|tool_call| tool_call.name == "fund_account")
                 {
-                    fund_account_hook(bot, msg, response.text).await?;
+                    fund_account_hook(bot, msg, ai_response.text).await?;
                 } else {
-                    let html_text = utils::markdown_to_html(&response.text);
-                    bot.send_message(msg.chat.id, html_text)
-                        .parse_mode(ParseMode::Html)
-                        .await?;
+                    send_long_message(&bot, msg.chat.id, &ai_response.text).await?;
                 }
             } else {
-                let html_text = utils::markdown_to_html(&response.text);
-                bot.send_message(msg.chat.id, html_text)
-                    .parse_mode(ParseMode::Html)
-                    .await?;
+                send_long_message(&bot, msg.chat.id, &ai_response.text).await?;
+            }
+
+            // Log tool calls if any
+            if let Some(tool_calls) = &ai_response.tool_calls {
+                if !tool_calls.is_empty() {
+                    log::info!("Tool calls executed: {:?}", tool_calls);
+                }
             }
         }
         Err(e) => {
@@ -928,6 +931,73 @@ pub async fn handle_message(
     db: Db,
     tree: Tree,
 ) -> AnyResult<()> {
+    // Sentinal: moderate every message in group if sentinal is on
+    if !msg.chat.is_private() {
+        let sentinal_tree = db.open_tree("sentinal_state").unwrap();
+        let chat_id = msg.chat.id.0.to_be_bytes();
+        let sentinal_on = sentinal_tree.get(chat_id).unwrap().map(|v| v == b"on").unwrap_or(false);
+        if sentinal_on {
+            // Don't moderate admin or bot messages
+            if let Some(user) = &msg.from {
+                if user.is_bot {
+                    return Ok(());
+                }
+                // Check admin status
+                let admins = bot.get_chat_administrators(msg.chat.id).await?;
+                let is_admin = admins.iter().any(|member| member.user.id == user.id);
+                if is_admin {
+                    return Ok(());
+                }
+            } else {
+                return Ok(());
+            }
+            // Use the same moderation logic as /mod
+            let moderation_service = ModerationService::new(std::env::var("OPENAI_API_KEY").unwrap()).unwrap();
+            let message_text = msg.text().or_else(|| msg.caption()).unwrap_or("");
+            match moderation_service.moderate_message(message_text, &bot, &msg, &msg).await {
+                Ok(result) => {
+                    log::info!("Sentinal moderation result: {} for message: {} (tokens: {})", result.verdict, message_text, result.total_tokens);
+                    if result.verdict == "F" {
+                        // Mute the user
+                        if let Some(flagged_user) = &msg.from {
+                            let restricted_permissions = teloxide::types::ChatPermissions::empty();
+                            if let Err(mute_error) = bot
+                                .restrict_chat_member(msg.chat.id, flagged_user.id, restricted_permissions)
+                                .await
+                            {
+                                log::error!("Failed to mute user {}: {}", flagged_user.id, mute_error);
+                            } else {
+                                log::info!("Successfully muted user {} for flagged content (sentinal)", flagged_user.id);
+                            }
+                            // Add admin buttons
+                            let keyboard = InlineKeyboardMarkup::new(vec![
+                                vec![
+                                    InlineKeyboardButton::callback("🔇 Unmute", format!("unmute:{}", flagged_user.id)),
+                                    InlineKeyboardButton::callback("🚫 Ban", format!("ban:{}", flagged_user.id)),
+                                ],
+                            ]);
+                            bot.send_message(
+                                msg.chat.id,
+                                format!(
+                                    "🛡️ <b>Content Flagged & User Muted</b>\n\n📝 Message ID: <code>{}</code>\n\n❌ Status: <b>FLAGGED</b> 🔴\n🔇 User has been muted\n\n💬 <i>Flagged message:</i>\n<blockquote>{}</blockquote>",
+                                    msg.id,
+                                    message_text
+                                )
+                            )
+                            .parse_mode(ParseMode::Html)
+                            .reply_markup(keyboard)
+                            .await?;
+                        }
+                    }
+                }
+                Err(e) => {
+                    log::error!("Sentinal moderation failed: {}", e);
+                }
+            }
+            return Ok(());
+        }
+    }
+
     if msg.media_group_id().is_some() && msg.photo().is_some() {
         media_aggregator.add_message(msg, ai, tree).await;
         return Ok(());
@@ -948,5 +1018,213 @@ pub async fn handle_message(
     {
         handle_file_upload(bot, msg, db, ai).await?;
     }
+    Ok(())
+}
+
+pub async fn handle_sentinal(bot: Bot, msg: Message, param: String, db: Db) -> AnyResult<()> {
+    // Only admins can use /sentinal
+    if !msg.chat.is_private() {
+        let admins = bot.get_chat_administrators(msg.chat.id).await?;
+        let requester_id = msg.from.as_ref().map(|u| u.id);
+        let is_admin = requester_id.map(|uid| admins.iter().any(|member| member.user.id == uid)).unwrap_or(false);
+        if !is_admin {
+            bot.send_message(
+                msg.chat.id,
+                "❌ <b>Permission Denied</b>\n\nOnly group administrators can use /sentinal."
+            )
+            .parse_mode(ParseMode::Html)
+            .await?;
+            return Ok(());
+        }
+    }
+    let param = param.trim().to_lowercase();
+    let sentinal_tree = db.open_tree("sentinal_state").unwrap();
+    let chat_id = msg.chat.id.0.to_be_bytes();
+    match param.as_str() {
+        "on" => {
+            sentinal_tree.insert(chat_id, b"on").unwrap();
+            bot.send_message(
+                msg.chat.id,
+                "🛡️ <b>Sentinal System</b>\n\n✅ <b>Sentinal is now ON</b>\n\nAll messages will be automatically moderated. /mod command is disabled."
+            )
+            .parse_mode(ParseMode::Html)
+            .await?;
+        }
+        "off" => {
+            sentinal_tree.insert(chat_id, b"off").unwrap();
+            bot.send_message(
+                msg.chat.id,
+                "🛡️ <b>Sentinal System</b>\n\n⏹️ <b>Sentinal is now OFF</b>\n\nManual moderation via /mod is re-enabled."
+            )
+            .parse_mode(ParseMode::Html)
+            .await?;
+        }
+        _ => {
+            bot.send_message(
+                msg.chat.id,
+                "❌ <b>Invalid Parameter</b>\n\n📝 Usage: <code>/sentinal on</code> or <code>/sentinal off</code>\n\n💡 Please specify either 'on' or 'off' to control the sentinal system."
+            )
+            .parse_mode(ParseMode::Html)
+            .await?;
+        }
+    }
+    Ok(())
+}
+
+pub async fn handle_mod(bot: Bot, msg: Message, db: Db) -> AnyResult<()> {
+    // Check if sentinal is on for this chat
+    if !msg.chat.is_private() {
+        let sentinal_tree = db.open_tree("sentinal_state").unwrap();
+        let chat_id = msg.chat.id.0.to_be_bytes();
+        let sentinal_on = sentinal_tree.get(chat_id).unwrap().map(|v| v == b"on").unwrap_or(false);
+        if sentinal_on {
+            bot.send_message(
+                msg.chat.id,
+                "🛡️ <b>Sentinal Mode Active</b>\n\n/mod is disabled while sentinal is ON. All messages are being automatically moderated."
+            )
+            .parse_mode(ParseMode::Html)
+            .await?;
+            return Ok(());
+        }
+    }
+    // Check if the command is used in reply to a message
+    if let Some(reply_to_msg) = msg.reply_to_message() {
+        // Extract text from the replied message
+        let message_text = reply_to_msg.text()
+            .or_else(|| reply_to_msg.caption())
+            .unwrap_or_default();
+
+        if message_text.is_empty() {
+            bot.send_message(
+                msg.chat.id,
+                format!("⚠️ <b>No Text Found</b>\n\n📝 Message ID: <code>{}</code>\n\n❌ The replied message contains no text to moderate.", reply_to_msg.id)
+            )
+            .parse_mode(ParseMode::Html)
+            .await?;
+            return Ok(());
+        }
+
+        // Create moderation service using environment API key
+        let openai_api_key = std::env::var("OPENAI_API_KEY")
+            .map_err(|_| anyhow::anyhow!("OPENAI_API_KEY not found in environment"))?;
+        
+        let moderation_service = ModerationService::new(openai_api_key)
+            .map_err(|e| anyhow::anyhow!("Failed to create moderation service: {}", e))?;
+
+        // Moderate the message
+        match moderation_service.moderate_message(message_text, &bot, &msg, &reply_to_msg).await {
+            Ok(result) => {
+                log::info!("Manual moderation result: {} for message: {} (tokens: {})", result.verdict, message_text, result.total_tokens);
+                // Only respond if the message is flagged
+                if result.verdict == "F" {
+                    // First, mute the user who sent the flagged message
+                    if let Some(flagged_user) = &reply_to_msg.from {
+                        // Create restricted permissions (muted)
+                        let restricted_permissions = teloxide::types::ChatPermissions::empty();
+                        
+                        // Mute the user indefinitely 
+                        if let Err(mute_error) = bot
+                            .restrict_chat_member(msg.chat.id, flagged_user.id, restricted_permissions)
+                            .await
+                        {
+                            log::error!("Failed to mute user {}: {}", flagged_user.id, mute_error);
+                        } else {
+                            log::info!("Successfully muted user {} for flagged content", flagged_user.id);
+                        }
+
+                        // Create keyboard with admin controls
+                        let keyboard = InlineKeyboardMarkup::new(vec![
+                            vec![
+                                InlineKeyboardButton::callback("🔇 Unmute", format!("unmute:{}", flagged_user.id)),
+                                InlineKeyboardButton::callback("🚫 Ban", format!("ban:{}", flagged_user.id)),
+                            ],
+                        ]);
+
+                        // Send the flagged message response
+                        bot.send_message(
+                            msg.chat.id,
+                            format!(
+                                "🛡️ <b>Content Flagged & User Muted</b>\n\n📝 Message ID: <code>{}</code>\n\n❌ Status: <b>FLAGGED</b> 🔴\n🔇 User has been muted\n\n💬 <i>Flagged message:</i>\n<blockquote>{}</blockquote>",
+                                reply_to_msg.id,
+                                message_text
+                            )
+                        )
+                        .parse_mode(ParseMode::Html)
+                        .reply_markup(keyboard)
+                        .await?;
+                    } else {
+                        // Fallback if no user found in the replied message
+                        bot.send_message(
+                            msg.chat.id,
+                            format!(
+                                "🛡️ <b>Content Flagged</b>\n\n📝 Message ID: <code>{}</code>\n\n❌ Status: <b>FLAGGED</b> 🔴\n⚠️ Could not identify user to mute\n\n💬 <i>Flagged message:</i>\n<blockquote>{}</blockquote>",
+                                reply_to_msg.id,
+                                message_text
+                            )
+                        )
+                        .parse_mode(ParseMode::Html)
+                        .await?;
+                    }
+                }
+                // Silent when passed (P) - no response
+            }
+            Err(e) => {
+                log::error!("Moderation failed: {}", e);
+                bot.send_message(
+                    msg.chat.id,
+                    format!(
+                        "🛡️ <b>Moderation Error</b>\n\n📝 Message ID: <code>{}</code>\n\n❌ <b>Error:</b> Failed to analyze message. Please try again later.\n\n🔧 <i>Technical details:</i> {}",
+                        reply_to_msg.id,
+                        e
+                    )
+                )
+                .parse_mode(ParseMode::Html)
+                .await?;
+            }
+        }
+    } else {
+        // Not a reply to a message, show usage instructions
+        bot.send_message(
+            msg.chat.id,
+            "❌ <b>Invalid Usage</b>\n\n📝 The <code>/mod</code> command must be used in reply to a message.\n\n💡 <b>How to use:</b>\n1. Find the message you want to moderate\n2. Reply to that message with <code>/mod</code>\n\n🛡️ This will analyze the content of the replied message for violations."
+        )
+        .parse_mode(ParseMode::Html)
+        .await?;
+    }
+    Ok(())
+}
+
+pub async fn handle_moderation_rules(bot: Bot, msg: Message) -> AnyResult<()> {
+    let rules = r#"
+<b>🛡️ Moderation Rules</b>
+
+To avoid being muted or banned, please follow these rules:
+
+<b>1. No Promotion or Selling</b>
+- Do not offer services, products, access, or benefits
+- Do not position yourself as an authority/leader to gain trust
+- Do not promise exclusive opportunities or deals
+- No commercial solicitation of any kind
+
+<b>2. No Private Communication Invites</b>
+- Do not request to move conversation to DM/private
+- Do not offer to send details privately
+- Do not ask for personal contact information
+- Do not attempt to bypass public group discussion
+
+<b>Examples (not exhaustive):</b>
+- "I can offer you whitelist access"
+- "DM me for details"
+- "React and I'll message you"
+- "I'm a [title] and can help you"
+- "Send me your wallet address"
+- "Contact me privately"
+- "I'll send you the link"
+
+If you have questions, ask an admin before posting.
+"#;
+    bot.send_message(msg.chat.id, rules)
+        .parse_mode(ParseMode::Html)
+        .await?;
     Ok(())
 }
