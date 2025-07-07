@@ -626,9 +626,18 @@ pub async fn handle_chat(
             
             if let Some(image_data) = ai_response.image_data {
                 let photo = InputFile::memory(image_data);
+                let caption = if ai_response.text.len() > 1024 {
+                    &ai_response.text[..1024]
+                } else {
+                    &ai_response.text
+                };
                 bot.send_photo(msg.chat.id, photo)
-                    .caption(&ai_response.text)
+                    .caption(caption)
                     .await?;
+                // If the text is longer than 1024, send the rest as a follow-up message
+                if ai_response.text.len() > 1024 {
+                    send_long_message(&bot, msg.chat.id, &ai_response.text[1024..]).await?;
+                }
             } else if let Some(ref tool_calls) = ai_response.tool_calls {
                 if tool_calls
                     .iter()
@@ -819,14 +828,21 @@ pub async fn handle_grouped_chat(
             // Check for image data and send as a photo if present
             if let Some(image_data) = response.image_data {
                 let photo = InputFile::memory(image_data);
+                let caption = if response.text.len() > 1024 {
+                    &response.text[..1024]
+                } else {
+                    &response.text
+                };
                 bot.send_photo(representative_msg.chat.id, photo)
-                    .caption(response.text)
+                    .caption(caption)
                     .parse_mode(ParseMode::Markdown)
                     .await?;
+                // If the text is longer than 1024, send the rest as a follow-up message
+                if response.text.len() > 1024 {
+                    send_long_message(&bot, representative_msg.chat.id, &response.text[1024..]).await?;
+                }
             } else {
-                bot.send_message(representative_msg.chat.id, response.text)
-                    .parse_mode(ParseMode::Markdown)
-                    .await?;
+                send_long_message(&bot, representative_msg.chat.id, &response.text).await?;
             }
         }
         Err(e) => {
