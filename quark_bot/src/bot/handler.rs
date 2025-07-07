@@ -5,20 +5,20 @@ use crate::{
         media_aggregator::MediaGroupAggregator,
     },
     bot::hooks::{fund_account_hook, withdraw_funds_hook},
-    credentials::dto::CredentialsPayload,
-    utils,
+    credentials::{dto::CredentialsPayload, helpers::get_credentials},
+    services::handler::Services,
+    utils::{self, create_purchase_request},
 };
 use anyhow::Result as AnyResult;
 
 use crate::{
-    ai::{handler::AI, vector_store::list_user_files_with_names, moderation::ModerationService},
+    ai::{handler::AI, moderation::ModerationService, vector_store::list_user_files_with_names},
     credentials::helpers::generate_new_jwt,
     user_conversation::handler::UserConversations,
     user_model_preferences::handler::{UserModelPreferences, initialize_user_preferences},
 };
 
 use open_ai_rust_responses_by_sshift::Model;
-use open_ai_rust_responses_by_sshift::types::Effort;
 use open_ai_rust_responses_by_sshift::types::{ReasoningParams, SummarySetting};
 use quark_core::helpers::{bot_commands::Command, jwt::JwtManager};
 use regex;
@@ -326,6 +326,7 @@ pub async fn handle_list_files(
 pub async fn handle_reasoning_chat(
     bot: Bot,
     msg: Message,
+    service: Services,
     ai: AI,
     db: Db,
     tree: Tree,
@@ -358,15 +359,34 @@ pub async fn handle_reasoning_chat(
 
     let user_id = user.unwrap().id;
     let username = user.unwrap().username.as_ref();
-    
+
+    if username.is_none() {
+        typing_indicator_handle.abort();
+        bot.send_message(msg.chat.id, "❌ Unable to verify permissions.")
+            .await?;
+        return Ok(());
+    }
+
+    let username = username.unwrap();
+
+    let credentials = get_credentials(username, tree.clone());
+
+    if credentials.is_none() {
+        typing_indicator_handle.abort();
+        bot.send_message(msg.chat.id, "❌ Unable to verify permissions.")
+            .await?;
+        return Ok(());
+    }
+
+    let credentials = credentials.unwrap();
+
     // Load user's reasoning model preferences
-    let (reasoning_model, effort) = if let Some(username) = username {
-        let preferences = user_model_prefs.get_preferences(username);
-        (preferences.reasoning_model.to_openai_model(), preferences.effort)
-    } else {
-        // Fallback to defaults if no username
-        (Model::O4Mini, Effort::Low)
-    };
+    let preferences = user_model_prefs.get_preferences(username);
+
+    let (reasoning_model, effort) = (
+        preferences.reasoning_model.to_openai_model(),
+        preferences.effort,
+    );
 
     // --- Vision Support: Check for replied-to images ---
     let mut image_url_from_reply: Option<String> = None;
@@ -453,8 +473,37 @@ pub async fn handle_reasoning_chat(
 
     match response_result {
         Ok(ai_response) => {
-            log::info!("Reasoning response generated successfully for user {} (tokens: input={}, output={}, total={})", 
-                      user_id, ai_response.prompt_tokens, ai_response.output_tokens, ai_response.total_tokens);
+            log::info!(
+                "Reasoning response generated successfully for user {} (tokens: input={}, output={}, total={})",
+                user_id,
+                ai_response.prompt_tokens,
+                ai_response.output_tokens,
+                ai_response.total_tokens
+            );
+
+            let response = create_purchase_request(
+                ai_response.tool_calls,
+                service,
+                ai_response.total_tokens,
+                ai_response.model,
+                &credentials.jwt,
+            )
+            .await;
+
+            if response.is_err() {
+                if response.as_ref().err().unwrap().to_string().contains("401")
+                    || response.as_ref().err().unwrap().to_string().contains("403")
+                {
+                    bot.send_message(msg.chat.id, "Your login has expired. Please login again.")
+                        .await?;
+                } else {
+                    bot.send_message(
+                        msg.chat.id,
+                        "Sorry, I encountered an error while processing your reasoning request.",
+                    )
+                    .await?;
+                }
+            }
 
             // Check for image data and send as a photo if present
             if let Some(image_data) = ai_response.image_data {
@@ -498,6 +547,7 @@ pub async fn handle_reasoning_chat(
 pub async fn handle_chat(
     bot: Bot,
     msg: Message,
+    service: Services,
     ai: AI,
     db: Db,
     tree: Tree,
@@ -530,15 +580,33 @@ pub async fn handle_chat(
 
     let user_id = user.unwrap().id;
     let username = user.unwrap().username.as_ref();
-    
+
+    if username.is_none() {
+        typing_indicator_handle.abort();
+        bot.send_message(msg.chat.id, "❌ Unable to verify permissions.")
+            .await?;
+        return Ok(());
+    }
+
+    let username = username.unwrap();
+
+    let credentials = get_credentials(username, tree.clone());
+    if credentials.is_none() {
+        typing_indicator_handle.abort();
+        bot.send_message(msg.chat.id, "❌ Unable to verify permissions.")
+            .await?;
+        return Ok(());
+    }
+
+    let credentials = credentials.unwrap();
+
     // Load user's chat model preferences
-    let (chat_model, temperature) = if let Some(username) = username {
-        let preferences = user_model_prefs.get_preferences(username);
-        (preferences.chat_model.to_openai_model(), Some(preferences.temperature))
-    } else {
-        // Fallback to defaults if no username
-        (Model::GPT41Mini, Some(0.6))
-    };
+    let preferences = user_model_prefs.get_preferences(username);
+
+    let (chat_model, temperature) = (
+        preferences.chat_model.to_openai_model(),
+        Some(preferences.temperature),
+    );
 
     // --- Vision Support: Check for replied-to images ---
     let mut image_url_from_reply: Option<String> = None;
@@ -621,9 +689,43 @@ pub async fn handle_chat(
 
     match response_result {
         Ok(ai_response) => {
-            log::info!("Chat response generated successfully for user {} (tokens: input={}, output={}, total={})", 
-                      user_id, ai_response.prompt_tokens, ai_response.output_tokens, ai_response.total_tokens);
-            
+            log::info!(
+                "Chat response generated successfully for user {} (tokens: input={}, output={}, total={})",
+                user_id,
+                ai_response.prompt_tokens,
+                ai_response.output_tokens,
+                ai_response.total_tokens
+            );
+
+            let response = create_purchase_request(
+                ai_response.tool_calls.clone(),
+                service,
+                ai_response.total_tokens,
+                ai_response.model,
+                &credentials.jwt,
+            )
+            .await;
+
+            if response.is_err() {
+                log::error!(
+                    "Error purchasing tokens: {}",
+                    response.as_ref().err().unwrap()
+                );
+
+                if response.as_ref().err().unwrap().to_string().contains("401")
+                    || response.as_ref().err().unwrap().to_string().contains("403")
+                {
+                    bot.send_message(msg.chat.id, "Your login has expired. Please login again.")
+                        .await?;
+                } else {
+                    bot.send_message(
+                        msg.chat.id,
+                        "Sorry, I encountered an error while processing your chat request.",
+                    )
+                    .await?;
+                }
+            }
+
             if let Some(image_data) = ai_response.image_data {
                 let photo = InputFile::memory(image_data);
                 bot.send_photo(msg.chat.id, photo)
@@ -869,7 +971,13 @@ pub async fn handle_new_chat(
     Ok(())
 }
 
-pub async fn handle_web_app_data(bot: Bot, msg: Message, tree: Tree, _db: Db, user_model_prefs: UserModelPreferences) -> AnyResult<()> {
+pub async fn handle_web_app_data(
+    bot: Bot,
+    msg: Message,
+    tree: Tree,
+    _db: Db,
+    user_model_prefs: UserModelPreferences,
+) -> AnyResult<()> {
     let web_app_data = msg.web_app_data().unwrap();
     let payload = web_app_data.data.clone();
 
@@ -935,7 +1043,11 @@ pub async fn handle_message(
     if !msg.chat.is_private() {
         let sentinal_tree = db.open_tree("sentinal_state").unwrap();
         let chat_id = msg.chat.id.0.to_be_bytes();
-        let sentinal_on = sentinal_tree.get(chat_id).unwrap().map(|v| v == b"on").unwrap_or(false);
+        let sentinal_on = sentinal_tree
+            .get(chat_id)
+            .unwrap()
+            .map(|v| v == b"on")
+            .unwrap_or(false);
         if sentinal_on {
             // Don't moderate admin or bot messages
             if let Some(user) = &msg.from {
@@ -952,30 +1064,54 @@ pub async fn handle_message(
                 return Ok(());
             }
             // Use the same moderation logic as /mod
-            let moderation_service = ModerationService::new(std::env::var("OPENAI_API_KEY").unwrap()).unwrap();
+            let moderation_service =
+                ModerationService::new(std::env::var("OPENAI_API_KEY").unwrap()).unwrap();
             let message_text = msg.text().or_else(|| msg.caption()).unwrap_or("");
-            match moderation_service.moderate_message(message_text, &bot, &msg, &msg).await {
+            match moderation_service
+                .moderate_message(message_text, &bot, &msg, &msg)
+                .await
+            {
                 Ok(result) => {
-                    log::info!("Sentinal moderation result: {} for message: {} (tokens: {})", result.verdict, message_text, result.total_tokens);
+                    log::info!(
+                        "Sentinal moderation result: {} for message: {} (tokens: {})",
+                        result.verdict,
+                        message_text,
+                        result.total_tokens
+                    );
                     if result.verdict == "F" {
                         // Mute the user
                         if let Some(flagged_user) = &msg.from {
                             let restricted_permissions = teloxide::types::ChatPermissions::empty();
                             if let Err(mute_error) = bot
-                                .restrict_chat_member(msg.chat.id, flagged_user.id, restricted_permissions)
+                                .restrict_chat_member(
+                                    msg.chat.id,
+                                    flagged_user.id,
+                                    restricted_permissions,
+                                )
                                 .await
                             {
-                                log::error!("Failed to mute user {}: {}", flagged_user.id, mute_error);
+                                log::error!(
+                                    "Failed to mute user {}: {}",
+                                    flagged_user.id,
+                                    mute_error
+                                );
                             } else {
-                                log::info!("Successfully muted user {} for flagged content (sentinal)", flagged_user.id);
+                                log::info!(
+                                    "Successfully muted user {} for flagged content (sentinal)",
+                                    flagged_user.id
+                                );
                             }
                             // Add admin buttons
-                            let keyboard = InlineKeyboardMarkup::new(vec![
-                                vec![
-                                    InlineKeyboardButton::callback("🔇 Unmute", format!("unmute:{}", flagged_user.id)),
-                                    InlineKeyboardButton::callback("🚫 Ban", format!("ban:{}", flagged_user.id)),
-                                ],
-                            ]);
+                            let keyboard = InlineKeyboardMarkup::new(vec![vec![
+                                InlineKeyboardButton::callback(
+                                    "🔇 Unmute",
+                                    format!("unmute:{}", flagged_user.id),
+                                ),
+                                InlineKeyboardButton::callback(
+                                    "🚫 Ban",
+                                    format!("ban:{}", flagged_user.id),
+                                ),
+                            ]]);
                             bot.send_message(
                                 msg.chat.id,
                                 format!(
@@ -1026,11 +1162,13 @@ pub async fn handle_sentinal(bot: Bot, msg: Message, param: String, db: Db) -> A
     if !msg.chat.is_private() {
         let admins = bot.get_chat_administrators(msg.chat.id).await?;
         let requester_id = msg.from.as_ref().map(|u| u.id);
-        let is_admin = requester_id.map(|uid| admins.iter().any(|member| member.user.id == uid)).unwrap_or(false);
+        let is_admin = requester_id
+            .map(|uid| admins.iter().any(|member| member.user.id == uid))
+            .unwrap_or(false);
         if !is_admin {
             bot.send_message(
                 msg.chat.id,
-                "❌ <b>Permission Denied</b>\n\nOnly group administrators can use /sentinal."
+                "❌ <b>Permission Denied</b>\n\nOnly group administrators can use /sentinal.",
             )
             .parse_mode(ParseMode::Html)
             .await?;
@@ -1076,7 +1214,11 @@ pub async fn handle_mod(bot: Bot, msg: Message, db: Db) -> AnyResult<()> {
     if !msg.chat.is_private() {
         let sentinal_tree = db.open_tree("sentinal_state").unwrap();
         let chat_id = msg.chat.id.0.to_be_bytes();
-        let sentinal_on = sentinal_tree.get(chat_id).unwrap().map(|v| v == b"on").unwrap_or(false);
+        let sentinal_on = sentinal_tree
+            .get(chat_id)
+            .unwrap()
+            .map(|v| v == b"on")
+            .unwrap_or(false);
         if sentinal_on {
             bot.send_message(
                 msg.chat.id,
@@ -1090,7 +1232,8 @@ pub async fn handle_mod(bot: Bot, msg: Message, db: Db) -> AnyResult<()> {
     // Check if the command is used in reply to a message
     if let Some(reply_to_msg) = msg.reply_to_message() {
         // Extract text from the replied message
-        let message_text = reply_to_msg.text()
+        let message_text = reply_to_msg
+            .text()
             .or_else(|| reply_to_msg.caption())
             .unwrap_or_default();
 
@@ -1107,38 +1250,57 @@ pub async fn handle_mod(bot: Bot, msg: Message, db: Db) -> AnyResult<()> {
         // Create moderation service using environment API key
         let openai_api_key = std::env::var("OPENAI_API_KEY")
             .map_err(|_| anyhow::anyhow!("OPENAI_API_KEY not found in environment"))?;
-        
+
         let moderation_service = ModerationService::new(openai_api_key)
             .map_err(|e| anyhow::anyhow!("Failed to create moderation service: {}", e))?;
 
         // Moderate the message
-        match moderation_service.moderate_message(message_text, &bot, &msg, &reply_to_msg).await {
+        match moderation_service
+            .moderate_message(message_text, &bot, &msg, &reply_to_msg)
+            .await
+        {
             Ok(result) => {
-                log::info!("Manual moderation result: {} for message: {} (tokens: {})", result.verdict, message_text, result.total_tokens);
+                log::info!(
+                    "Manual moderation result: {} for message: {} (tokens: {})",
+                    result.verdict,
+                    message_text,
+                    result.total_tokens
+                );
                 // Only respond if the message is flagged
                 if result.verdict == "F" {
                     // First, mute the user who sent the flagged message
                     if let Some(flagged_user) = &reply_to_msg.from {
                         // Create restricted permissions (muted)
                         let restricted_permissions = teloxide::types::ChatPermissions::empty();
-                        
-                        // Mute the user indefinitely 
+
+                        // Mute the user indefinitely
                         if let Err(mute_error) = bot
-                            .restrict_chat_member(msg.chat.id, flagged_user.id, restricted_permissions)
+                            .restrict_chat_member(
+                                msg.chat.id,
+                                flagged_user.id,
+                                restricted_permissions,
+                            )
                             .await
                         {
                             log::error!("Failed to mute user {}: {}", flagged_user.id, mute_error);
                         } else {
-                            log::info!("Successfully muted user {} for flagged content", flagged_user.id);
+                            log::info!(
+                                "Successfully muted user {} for flagged content",
+                                flagged_user.id
+                            );
                         }
 
                         // Create keyboard with admin controls
-                        let keyboard = InlineKeyboardMarkup::new(vec![
-                            vec![
-                                InlineKeyboardButton::callback("🔇 Unmute", format!("unmute:{}", flagged_user.id)),
-                                InlineKeyboardButton::callback("🚫 Ban", format!("ban:{}", flagged_user.id)),
-                            ],
-                        ]);
+                        let keyboard = InlineKeyboardMarkup::new(vec![vec![
+                            InlineKeyboardButton::callback(
+                                "🔇 Unmute",
+                                format!("unmute:{}", flagged_user.id),
+                            ),
+                            InlineKeyboardButton::callback(
+                                "🚫 Ban",
+                                format!("ban:{}", flagged_user.id),
+                            ),
+                        ]]);
 
                         // Send the flagged message response
                         bot.send_message(

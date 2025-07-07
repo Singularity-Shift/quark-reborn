@@ -33,3 +33,4 @@ redis = {version = "0.32.3", features = ["tokio-comp"]}
 open-ai-rust-responses-by-sshift = "0.2.8"
 ron= {version = "0.10.1"}
 bincode = "2.0.1"
+hex = "0.4.3"

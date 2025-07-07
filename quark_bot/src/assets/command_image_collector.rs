@@ -1,5 +1,5 @@
-use crate::ai::handler::AI;
 use crate::user_model_preferences::handler::UserModelPreferences;
+use crate::{ai::handler::AI, services::handler::Services};
 use dashmap::DashMap;
 use sled::{Db, Tree};
 use std::sync::Arc;
@@ -22,16 +22,23 @@ pub struct CommandImageCollector {
     pendings: DashMap<(ChatId, i64), PendingCmd>,
     bot: Bot,
     db: Db,
+    service: Services,
     user_model_prefs: UserModelPreferences,
     debounce_ms: u64,
 }
 
 impl CommandImageCollector {
-    pub fn new(bot: Bot, db: Db, user_model_prefs: UserModelPreferences) -> Self {
+    pub fn new(
+        bot: Bot,
+        db: Db,
+        service: Services,
+        user_model_prefs: UserModelPreferences,
+    ) -> Self {
         Self {
             pendings: DashMap::new(),
             bot,
             db,
+            service,
             user_model_prefs,
             debounce_ms: 1000, // 1 second default
         }
@@ -102,7 +109,9 @@ impl CommandImageCollector {
             let text = msg.text().or_else(|| msg.caption()).unwrap_or("");
 
             // Check if the original command was /r (reasoning)
-            let is_reasoning_command = pending.first_msg.text()
+            let is_reasoning_command = pending
+                .first_msg
+                .text()
                 .map(|t| t.trim_start().starts_with("/r ") || t.trim() == "/r")
                 .unwrap_or(false);
 
@@ -116,6 +125,7 @@ impl CommandImageCollector {
                     if let Err(e) = handle_reasoning_chat(
                         self.bot.clone(),
                         msg,
+                        self.service.clone(),
                         ai,
                         self.db.clone(),
                         tree,
@@ -131,6 +141,7 @@ impl CommandImageCollector {
                     if let Err(e) = handle_chat(
                         self.bot.clone(),
                         msg,
+                        self.service.clone(),
                         ai,
                         self.db.clone(),
                         tree,
