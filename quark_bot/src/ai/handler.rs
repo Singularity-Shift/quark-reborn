@@ -449,6 +449,24 @@ impl AI {
         log::info!("Total conversation tokens: input={}, output={}, total={}", 
                   total_prompt_tokens, total_output_tokens, total_tokens_used);
 
-        Ok(AIResponse::from((reply, image_data, Some(tool_called), total_prompt_tokens, total_output_tokens, total_tokens_used)))
+        // Calculate tool usage from the final response
+        let (web_search_count, file_search_count, image_generation_count, code_interpreter_count) = 
+            AIResponse::calculate_tool_usage(&current_response);
+        
+        log::info!("Tool usage: web_search={}, file_search={}, image_generation={}, code_interpreter={}",
+                  web_search_count, file_search_count, image_generation_count, code_interpreter_count);
+
+        Ok(AIResponse::from((
+            reply, 
+            image_data, 
+            Some(tool_called), 
+            total_prompt_tokens, 
+            total_output_tokens, 
+            total_tokens_used,
+            web_search_count,
+            file_search_count,
+            image_generation_count,
+            code_interpreter_count
+        )))
     }
 }
