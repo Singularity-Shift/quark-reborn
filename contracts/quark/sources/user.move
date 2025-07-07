@@ -270,6 +270,12 @@ module quark_test::user_v4 {
         signer::address_of(&resource_account)
     }
 
+    #[view]
+    public fun get_token_address(user: address): Option<address> acquires Config {
+        let config = borrow_global<Config>(@quark_test);
+        config.coin_addr
+    }
+
     #[test_only]
     public fun test_init_account(admin: &signer) {
         init_module(admin);

@@ -5,6 +5,7 @@ module quark_test::group_v4 {
     use std::object;
     use std::account::{Self, SignerCapability};
     use std::event;
+    use std::option;
     use aptos_framework::timestamp;
     use aptos_framework::randomness;
     use aptos_std::type_info;
@@ -14,6 +15,7 @@ module quark_test::group_v4 {
     use aptos_framework::primary_fungible_store;
     use sshift_gpt::fees;
     use quark_test::admin_v4;
+    use quark_test::user_v4;
 
     const EONLY_ADMIN_CAN_CALL: u64 = 1;
     const EONLY_REVIEWER_CAN_CALL: u64 = 2;
@@ -39,6 +41,7 @@ module quark_test::group_v4 {
     const ECURRENCY_NOT_MATCH: u64 = 22;
     const EUSER_ALREADY_VOTED: u64 = 23;
     const EUSER_NOT_VOTED: u64 = 24;
+    const ERESOURCE_ACCOUNT_NOT_EXISTS: u64 = 25;
 
     struct Group has store {
         group_id: String,
@@ -227,7 +230,7 @@ module quark_test::group_v4 {
 
     #[event]
     struct PayAiEvent has drop, store {
-        group_id: String,
+        group: address,
         amount: u64,
         currency: address,
         recipient: address,
@@ -280,42 +283,10 @@ module quark_test::group_v4 {
         move_to(&group_signer, GroupSigner { signer_cap });
     }
 
-    public entry fun pay_ai(admin: &signer, reviewer: &signer, group_id: String, amount: u64, currency: address) acquires Groups, GroupSigner {
-        let admin_address = signer::address_of(admin);
-        let reviewer_address = signer::address_of(reviewer);
+    public entry fun pay_ai<CoinType>(admin: &signer, reviewer: &signer, group_id: String, amount: u64) acquires Groups, GroupSigner {
+        let group_account = get_group_account(group_id);
 
-        assert!(admin_v4::is_admin(admin_address), EONLY_ADMIN_CAN_CALL);
-        assert!(admin_v4::is_reviewer(reviewer_address), EONLY_REVIEWER_CAN_CALL);
-
-        let groups = borrow_global<Groups>(@quark_test);
-
-        let (exists_group, group_index) = vector::find<Group>(&groups.groups, |group| group.group_id == group_id);
-        assert!(exists_group, EGROUP_NOT_EXISTS);
-
-        let group = vector::borrow(&groups.groups, group_index);
-
-        let group_signer_cap = borrow_global<GroupSigner>(group.account);
-
-        let resource_account = account::create_signer_with_capability(&group_signer_cap.signer_cap);
-
-        let fa_metadata = object::address_to_object<Metadata>(currency);
-
-        let sshift_gpt_account = fees::get_resource_account_address();
-
-        aptos_account::transfer_fungible_assets(
-            &resource_account,
-            fa_metadata,
-            sshift_gpt_account,
-            amount,
-        );
-
-        event::emit(PayAiEvent {
-            group_id,
-            amount,
-            currency,
-            recipient: sshift_gpt_account,
-            created_at: timestamp::now_seconds(),
-        });
+        
     }
 
     public entry fun pay_users_v1<CoinType>(admin: &signer, reviewer: &signer, group_id: String, amount: u64, recipients: vector<address>) acquires Groups, GroupSigner {
@@ -331,9 +302,9 @@ module quark_test::group_v4 {
         let (exists_group, group_index) = vector::find<Group>(&groups.groups, |group| group.group_id == group_id);
         assert!(exists_group, EGROUP_NOT_EXISTS);
 
-        let group = vector::borrow(&groups.groups, group_index);
+        let group_account = get_group_account(group_id);
 
-        let group_signer_cap = borrow_global<GroupSigner>(group.account);
+        let group_signer_cap = borrow_global<GroupSigner>(group_account);
 
         let resource_account = account::create_signer_with_capability(&group_signer_cap.signer_cap);
         let resource_account_address = signer::address_of(&resource_account);
@@ -367,14 +338,9 @@ module quark_test::group_v4 {
         assert!(admin_v4::is_admin(admin_address), EONLY_ADMIN_CAN_CALL);
         assert!(admin_v4::is_reviewer(reviewer_address), EONLY_REVIEWER_CAN_CALL);
 
-        let groups = borrow_global<Groups>(@quark_test);
+        let group_account = get_group_account(group_id);
 
-        let (exists_group, group_index) = vector::find<Group>(&groups.groups, |group| group.group_id == group_id);
-        assert!(exists_group, EGROUP_NOT_EXISTS);
-
-        let group = vector::borrow(&groups.groups, group_index);
-
-        let group_signer_cap = borrow_global<GroupSigner>(group.account);
+        let group_signer_cap = borrow_global<GroupSigner>(group_account);
 
         let resource_account = account::create_signer_with_capability(&group_signer_cap.signer_cap);
         let resource_account_address = signer::address_of(&resource_account);
@@ -1154,6 +1120,35 @@ module quark_test::group_v4 {
         PoolsRewardsV2View {
             pools: vector::map_ref(&pool_rewards.pools, |pool| convert_pool_reward_v2_to_view(pool)),
         }
+    }
+
+    fun pay_ai_fees<CoinType>(group_account: address, amount: u64) acquires GroupSigner {
+        let coin_type = user_v4::get_token_address(group_account);
+
+        assert!(option::is_some(&coin_type), ENOT_COIN_PAYMENT_SET);
+        assert!(fees::resource_account_exists(), ERESOURCE_ACCOUNT_NOT_EXISTS);
+        assert!(amount > 0, EAMOUNT_MUST_BE_GREATER_THAN_ZERO);
+
+        let group_signer_cap = borrow_global<GroupSigner>(group_account);
+        let resource_account = account::create_signer_with_capability(&group_signer_cap.signer_cap);
+        let resource_account_address = signer::address_of(&resource_account);
+
+        let coin_info = type_info::type_of<CoinType>();
+        let coin_type_addr = type_info::account_address(&coin_info);
+        assert!(&coin_type_addr == option::borrow(&coin_type), ECOINS_NOT_MATCH);
+
+        let resource_account_fees = fees::get_resource_account_address();
+
+        aptos_account::transfer_coins<CoinType>(&resource_account, resource_account_fees, amount);
+
+        event::emit(PayAiEvent {
+            group: resource_account_address,
+            amount,
+            currency: coin_type_addr,
+            recipient: resource_account_fees,
+            created_at: timestamp::now_seconds(),
+        });
+
     }
 
     #[test_only]

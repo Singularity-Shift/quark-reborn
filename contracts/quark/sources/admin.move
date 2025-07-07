@@ -9,6 +9,10 @@ module quark_test::admin_v4 {
         reviewer_pending_admin: Option<address>,
     }
 
+    struct Config has key {
+        coin_addr: Option<address>,
+    }
+
     const ONLY_ADMIN_CAN_CALL: u64 = 1;
     const ONLY_PENDING_ADMIN_CAN_CALL: u64 = 2;
     const ONLY_REVIEWER_CAN_CALL: u64 = 3;

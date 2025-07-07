@@ -32,6 +32,8 @@ pub async fn purchase(
 
     let mut redis_client = server_state.redis_client().clone();
 
+    println!("Purchase message: {}", message);
+
     let _: () = redis_client
         .lpush("purchase", message)
         .await

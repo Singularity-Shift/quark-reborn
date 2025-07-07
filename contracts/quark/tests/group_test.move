@@ -400,7 +400,7 @@ module quark_test::group_test {
         
         let initial_group_balance = primary_fungible_store::balance(group_account_addr, object::address_to_object<Metadata>(fa_addr));
         
-        group_v4::pay_ai(quark_test, quark_test, group_id, TEST_AMOUNT, fa_addr);
+        group_v4::pay_ai<AptosCoin>(quark_test, quark_test, group_id, TEST_AMOUNT);
         
         // Verify balances
         let final_group_balance = primary_fungible_store::balance(group_account_addr, object::address_to_object<Metadata>(fa_addr));
@@ -416,9 +416,8 @@ module quark_test::group_test {
         timestamp::set_time_has_started_for_testing(aptos_framework);
         init_module(quark_test);
         let group_id = string::utf8(b"nonexistent_group");
-        let currency = @0x1;
         
-        group_v4::pay_ai(quark_test, quark_test, group_id, TEST_AMOUNT, currency);
+        group_v4::pay_ai<AptosCoin>(quark_test, quark_test, group_id, TEST_AMOUNT);
     }
 
     // ==================== PAY USERS V1 TESTS ====================

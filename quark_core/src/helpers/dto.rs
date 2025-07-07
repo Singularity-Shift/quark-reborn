@@ -27,7 +27,7 @@ pub struct PurchaseRequest {
     #[schema(value_type = String)]
     pub model: Model,
     pub tokens_used: u32,
-    pub tools_used: AITool,
+    pub tools_used: Vec<ToolUsage>,
 }
 
 #[derive(Deserialize, Serialize, Debug, ToSchema)]
@@ -35,14 +35,21 @@ pub struct PurchaseMessage {
     #[schema(value_type = String)]
     pub model: Model,
     pub tokens_used: u32,
-    pub tools_used: AITool,
+    pub tools_used: Vec<ToolUsage>,
     pub account_address: String,
+}
+
+#[derive(Deserialize, Serialize, Debug, ToSchema)]
+pub struct ToolUsage {
+    pub tool: AITool,
+    pub calls: u32,
 }
 
 #[derive(Deserialize, Serialize, Debug, ToSchema)]
 pub enum AITool {
     FileSearch,
-    GPTImage1,
+    ImageGeneration,
+    WebSearchPreview,
 }
 
 #[derive(Debug, Serialize, Deserialize, ToSchema)]

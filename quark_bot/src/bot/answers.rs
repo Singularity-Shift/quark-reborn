@@ -1,4 +1,5 @@
 use crate::ai::handler::AI;
+use crate::services::handler::Services;
 use crate::user_conversation::handler::UserConversations;
 use crate::user_model_preferences::handler::UserModelPreferences;
 use anyhow::Result;
@@ -9,7 +10,8 @@ use teloxide::{Bot, prelude::*, types::Message};
 
 use super::handler::{
     handle_add_files, handle_chat, handle_help, handle_list_files, handle_login_group,
-    handle_login_user, handle_new_chat, handle_reasoning_chat, handle_mod, handle_sentinal, handle_moderation_rules,
+    handle_login_user, handle_mod, handle_moderation_rules, handle_new_chat, handle_reasoning_chat,
+    handle_sentinal,
 };
 use crate::assets::command_image_collector::CommandImageCollector;
 use crate::bot::handler::handle_aptos_connect;
@@ -23,6 +25,7 @@ pub async fn answers(
     cmd: Command,
     db: Db,
     tree: Tree,
+    service: Services,
     user_convos: UserConversations,
     user_model_prefs: UserModelPreferences,
     ai: AI,
@@ -46,7 +49,17 @@ pub async fn answers(
                 )
                 .await?;
             } else {
-                handle_chat(bot, msg, ai, db, tree, user_model_prefs.clone(), prompt).await?;
+                handle_chat(
+                    bot,
+                    msg,
+                    service,
+                    ai,
+                    db,
+                    tree,
+                    user_model_prefs.clone(),
+                    prompt,
+                )
+                .await?;
             }
         }
         Command::R(prompt) => {
@@ -59,8 +72,17 @@ pub async fn answers(
                 )
                 .await?;
             } else {
-                handle_reasoning_chat(bot, msg, ai, db, tree, user_model_prefs.clone(), prompt)
-                    .await?;
+                handle_reasoning_chat(
+                    bot,
+                    msg,
+                    service,
+                    ai,
+                    db,
+                    tree,
+                    user_model_prefs.clone(),
+                    prompt,
+                )
+                .await?;
             }
         }
         Command::Sentinal(param) => {
