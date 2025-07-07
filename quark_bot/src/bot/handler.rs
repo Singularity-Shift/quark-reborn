@@ -455,6 +455,13 @@ pub async fn handle_reasoning_chat(
         Ok(ai_response) => {
             log::info!("Reasoning response generated successfully for user {} (tokens: input={}, output={}, total={})", 
                       user_id, ai_response.prompt_tokens, ai_response.output_tokens, ai_response.total_tokens);
+            
+            // Log tool usage if any tools were used
+            let (web_search, file_search, image_gen, code_interp) = ai_response.get_tool_usage_counts();
+            if web_search > 0 || file_search > 0 || image_gen > 0 || code_interp > 0 {
+                log::info!("Tool usage for user {}: web_search={}, file_search={}, image_generation={}, code_interpreter={}", 
+                          user_id, web_search, file_search, image_gen, code_interp);
+            }
 
             // Check for image data and send as a photo if present
             if let Some(image_data) = ai_response.image_data {
@@ -623,6 +630,13 @@ pub async fn handle_chat(
         Ok(ai_response) => {
             log::info!("Chat response generated successfully for user {} (tokens: input={}, output={}, total={})", 
                       user_id, ai_response.prompt_tokens, ai_response.output_tokens, ai_response.total_tokens);
+            
+            // Log tool usage if any tools were used
+            let (web_search, file_search, image_gen, code_interp) = ai_response.get_tool_usage_counts();
+            if web_search > 0 || file_search > 0 || image_gen > 0 || code_interp > 0 {
+                log::info!("Tool usage for user {}: web_search={}, file_search={}, image_generation={}, code_interpreter={}", 
+                          user_id, web_search, file_search, image_gen, code_interp);
+            }
             
             if let Some(image_data) = ai_response.image_data {
                 let photo = InputFile::memory(image_data);
