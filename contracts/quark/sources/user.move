@@ -1,4 +1,4 @@
-module quark_test::user_v4 {
+module quark_test::user_v5 {
     use std::signer;
     use std::option::{Self, Option};
     use std::account::{Self, SignerCapability};
@@ -13,7 +13,7 @@ module quark_test::user_v4 {
     use aptos_framework::fungible_asset::Metadata;
     use aptos_framework::primary_fungible_store;
     use sshift_gpt::fees;
-    use quark_test::admin_v4;
+    use quark_test::admin_v5;
 
     const EONLY_ADMIN_CAN_CALL: u64 = 1;
     const EONLY_REVIEWER_CAN_CALL: u64 = 2;
@@ -90,7 +90,7 @@ module quark_test::user_v4 {
 
     public entry fun set_coin_address<CoinType>(sender: &signer) acquires Config {
         let admin_address = signer::address_of(sender);
-        assert!(admin_v4::is_admin(admin_address), EONLY_ADMIN_CAN_CALL);
+        assert!(admin_v5::is_admin(admin_address), EONLY_ADMIN_CAN_CALL);
 
         let config = borrow_global_mut<Config>(@quark_test);
 
@@ -160,10 +160,10 @@ module quark_test::user_v4 {
 
     public entry fun pay_ai<CoinType>(admin: &signer, reviewer: &signer, user: address, amount: u64) acquires Account, Config {
         let admin_address = signer::address_of(admin);
-        assert!(admin_v4::is_admin(admin_address), EONLY_ADMIN_CAN_CALL);
+        assert!(admin_v5::is_admin(admin_address), EONLY_ADMIN_CAN_CALL);
 
         let reviewer_address = signer::address_of(reviewer);
-        assert!(admin_v4::is_reviewer(reviewer_address), EONLY_REVIEWER_CAN_CALL);
+        assert!(admin_v5::is_reviewer(reviewer_address), EONLY_REVIEWER_CAN_CALL);
 
         pay_ai_fee<CoinType>(user, amount);
     }
@@ -171,10 +171,10 @@ module quark_test::user_v4 {
     public entry fun pay_to_users_v1<CoinType>(admin: &signer, reviewer: &signer, user: address, amount: u64, recipients: vector<address>) acquires Account {
         assert!(vector::length(&recipients) > 0, ENOT_USER_PASSED);
         let admin_address = signer::address_of(admin);
-        assert!(admin_v4::is_admin(admin_address), EONLY_ADMIN_CAN_CALL);
+        assert!(admin_v5::is_admin(admin_address), EONLY_ADMIN_CAN_CALL);
 
         let reviewer_address = signer::address_of(reviewer);
-        assert!(admin_v4::is_reviewer(reviewer_address), EONLY_REVIEWER_CAN_CALL);
+        assert!(admin_v5::is_reviewer(reviewer_address), EONLY_REVIEWER_CAN_CALL);
 
         let user_account = borrow_global<Account>(user);
         let resource_account = account::create_signer_with_capability(&user_account.signer_cap);
@@ -201,10 +201,10 @@ module quark_test::user_v4 {
         assert!(vector::length(&recipients) > 0, ENOT_USER_PASSED);
         
         let admin_address = signer::address_of(admin);
-        assert!(admin_v4::is_admin(admin_address), EONLY_ADMIN_CAN_CALL);
+        assert!(admin_v5::is_admin(admin_address), EONLY_ADMIN_CAN_CALL);
 
         let reviewer_address = signer::address_of(reviewer);
-        assert!(admin_v4::is_reviewer(reviewer_address), EONLY_REVIEWER_CAN_CALL);
+        assert!(admin_v5::is_reviewer(reviewer_address), EONLY_REVIEWER_CAN_CALL);
 
         let user_account = borrow_global<Account>(user);
         let resource_account = account::create_signer_with_capability(&user_account.signer_cap);
@@ -271,7 +271,7 @@ module quark_test::user_v4 {
     }
 
     #[view]
-    public fun get_token_address(user: address): Option<address> acquires Config {
+    public fun get_token_address(): Option<address> acquires Config {
         let config = borrow_global<Config>(@quark_test);
         config.coin_addr
     }

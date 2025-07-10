@@ -1,6 +1,6 @@
 //! Utility functions for quark_bot.
 
-use open_ai_rust_responses_by_sshift::{FunctionCallInfo, Model};
+use open_ai_rust_responses_by_sshift::Model;
 use quark_core::helpers::dto::{AITool, PurchaseRequest, ToolUsage};
 use regex::Regex;
 use std::collections::HashMap;
@@ -136,62 +136,41 @@ pub fn markdown_to_html(md: &str) -> String {
 }
 
 pub async fn create_purchase_request(
-    tool_called: Option<Vec<FunctionCallInfo>>,
+    file_search_calls: u32,
+    web_search_calls: u32,
+    image_generation_calls: u32,
     service: Services,
     total_tokens_used: u32,
     model: Model,
     token: &str,
+    group_id: Option<String>,
 ) -> Result<(), anyhow::Error> {
-    println!("Tool called: {:?}", tool_called);
+    let mut tools_used = Vec::new();
 
-    let tools_used = if let Some(tool_called) = tool_called {
-        let file_search_calls = tool_called
-            .iter()
-            .filter(|tc| tc.name == "file_search")
-            .count() as u32;
-        let web_search_calls = tool_called
-            .iter()
-            .filter(|tc| tc.name == "web_search_preview")
-            .count() as u32;
-        let image_generation_calls = tool_called
-            .iter()
-            .filter(|tc| tc.name == "image_generation")
-            .count() as u32;
-
-        tool_called
-            .iter()
-            .filter(|tc| {
-                tc.name == "file_search"
-                    || tc.name == "web_search_preview"
-                    || tc.name == "image_generation"
-            })
-            .map(|tc| match tc.name.as_str() {
-                "file_search" => ToolUsage {
-                    tool: AITool::FileSearch,
-                    calls: file_search_calls,
-                },
-                "web_search_preview" => ToolUsage {
-                    tool: AITool::WebSearchPreview,
-                    calls: web_search_calls,
-                },
-                "image_generation" => ToolUsage {
-                    tool: AITool::ImageGeneration,
-                    calls: image_generation_calls,
-                },
-                _ => ToolUsage {
-                    tool: AITool::FileSearch,
-                    calls: 0,
-                },
-            })
-            .collect::<Vec<_>>()
-    } else {
-        vec![]
+    if file_search_calls > 0 {
+        tools_used.push(ToolUsage {
+            tool: AITool::FileSearch,
+            calls: file_search_calls,
+        });
+    };
+    if web_search_calls > 0 {
+        tools_used.push(ToolUsage {
+            tool: AITool::WebSearchPreview,
+            calls: web_search_calls,
+        });
+    };
+    if image_generation_calls > 0 {
+        tools_used.push(ToolUsage {
+            tool: AITool::ImageGeneration,
+            calls: image_generation_calls,
+        });
     };
 
     let purchase_request = PurchaseRequest {
         model,
         tokens_used: total_tokens_used,
         tools_used,
+        group_id,
     };
 
     let response = service.purchase(token.to_string(), purchase_request).await;

@@ -1,3 +1,4 @@
+use open_ai_rust_responses_by_sshift::types::{Response, ResponseItem};
 use open_ai_rust_responses_by_sshift::{FunctionCallInfo, Model};
 
 /// Represents the AI's response, which can include text and/or an image.
@@ -7,9 +8,44 @@ pub struct AIResponse {
     pub model: Model,
     pub image_data: Option<Vec<u8>>,
     pub tool_calls: Option<Vec<FunctionCallInfo>>,
-    pub prompt_tokens: u32,
-    pub output_tokens: u32,
     pub total_tokens: u32,
+    // Tool usage fields - optional for backward compatibility
+    pub web_search: Option<u32>,
+    pub file_search: Option<u32>,
+    pub image_generation: Option<u32>,
+    pub code_interpreter: Option<u32>,
+}
+
+impl AIResponse {
+    /// Calculate tool usage from OpenAI Response by analyzing output array
+    pub fn calculate_tool_usage(response: &Response) -> (u32, u32, u32, u32) {
+        let mut web_search = 0u32;
+        let mut file_search = 0u32;
+        let mut image_generation = 0u32;
+        let mut code_interpreter = 0u32;
+
+        for item in &response.output {
+            match item {
+                ResponseItem::WebSearchCall { .. } => web_search += 1,
+                ResponseItem::FileSearchCall { .. } => file_search += 1,
+                ResponseItem::ImageGenerationCall { .. } => image_generation += 1,
+                ResponseItem::CodeInterpreterCall { .. } => code_interpreter += 1,
+                _ => {}
+            }
+        }
+
+        (web_search, file_search, image_generation, code_interpreter)
+    }
+
+    /// Get raw counts for custom formatting
+    pub fn get_tool_usage_counts(&self) -> (u32, u32, u32, u32) {
+        (
+            self.web_search.unwrap_or(0),
+            self.file_search.unwrap_or(0),
+            self.image_generation.unwrap_or(0),
+            self.code_interpreter.unwrap_or(0),
+        )
+    }
 }
 
 impl
@@ -18,6 +54,43 @@ impl
         Model,
         Option<Vec<u8>>,
         Option<Vec<FunctionCallInfo>>,
+        u32,
+    )> for AIResponse
+{
+    fn from(
+        value: (
+            String,
+            Model,
+            Option<Vec<u8>>,
+            Option<Vec<FunctionCallInfo>>,
+            u32,
+        ),
+    ) -> Self {
+        let (text, model, image_data, tool_calls, total_tokens) = value;
+
+        Self {
+            text,
+            model,
+            image_data,
+            tool_calls,
+            total_tokens,
+            web_search: None,
+            file_search: None,
+            image_generation: None,
+            code_interpreter: None,
+        }
+    }
+}
+
+// Enhanced constructor with tool usage tracking
+impl
+    From<(
+        String,
+        Model,
+        Option<Vec<u8>>,
+        Option<Vec<FunctionCallInfo>>,
+        u32,
+        u32,
         u32,
         u32,
         u32,
@@ -32,19 +105,48 @@ impl
             u32,
             u32,
             u32,
+            u32,
+            u32,
         ),
     ) -> Self {
-        let (text, model, image_data, tool_calls, prompt_tokens, output_tokens, total_tokens) =
-            value;
+        let (
+            text,
+            model,
+            image_data,
+            tool_calls,
+            total_tokens,
+            web_search,
+            file_search,
+            image_generation,
+            code_interpreter,
+        ) = value;
 
         Self {
             text,
             model,
             image_data,
             tool_calls,
-            prompt_tokens,
-            output_tokens,
             total_tokens,
+            web_search: if web_search > 0 {
+                Some(web_search)
+            } else {
+                None
+            },
+            file_search: if file_search > 0 {
+                Some(file_search)
+            } else {
+                None
+            },
+            image_generation: if image_generation > 0 {
+                Some(image_generation)
+            } else {
+                None
+            },
+            code_interpreter: if code_interpreter > 0 {
+                Some(code_interpreter)
+            } else {
+                None
+            },
         }
     }
 }
@@ -73,9 +175,29 @@ impl
             model,
             image_data,
             tool_calls,
-            prompt_tokens: 0,
-            output_tokens: 0,
             total_tokens: 0,
+            web_search: None,
+            file_search: None,
+            image_generation: None,
+            code_interpreter: None,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_backward_compatibility() {
+        // Test that existing usage tracking continues to work unchanged
+        let ai_response =
+            AIResponse::from(("Legacy response".to_string(), Model::GPT41Mini, None, None));
+
+        assert_eq!(ai_response.total_tokens, 150);
+        assert_eq!(ai_response.web_search, None);
+        assert_eq!(ai_response.file_search, None);
+        assert_eq!(ai_response.image_generation, None);
+        assert_eq!(ai_response.code_interpreter, None);
     }
 }

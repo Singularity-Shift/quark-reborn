@@ -1191,31 +1191,12 @@ pub async fn execute_pay_users(
         .map(|v| v.as_str().unwrap().to_string())
         .collect::<Vec<_>>();
 
-    let is_emojicoin = arguments
-        .get("is_emojicoin")
-        .and_then(|v| v.as_bool())
-        .unwrap_or(false);
-    let is_native = arguments
-        .get("is_native")
-        .and_then(|v| v.as_bool())
-        .unwrap_or(false);
-    let is_meme = arguments
-        .get("is_meme")
-        .and_then(|v| v.as_bool())
-        .unwrap_or(false);
-    let is_bridged = arguments
-        .get("is_bridged")
-        .and_then(|v| v.as_bool())
-        .unwrap_or(false);
-
     let (token_type, decimals) =
         if symbol.to_lowercase() == "apt" || symbol.to_lowercase() == "aptos" {
             version = PayUsersVersion::V1;
             ("0x1::aptos_coin::AptosCoin".to_string(), 8u8)
         } else {
-            let tokens = panora
-                .get_panora_token_list(is_emojicoin, is_native, is_meme, is_bridged)
-                .await;
+            let tokens = panora.get_panora_token_list().await;
 
             if tokens.is_err() {
                 log::error!(
@@ -1349,7 +1330,6 @@ pub async fn execute_get_balance(
     arguments: &serde_json::Value,
     msg: Message,
     tree: Tree,
-    node: AptosFullnodeClient,
     panora: Panora,
 ) -> String {
     let user = msg.from;
@@ -1389,9 +1369,7 @@ pub async fn execute_get_balance(
                 "APT".to_string(),
             )
         } else {
-            let tokens = panora
-                .get_panora_token_list(false, false, false, false)
-                .await;
+            let tokens = panora.get_panora_token_list().await;
 
             if tokens.is_err() {
                 log::error!(
@@ -1426,7 +1404,9 @@ pub async fn execute_get_balance(
 
     let user_credentials = user_credentials.unwrap();
 
-    let balance = node
+    let balance = panora
+        .aptos
+        .node
         .get_account_balance(
             user_credentials.resource_account_address,
             token_type.to_string(),
@@ -1467,7 +1447,6 @@ pub async fn execute_withdraw_funds(
     arguments: &serde_json::Value,
     msg: Message,
     tree: Tree,
-    node: AptosFullnodeClient,
     panora: Panora,
 ) -> String {
     let app_url = env::var("APP_URL");
@@ -1518,9 +1497,7 @@ pub async fn execute_withdraw_funds(
         .and_then(|v| v.as_f64())
         .unwrap_or(0.0);
 
-    let tokens = panora
-        .get_panora_token_list(false, false, false, false)
-        .await;
+    let tokens = panora.get_panora_token_list().await;
 
     if tokens.is_err() {
         return "❌ Error getting token type".to_string();
@@ -1544,7 +1521,9 @@ pub async fn execute_withdraw_funds(
         token.fa_address.clone()
     };
 
-    let balance = node
+    let balance = panora
+        .aptos
+        .node
         .get_account_balance(
             user_credentials.resource_account_address,
             token_type.to_string(),
@@ -1578,7 +1557,6 @@ pub async fn execute_fund_account(
     arguments: &serde_json::Value,
     msg: Message,
     tree: Tree,
-    node: AptosFullnodeClient,
     panora: Panora,
 ) -> String {
     let app_url = env::var("APP_URL");
@@ -1629,9 +1607,7 @@ pub async fn execute_fund_account(
         .and_then(|v| v.as_f64())
         .unwrap_or(0.0);
 
-    let tokens = panora
-        .get_panora_token_list(false, false, false, false)
-        .await;
+    let tokens = panora.get_panora_token_list().await;
 
     if tokens.is_err() {
         return "❌ Error getting token type".to_string();
@@ -1656,7 +1632,9 @@ pub async fn execute_fund_account(
     };
 
     // Get balance from user's main wallet (not resource account)
-    let balance = node
+    let balance = panora
+        .aptos
+        .node
         .get_account_balance(user_credentials.account_address, token_type.to_string())
         .await;
 

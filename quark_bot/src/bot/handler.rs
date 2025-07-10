@@ -452,7 +452,6 @@ pub async fn handle_reasoning_chat(
     let response_result = ai
         .generate_response(
             msg.clone(),
-            user_id.0 as i64,
             &prompt,
             &db,
             tree,
@@ -473,20 +472,18 @@ pub async fn handle_reasoning_chat(
 
     match response_result {
         Ok(ai_response) => {
-            log::info!(
-                "Reasoning response generated successfully for user {} (tokens: input={}, output={}, total={})",
-                user_id,
-                ai_response.prompt_tokens,
-                ai_response.output_tokens,
-                ai_response.total_tokens
-            );
+            // Log tool usage if any tools were used
+            let (web_search, file_search, image_gen, _) = ai_response.get_tool_usage_counts();
 
             let response = create_purchase_request(
-                ai_response.tool_calls,
+                file_search,
+                web_search,
+                image_gen,
                 service,
                 ai_response.total_tokens,
                 ai_response.model,
                 &credentials.jwt,
+                None,
             )
             .await;
 
@@ -503,6 +500,8 @@ pub async fn handle_reasoning_chat(
                     )
                     .await?;
                 }
+
+                return Ok(());
             }
 
             // Check for image data and send as a photo if present
@@ -553,6 +552,7 @@ pub async fn handle_chat(
     tree: Tree,
     user_model_prefs: UserModelPreferences,
     prompt: String,
+    group_id: Option<String>,
 ) -> AnyResult<()> {
     // --- Start Typing Indicator Immediately ---
     let bot_clone = bot.clone();
@@ -672,7 +672,6 @@ pub async fn handle_chat(
     let response_result = ai
         .generate_response(
             msg.clone(),
-            user_id.0 as i64,
             &prompt,
             &db,
             tree,
@@ -689,20 +688,17 @@ pub async fn handle_chat(
 
     match response_result {
         Ok(ai_response) => {
-            log::info!(
-                "Chat response generated successfully for user {} (tokens: input={}, output={}, total={})",
-                user_id,
-                ai_response.prompt_tokens,
-                ai_response.output_tokens,
-                ai_response.total_tokens
-            );
+            let (web_search, file_search, image_gen, _) = ai_response.get_tool_usage_counts();
 
             let response = create_purchase_request(
-                ai_response.tool_calls.clone(),
+                file_search,
+                web_search,
+                image_gen,
                 service,
                 ai_response.total_tokens,
                 ai_response.model,
                 &credentials.jwt,
+                group_id,
             )
             .await;
 
@@ -724,13 +720,22 @@ pub async fn handle_chat(
                     )
                     .await?;
                 }
+
+                return Ok(());
             }
 
             if let Some(image_data) = ai_response.image_data {
                 let photo = InputFile::memory(image_data);
-                bot.send_photo(msg.chat.id, photo)
-                    .caption(&ai_response.text)
-                    .await?;
+                let caption = if ai_response.text.len() > 1024 {
+                    &ai_response.text[..1024]
+                } else {
+                    &ai_response.text
+                };
+                bot.send_photo(msg.chat.id, photo).caption(caption).await?;
+                // If the text is longer than 1024, send the rest as a follow-up message
+                if ai_response.text.len() > 1024 {
+                    send_long_message(&bot, msg.chat.id, &ai_response.text[1024..]).await?;
+                }
             } else if let Some(ref tool_calls) = ai_response.tool_calls {
                 if tool_calls
                     .iter()
@@ -901,7 +906,6 @@ pub async fn handle_grouped_chat(
     let response_result = ai
         .generate_response(
             representative_msg.clone(),
-            user_id,
             final_input,
             &db,
             tree,
@@ -921,14 +925,22 @@ pub async fn handle_grouped_chat(
             // Check for image data and send as a photo if present
             if let Some(image_data) = response.image_data {
                 let photo = InputFile::memory(image_data);
+                let caption = if response.text.len() > 1024 {
+                    &response.text[..1024]
+                } else {
+                    &response.text
+                };
                 bot.send_photo(representative_msg.chat.id, photo)
-                    .caption(response.text)
+                    .caption(caption)
                     .parse_mode(ParseMode::Markdown)
                     .await?;
+                // If the text is longer than 1024, send the rest as a follow-up message
+                if response.text.len() > 1024 {
+                    send_long_message(&bot, representative_msg.chat.id, &response.text[1024..])
+                        .await?;
+                }
             } else {
-                bot.send_message(representative_msg.chat.id, response.text)
-                    .parse_mode(ParseMode::Markdown)
-                    .await?;
+                send_long_message(&bot, representative_msg.chat.id, &response.text).await?;
             }
         }
         Err(e) => {
@@ -1141,7 +1153,7 @@ pub async fn handle_message(
 
     // Photo-only message (no text/caption) may belong to a pending command
     if msg.text().is_none() && msg.caption().is_none() && msg.photo().is_some() {
-        cmd_collector.try_attach_photo(msg, ai, tree).await;
+        cmd_collector.try_attach_photo(msg, ai, tree, None).await;
         return Ok(());
     }
 
@@ -1206,6 +1218,51 @@ pub async fn handle_sentinal(bot: Bot, msg: Message, param: String, db: Db) -> A
             .await?;
         }
     }
+    Ok(())
+}
+
+pub async fn handle_wallet_address(bot: Bot, msg: Message, tree: Tree) -> AnyResult<()> {
+    println!("handle_wallet_address");
+    let user = msg.from;
+
+    if user.is_none() {
+        bot.send_message(msg.chat.id, "❌ User not found").await?;
+        return Ok(());
+    }
+
+    let user = user.unwrap();
+
+    let username = user.username;
+
+    if username.is_none() {
+        bot.send_message(msg.chat.id, "❌ Username not found")
+            .await?;
+        return Ok(());
+    }
+
+    let username = username.unwrap();
+
+    let user_credentials = get_credentials(&username, tree.clone());
+
+    if user_credentials.is_none() {
+        bot.send_message(msg.chat.id, "❌ User not found").await?;
+        return Ok(());
+    }
+
+    let user_credentials = user_credentials.unwrap();
+
+    let wallet_address = user_credentials.resource_account_address;
+
+    bot.send_message(
+        msg.chat.id,
+        format!(
+            "💰 <b>Your Wallet Address</b>\n\n<code>{}</code>",
+            wallet_address
+        ),
+    )
+    .parse_mode(ParseMode::Html)
+    .await?;
+
     Ok(())
 }
 
