@@ -17,6 +17,7 @@ use crate::{
     pay_users::handler::pay_users,
     purchase::handler::purchase,
     state::ServerState,
+    twitter::handler::twitter_oauth_callback,
 };
 
 pub async fn router() -> Router {
@@ -70,6 +71,7 @@ pub async fn router() -> Router {
         .merge(auth_router)
         .route("/", get(info))
         .route("/docs", get(api_docs))
+        .route("/api/twitter/oauth/callback", post(twitter_oauth_callback))
         .layer(TraceLayer::new_for_http())
         .with_state(state)
 }
