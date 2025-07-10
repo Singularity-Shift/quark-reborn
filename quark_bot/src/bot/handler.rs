@@ -5,7 +5,7 @@ use crate::{
         media_aggregator::MediaGroupAggregator,
     },
     bot::hooks::{fund_account_hook, withdraw_funds_hook},
-    credentials::dto::{CredentialsPayload, TwitterAuthPayload},
+    credentials::dto::{CredentialsPayload, TwitterAuthPayload, TwitterAuthFailurePayload},
     utils,
 };
 use anyhow::Result as AnyResult;
@@ -284,13 +284,19 @@ pub async fn handle_xlogin(bot: Bot, msg: Message, db: Db) -> AnyResult<()> {
     let state_json = serde_json::to_vec(&oauth_state)?;
     oauth_states_tree.insert(&state, state_json)?;
 
-    // Build authorization URL
-    let auth_url = auth::build_auth_url(&client_id, &redirect_uri, &state, &challenge);
+    // Get webhook URL for proper Telegram Web App integration
+    let app_url = env::var("APP_URL").expect("APP_URL must be set");
+    let url_to_build = format!("{}/twitter-login?userId={}&state={}&challenge={}", 
+        app_url, user_id.0, state, challenge);
 
-    // Create web app button
-    let url = Url::parse(&auth_url).expect("Invalid auth URL");
+    // Create web app button that points to our webhook page (like /loginuser does)
+    let url = Url::parse(&url_to_build).expect("Invalid URL");
     let web_app_info = WebAppInfo { url };
-    let xlogin_button = InlineKeyboardButton::web_app("Login with X (Twitter)", web_app_info);
+    
+    let request = ButtonRequest::WebApp(web_app_info);
+    let xlogin_button = KeyboardButton::new("Login with X (Twitter)");
+    let xlogin_button = xlogin_button.request(request);
+    let login_markup = KeyboardMarkup::new(vec![vec![xlogin_button]]);
 
     bot.send_message(
         msg.chat.id,
@@ -303,7 +309,7 @@ pub async fn handle_xlogin(bot: Bot, msg: Message, db: Db) -> AnyResult<()> {
          • Not verified (blue checkmark)",
     )
     .parse_mode(ParseMode::Html)
-    .reply_markup(InlineKeyboardMarkup::new(vec![vec![xlogin_button]]))
+    .reply_markup(login_markup)
     .await?;
 
     Ok(())
@@ -989,7 +995,16 @@ pub async fn handle_web_app_data(bot: Bot, msg: Message, tree: Tree, db: Db, use
 
     // Try to parse as Twitter auth payload first
     if let Ok(twitter_payload) = serde_json::from_str::<TwitterAuthPayload>(&payload_str) {
-        return handle_twitter_auth_callback(bot, msg.chat.id, user, twitter_payload, db).await;
+        if twitter_payload.r#type == "twitter_auth_success" {
+            return handle_twitter_auth_callback(bot, msg.chat.id, user, twitter_payload, db).await;
+        }
+    }
+
+    // Try to parse as Twitter auth failure payload
+    if let Ok(failure_payload) = serde_json::from_str::<TwitterAuthFailurePayload>(&payload_str) {
+        if failure_payload.r#type == "twitter_auth_failure" {
+            return handle_twitter_auth_failure(bot, msg.chat.id, user, failure_payload).await;
+        }
     }
 
     // Fall back to Aptos credentials payload
@@ -1085,6 +1100,29 @@ async fn handle_twitter_auth_callback(
         .parse_mode(ParseMode::Html)
         .await?;
     }
+
+    Ok(())
+}
+
+async fn handle_twitter_auth_failure(
+    bot: Bot,
+    chat_id: ChatId,
+    user: teloxide::types::User,
+    payload: TwitterAuthFailurePayload,
+) -> AnyResult<()> {
+    log::warn!("Twitter auth failure for user {}: {}", user.id, payload.error);
+
+    bot.send_message(
+        chat_id,
+        format!(
+            "❌ <b>X (Twitter) Authentication Failed</b>\n\n\
+            <i>Error:</i> {}\n\n\
+            Please try again with /xlogin if you'd like to connect your X account.",
+            payload.error
+        )
+    )
+    .parse_mode(ParseMode::Html)
+    .await?;
 
     Ok(())
 }

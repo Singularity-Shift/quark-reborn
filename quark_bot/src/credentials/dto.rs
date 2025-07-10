@@ -24,6 +24,12 @@ pub struct TwitterAuthPayload {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
+pub struct TwitterAuthFailurePayload {
+    pub r#type: String,
+    pub error: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
 pub struct TwitterUserInfo {
     pub telegram_username: String,
     pub twitter_handle: String,

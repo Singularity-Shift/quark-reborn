@@ -34,20 +34,46 @@ const XAuthPage = () => {
   useEffect(() => {
     const processOAuthCallback = async () => {
       if (error) {
+        const errorMessage = `Authentication failed: ${errorDescription || error}`;
         setAuthResult({
           success: false,
-          error: `Authentication failed: ${errorDescription || error}`,
+          error: errorMessage,
         });
         setIsProcessing(false);
+
+        // Send OAuth error back to bot
+        if (sendData.isAvailable()) {
+          setTimeout(() => {
+            sendData(
+              JSON.stringify({
+                type: "twitter_auth_failure",
+                error: errorMessage,
+              })
+            );
+          }, 1000);
+        }
         return;
       }
 
       if (!code || !state) {
+        const errorMessage = "Missing required OAuth parameters";
         setAuthResult({
           success: false,
-          error: "Missing required OAuth parameters",
+          error: errorMessage,
         });
         setIsProcessing(false);
+
+        // Send missing parameters error back to bot
+        if (sendData.isAvailable()) {
+          setTimeout(() => {
+            sendData(
+              JSON.stringify({
+                type: "twitter_auth_failure",
+                error: errorMessage,
+              })
+            );
+          }, 1000);
+        }
         return;
       }
 
@@ -94,14 +120,39 @@ const XAuthPage = () => {
             error: result.error || "Authentication failed",
           });
           showMessage("❌ Authentication failed", "error");
+
+          // Send failure result back to bot via Telegram Web App
+          if (sendData.isAvailable()) {
+            setTimeout(() => {
+              sendData(
+                JSON.stringify({
+                  type: "twitter_auth_failure",
+                  error: result.error || "Authentication failed",
+                })
+              );
+            }, 2000);
+          }
         }
       } catch (err) {
         console.error("Auth error:", err);
+        const errorMessage = "Network error during authentication";
         setAuthResult({
           success: false,
-          error: "Network error during authentication",
+          error: errorMessage,
         });
         showMessage("❌ Network error", "error");
+
+        // Send network error result back to bot via Telegram Web App
+        if (sendData.isAvailable()) {
+          setTimeout(() => {
+            sendData(
+              JSON.stringify({
+                type: "twitter_auth_failure",
+                error: errorMessage,
+              })
+            );
+          }, 2000);
+        }
       }
 
       setIsProcessing(false);
