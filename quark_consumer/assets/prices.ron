@@ -1,0 +1,42 @@
+Price(
+    model: [
+        (
+            name: O3,
+            price: 0.0136,
+        ),
+        (
+            name: O4Mini,
+            price: 0.00748,
+        ),
+        (
+            name: GPT4o,
+            price: 0.034,
+        ),
+        (
+            name: GPT41,
+            price: 0.0136,
+        ),
+        (
+            name: GPT41Mini,
+            price: 0.00272,
+        ),
+        (
+            name: GPT41Nano,
+            price: 0.00068,
+        ),
+    ],
+    tool: [
+        (
+            name: FileSearch,
+            price: 0.00425,
+        ),
+        (
+            name: ImageGeneration,
+            price: 0.25,
+        ),
+        (
+            name: WebSearchPreview,
+            price: 0.05,
+        ),
+    ],
+)
