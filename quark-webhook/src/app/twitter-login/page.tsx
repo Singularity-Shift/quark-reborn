@@ -1,138 +1,88 @@
-"use client";
+'use client';
 
-import { useEffect, useState } from "react";
-import { useSearchParams } from "next/navigation";
-import { Section, Button } from "@telegram-apps/telegram-ui";
-import { Message } from "@/components/Message/Message";
-import { useMessage } from "@/hooks/useMessage";
+import { useEffect, useState } from 'react';
+import { useSearchParams } from 'next/navigation';
 
-const TwitterLoginPage = () => {
+export default function TwitterLoginPage() {
+  const [status, setStatus] = useState<'loading' | 'redirecting' | 'error'>('loading');
+  const [error, setError] = useState<string>('');
   const searchParams = useSearchParams();
-  const [isLoading, setIsLoading] = useState(false);
-  const { message, showMessage } = useMessage();
 
-  // Get parameters from URL
-  const userId = searchParams.get("userId");
-  const state = searchParams.get("state");
-  const challenge = searchParams.get("challenge");
+  useEffect(() => {
+    const userId = searchParams.get('userId');
+    const state = searchParams.get('state');
+    const challenge = searchParams.get('challenge');
+    const verifier = searchParams.get('verifier');
 
-  const handleTwitterLogin = async () => {
-    if (!userId || !state || !challenge) {
-      showMessage("Missing required parameters for authentication", "error");
+    if (!userId || !state || !challenge || !verifier) {
+      setStatus('error');
+      setError('Missing required parameters');
       return;
     }
 
-    setIsLoading(true);
+    // Store verifier for the auth callback
+    sessionStorage.setItem('oauth_verifier', verifier);
+    sessionStorage.setItem('oauth_state', state);
 
-    try {
-      // Request OAuth URL from secure API endpoint
-      const response = await fetch("/api/twitter/oauth-url", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          userId,
-          state,
-          challenge,
-        }),
-      });
+    // Redirect to Twitter OAuth
+    const twitterAuthUrl = new URL('https://twitter.com/i/oauth2/authorize');
+    twitterAuthUrl.searchParams.set('response_type', 'code');
+    twitterAuthUrl.searchParams.set('client_id', process.env.NEXT_PUBLIC_TWITTER_CLIENT_ID || '');
+    twitterAuthUrl.searchParams.set('redirect_uri', process.env.NEXT_PUBLIC_TWITTER_REDIRECT_URI || '');
+    twitterAuthUrl.searchParams.set('scope', 'tweet.read users.read offline.access');
+    twitterAuthUrl.searchParams.set('state', state);
+    twitterAuthUrl.searchParams.set('code_challenge', challenge);
+    twitterAuthUrl.searchParams.set('code_challenge_method', 'S256');
 
-      const result = await response.json();
+    setStatus('redirecting');
+    window.location.href = twitterAuthUrl.toString();
+  }, [searchParams]);
 
-      if (response.ok && result.success) {
-        // Redirect to Twitter OAuth
-        window.location.href = result.authUrl;
-      } else {
-        showMessage(result.error || "Failed to generate authentication URL", "error");
-        setIsLoading(false);
-      }
-    } catch (error) {
-      console.error("Twitter login error:", error);
-      showMessage("Failed to initiate Twitter login", "error");
-      setIsLoading(false);
-    }
-  };
+  if (status === 'loading') {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 flex items-center justify-center p-4">
+        <div className="bg-white rounded-xl shadow-lg p-8 max-w-md w-full text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
+          <h2 className="text-xl font-semibold text-gray-900 mb-2">Preparing Twitter Login</h2>
+          <p className="text-gray-600">Setting up your authentication...</p>
+        </div>
+      </div>
+    );
+  }
 
-  const isReadyToLogin = userId && state && challenge;
+  if (status === 'redirecting') {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 flex items-center justify-center p-4">
+        <div className="bg-white rounded-xl shadow-lg p-8 max-w-md w-full text-center">
+          <div className="text-blue-600 mb-4">
+            <svg className="w-12 h-12 mx-auto" fill="currentColor" viewBox="0 0 24 24">
+              <path d="M23.953 4.57a10 10 0 01-2.825.775 4.958 4.958 0 002.163-2.723c-.951.555-2.005.959-3.127 1.184a4.92 4.92 0 00-8.384 4.482C7.69 8.095 4.067 6.13 1.64 3.162a4.822 4.822 0 00-.666 2.475c0 1.71.87 3.213 2.188 4.096a4.904 4.904 0 01-2.228-.616v.06a4.923 4.923 0 003.946 4.827 4.996 4.996 0 01-2.212.085 4.936 4.936 0 004.604 3.417 9.867 9.867 0 01-6.102 2.105c-.39 0-.779-.023-1.17-.067a13.995 13.995 0 007.557 2.209c9.053 0 13.998-7.496 13.998-13.985 0-.21 0-.42-.015-.63A9.935 9.935 0 0024 4.59z"/>
+            </svg>
+          </div>
+          <h2 className="text-xl font-semibold text-gray-900 mb-2">Redirecting to Twitter</h2>
+          <p className="text-gray-600">You will be redirected to Twitter to complete authentication...</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
-    <Section className="min-h-screen">
-      <Message message={message} />
-
-      <div className="p-4 space-y-4">
-        <div className="text-center">
-          <h1
-            className="text-2xl font-bold mb-2"
-            style={{ color: "var(--tg-theme-text-color)" }}
-          >
-            🐦 Connect X (Twitter)
-          </h1>
-          <p
-            className="text-sm mb-4"
-            style={{ color: "var(--tg-theme-hint-color)" }}
-          >
-            Link your X account to participate in Twitter-based raids
-          </p>
+    <div className="min-h-screen bg-gradient-to-br from-red-50 to-red-100 flex items-center justify-center p-4">
+      <div className="bg-white rounded-xl shadow-lg p-8 max-w-md w-full text-center">
+        <div className="text-red-600 mb-4">
+          <svg className="w-12 h-12 mx-auto" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+          </svg>
         </div>
-
-        <div
-          className="bg-gradient-to-r from-blue-50 to-indigo-50 p-4 rounded-lg border border-blue-200"
-          style={{
-            backgroundColor: "var(--tg-theme-secondary-bg-color)",
-            borderColor: "var(--tg-theme-hint-color)",
-          }}
+        <h2 className="text-xl font-semibold text-gray-900 mb-2">Authentication Error</h2>
+        <p className="text-gray-600 mb-4">{error}</p>
+        <button 
+          onClick={() => window.close()}
+          className="bg-red-600 text-white px-4 py-2 rounded-lg hover:bg-red-700 transition-colors"
         >
-          <h3
-            className="font-semibold mb-2"
-            style={{ color: "var(--tg-theme-text-color)" }}
-          >
-            Requirements for qualification:
-          </h3>
-          <ul
-            className="text-sm space-y-1"
-            style={{ color: "var(--tg-theme-hint-color)" }}
-          >
-            <li>• At least 50 followers</li>
-            <li>• Profile picture</li>
-            <li>• Banner image</li>
-            <li>• Not verified (no blue checkmark)</li>
-          </ul>
-        </div>
-
-        {isReadyToLogin ? (
-          <div className="flex justify-center">
-            <Button
-              onClick={handleTwitterLogin}
-              disabled={isLoading}
-              className="px-8 py-3 text-lg font-semibold"
-              style={{
-                backgroundColor: isLoading
-                  ? "var(--tg-theme-secondary-bg-color)"
-                  : "#1DA1F2",
-                color: isLoading
-                  ? "var(--tg-theme-hint-color)"
-                  : "white",
-                borderRadius: "12px",
-                minWidth: "200px",
-              }}
-            >
-              {isLoading ? "Connecting..." : "Connect X Account"}
-            </Button>
-          </div>
-        ) : (
-          <div className="text-center">
-            <p
-              className="text-sm"
-              style={{ color: "var(--tg-theme-hint-color)" }}
-            >
-              Invalid authentication parameters. Please try again from the bot.
-            </p>
-          </div>
-        )}
+          Close
+        </button>
       </div>
-    </Section>
+    </div>
   );
-};
-
-export default TwitterLoginPage; 
+} 

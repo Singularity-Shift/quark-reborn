@@ -274,7 +274,7 @@ pub async fn handle_xlogin(bot: Bot, msg: Message, db: Db) -> AnyResult<()> {
     let oauth_state = OAuthState {
         telegram_user_id: user_id.0,
         telegram_username: username,
-        verifier,
+        verifier: verifier.clone(),
         nonce,
         created_at: auth::current_timestamp(),
     };
@@ -286,8 +286,8 @@ pub async fn handle_xlogin(bot: Bot, msg: Message, db: Db) -> AnyResult<()> {
 
     // Get webhook URL for proper Telegram Web App integration
     let app_url = env::var("APP_URL").expect("APP_URL must be set");
-    let url_to_build = format!("{}/twitter-login?userId={}&state={}&challenge={}", 
-        app_url, user_id.0, state, challenge);
+    let url_to_build = format!("{}/twitter-login?userId={}&state={}&challenge={}&verifier={}", 
+        app_url, user_id.0, state, challenge, verifier);
 
     // Create web app button that points to our webhook page (like /loginuser does)
     let url = Url::parse(&url_to_build).expect("Invalid URL");
