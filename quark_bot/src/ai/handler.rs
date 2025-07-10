@@ -2,13 +2,10 @@ use crate::ai::dto::AIResponse;
 use crate::ai::gcs::GcsImageUploader;
 use crate::ai::prompt::get_prompt;
 use crate::ai::tools::{execute_custom_tool, get_all_custom_tools};
+use crate::credentials::helpers::get_credentials;
 use crate::panora::handler::Panora;
 use crate::services::handler::Services;
 use crate::user_conversation::handler::UserConversations;
-use aptos_rust_sdk::client::builder::AptosClientBuilder;
-use aptos_rust_sdk::client::config::AptosNetwork;
-use aptos_rust_sdk::client::rest_api::AptosFullnodeClient;
-use aptos_rust_sdk_types::api_types::chain_id::ChainId;
 use base64::{Engine as _, engine::general_purpose};
 use open_ai_rust_responses_by_sshift::types::{
     Include, InputItem, ReasoningParams, Response, ResponseItem, Tool, ToolChoice,
@@ -23,35 +20,20 @@ use teloxide::types::Message;
 #[derive(Clone)]
 pub struct AI {
     openai_client: OAIClient,
-    node: AptosFullnodeClient,
     system_prompt: String,
     cloud: GcsImageUploader,
     panora: Panora,
     service: Services,
+    min_deposit: f64,
 }
 
 impl AI {
-    pub fn new(openai_api_key: String, cloud: GcsImageUploader, aptos_network: String) -> Self {
-        let (builder, _chain_id) = match aptos_network.as_str() {
-            "mainnet" => (
-                AptosClientBuilder::new(AptosNetwork::mainnet()),
-                ChainId::Mainnet,
-            ),
-            "testnet" => (
-                AptosClientBuilder::new(AptosNetwork::testnet()),
-                ChainId::Testnet,
-            ),
-            "devnet" => (
-                AptosClientBuilder::new(AptosNetwork::devnet()),
-                ChainId::Testing,
-            ),
-            _ => (
-                AptosClientBuilder::new(AptosNetwork::testnet()),
-                ChainId::Testnet,
-            ),
-        };
-        let node = builder.build();
-
+    pub fn new(
+        openai_api_key: String,
+        cloud: GcsImageUploader,
+        panora: Panora,
+        min_deposit: f64,
+    ) -> Self {
         let system_prompt = get_prompt();
 
         // Use default recovery policy for API error handling
@@ -60,16 +42,15 @@ impl AI {
         let openai_client = OAIClient::new_with_recovery(&openai_api_key, recovery_policy)
             .expect("Failed to create OpenAI client with recovery policy");
 
-        let panora = Panora::new();
         let service = Services::new();
 
         Self {
             openai_client,
             system_prompt,
-            node,
             cloud,
             panora,
             service,
+            min_deposit,
         }
     }
 
@@ -107,7 +88,6 @@ impl AI {
     pub async fn generate_response(
         &self,
         msg: Message,
-        user_id: i64,
         input: &str,
         db: &Db,
         tree: Tree,
@@ -118,11 +98,97 @@ impl AI {
         temperature: Option<f32>,
         reasoning: Option<ReasoningParams>,
     ) -> Result<AIResponse, anyhow::Error> {
+        let user = msg.from.clone();
+
+        if user.is_none() {
+            return Err(anyhow::anyhow!("User not found"));
+        }
+
+        let user = user.unwrap();
+        let user_id = user.id.0 as i64;
+
         log::info!(
             "AI generate_response called for user {} with input: '{}'",
             user_id,
             input
         );
+
+        let username = user.username.clone();
+
+        if username.is_none() {
+            return Err(anyhow::anyhow!("Username not found"));
+        }
+
+        let username = username.unwrap();
+
+        let user_credentials = get_credentials(&username, tree.clone());
+
+        if user_credentials.is_none() {
+            return Err(anyhow::anyhow!("User credentials not found"));
+        }
+
+        let user_credentials = user_credentials.unwrap();
+
+        let coin_address = self.panora.aptos.get_token_address().await?;
+
+        let address = user_credentials.resource_account_address;
+
+        let user_balance = self
+            .panora
+            .aptos
+            .get_account_balance(&address, &coin_address)
+            .await?;
+
+        let token = self.panora.get_token_ai_fees().await?;
+
+        let token_price = token.usd_price;
+
+        if token_price.is_none() {
+            return Err(anyhow::anyhow!("Token price not found"));
+        }
+
+        let token_price = token_price.unwrap();
+
+        let token_price = token_price.parse::<f64>();
+
+        if token_price.is_err() {
+            return Err(anyhow::anyhow!("Token price not found"));
+        }
+
+        let token_price = token_price.unwrap();
+
+        let token_decimals = token.decimals;
+
+        if token_decimals.is_none() {
+            return Err(anyhow::anyhow!("Token decimals not found"));
+        }
+
+        let token_decimals = token_decimals.unwrap();
+
+        let min_deposit = (self.min_deposit / token_price);
+
+        let min_deposit = (min_deposit as f64 * 10_f64.powi(token_decimals as i32)) as u64;
+
+        if user_balance < min_deposit as i64 {
+            let min_deposit_formatted = format!(
+                "{:.2}",
+                min_deposit as f64 / 10_f64.powi(token_decimals as i32)
+            );
+
+            let user_balance_formatted = format!(
+                "{:.2}",
+                user_balance as f64 / 10_f64.powi(token_decimals as i32)
+            );
+
+            return Err(anyhow::anyhow!(format!(
+                "User balance is less than the minimum deposit. Please fund your account using /fund_account. Minimum deposit: {} {} (Your balance: {} {})",
+                min_deposit_formatted,
+                token.symbol.clone().unwrap_or("".to_string()),
+                user_balance_formatted,
+                token.symbol.unwrap_or("".to_string())
+            )));
+        }
+
         let user_convos = UserConversations::new(db)?;
         let previous_response_id = user_convos.get_response_id(user_id);
         let mut tool_called: Vec<FunctionCallInfo> = Vec::new();
@@ -336,7 +402,6 @@ impl AI {
                         msg.clone(),
                         self.service.clone(),
                         tree.clone(),
-                        self.node.clone(),
                         self.panora.clone(),
                     )
                     .await;
@@ -460,14 +525,28 @@ impl AI {
             total_tokens_used
         );
 
+        // Calculate tool usage from the final response
+        let (web_search_count, file_search_count, image_generation_count, code_interpreter_count) =
+            AIResponse::calculate_tool_usage(&current_response);
+
+        log::info!(
+            "Tool usage: web_search={}, file_search={}, image_generation={}, code_interpreter={}",
+            web_search_count,
+            file_search_count,
+            image_generation_count,
+            code_interpreter_count
+        );
+
         Ok(AIResponse::from((
             reply,
             model,
             image_data,
             Some(tool_called),
-            total_prompt_tokens,
-            total_output_tokens,
             total_tokens_used,
+            web_search_count,
+            file_search_count,
+            image_generation_count,
+            code_interpreter_count,
         )))
     }
 }

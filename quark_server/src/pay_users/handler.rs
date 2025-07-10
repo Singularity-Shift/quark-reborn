@@ -22,7 +22,9 @@ use crate::{
     error::ErrorServer,
     state::ServerState,
 };
-use quark_core::helpers::dto::{PayUsersRequest, PayUsersResponse, PayUsersVersion, UserPayload};
+use quark_core::helpers::dto::{
+    PayUsersRequest, PayUsersVersion, TransactionResponse, UserPayload,
+};
 
 #[utoipa::path(
     post,
@@ -39,7 +41,7 @@ pub async fn pay_users(
     State(server_state): State<Arc<ServerState>>,
     Extension(user): Extension<UserPayload>,
     Json(request): Json<PayUsersRequest>,
-) -> Result<Json<PayUsersResponse>, ErrorServer> {
+) -> Result<Json<TransactionResponse>, ErrorServer> {
     let (admin, signer) = get_admin().map_err(|e| ErrorServer {
         status: StatusCode::INTERNAL_SERVER_ERROR.into(),
         message: e.to_string(),
@@ -86,7 +88,7 @@ pub async fn pay_users(
             })?;
 
             TransactionPayload::EntryFunction(EntryFunction::new(
-                ModuleId::new(contract_address, "user_v4".to_string()),
+                ModuleId::new(contract_address, "user_v5".to_string()),
                 "pay_to_users_v1".to_string(),
                 vec![token_type],
                 vec![
@@ -100,7 +102,7 @@ pub async fn pay_users(
             ))
         }
         PayUsersVersion::V2 => TransactionPayload::EntryFunction(EntryFunction::new(
-            ModuleId::new(contract_address, "user_v4".to_string()),
+            ModuleId::new(contract_address, "user_v5".to_string()),
             "pay_to_users_v2".to_string(),
             vec![],
             vec![
@@ -221,7 +223,7 @@ pub async fn pay_users(
 
     println!("Transaction: {:?}", transaction);
 
-    let pay_users_response: PayUsersResponse =
+    let pay_users_response: TransactionResponse =
         serde_json::from_value(transaction).map_err(|e| ErrorServer {
             status: StatusCode::INTERNAL_SERVER_ERROR.into(),
             message: e.to_string(),

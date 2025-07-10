@@ -88,7 +88,9 @@ pub fn handler_tree() -> Handler<'static, Result<()>, DpHandlerDescription> {
                             matches!(
                                 cmd,
                                 Command::C(_)
+                                    | Command::G(_)
                                     | Command::R(_)
+                                    | Command::WalletAddress
                                     | Command::AddFiles
                                     | Command::ListFiles
                                     | Command::NewChat

@@ -43,6 +43,8 @@ services:
       - SECRET=${SECRET}
       - APP_URL=${APP_URL}
       - BACKEND_URL=${BACKEND_URL}
+      - MIN_DEPOSIT=${MIN_DEPOSIT}
+      - CONTRACT_ADDRESS=${CONTRACT_ADDRESS}
     networks:
       - quark-net
     volumes:
@@ -87,6 +89,16 @@ services:
     environment:
       - REDIS_URL=redis://:${VALKEY_PASSWORD}@valkey:6379
       - CONSUMER_ID=consumer-one
+      - PROFILE=${PROFILE}
+      - PANORA_URL=${PANORA_URL}
+      - PANORA_API_KEY=${PANORA_API_KEY}
+      - CONTRACT_ADDRESS=${CONTRACT_ADDRESS}
+      - APTOS_NETWORK=${APTOS_NETWORK}
+      - GPG_PASSPHRASE=${GPG_PASSPHRASE}
+      - GPG_PRIVATE_KEY=${GPG_PRIVATE_KEY}
+      - GPG_PUBLIC_KEY=${GPG_PUBLIC_KEY}
+      - GPG_REVIEWER=${GPG_REVIEWER}
+      - PRIVATE_KEY=${PRIVATE_KEY}
     restart: unless-stopped
     networks:
       - quark-net
@@ -102,6 +114,16 @@ services:
     environment:
       - REDIS_URL=redis://:${VALKEY_PASSWORD}@valkey:6379
       - CONSUMER_ID=consumer-two
+      - PROFILE=${PROFILE}
+      - PANORA_URL=${PANORA_URL}
+      - PANORA_API_KEY=${PANORA_API_KEY}
+      - CONTRACT_ADDRESS=${CONTRACT_ADDRESS}
+      - APTOS_NETWORK=${APTOS_NETWORK}
+      - GPG_PASSPHRASE=${GPG_PASSPHRASE}
+      - GPG_PRIVATE_KEY=${GPG_PRIVATE_KEY}
+      - GPG_PUBLIC_KEY=${GPG_PUBLIC_KEY}
+      - GPG_REVIEWER=${GPG_REVIEWER}
+      - PRIVATE_KEY=${PRIVATE_KEY}
     restart: unless-stopped
     networks:
       - quark-net

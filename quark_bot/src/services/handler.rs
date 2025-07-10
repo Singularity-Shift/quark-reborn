@@ -2,7 +2,7 @@ use anyhow::{Result, anyhow};
 use reqwest::Client;
 
 use log::{debug, error, info, warn};
-use quark_core::helpers::dto::{Endpoints, PayUsersRequest, PayUsersResponse, PurchaseRequest};
+use quark_core::helpers::dto::{Endpoints, PayUsersRequest, PurchaseRequest, TransactionResponse};
 
 #[derive(Clone)]
 pub struct Services {
@@ -20,7 +20,7 @@ impl Services {
         &self,
         token: String,
         request: PayUsersRequest,
-    ) -> Result<PayUsersResponse> {
+    ) -> Result<TransactionResponse> {
         let url = Endpoints::PayUsers.to_string();
         debug!("🌐 Making user service request to: {}", url);
         debug!(
@@ -48,7 +48,7 @@ impl Services {
 
                 if resp.status().is_success() {
                     info!("✅ User service call successful - Status: {}", status);
-                    let pay_users_response: PayUsersResponse = resp.json().await?;
+                    let pay_users_response: TransactionResponse = resp.json().await?;
                     Ok(pay_users_response)
                 } else {
                     // Get the error response body for detailed error information

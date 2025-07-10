@@ -4,7 +4,7 @@ import { QuarkUserAbi } from "@/aptos";
 import { useAbiClient } from "@/context/AbiProvider";
 import { useWallet } from "@aptos-labs/wallet-adapter-react";
 import { sendData } from "@telegram-apps/sdk-react";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { useWalletClient } from "@thalalabs/surf/hooks";
 import { ACCOUNT_SEED, EXPLORER_URL } from "@/config/env";
 import { AccountStatus } from "./components/AccountStatus";

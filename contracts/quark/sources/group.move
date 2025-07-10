@@ -1,4 +1,4 @@
-module quark_test::group_v4 {
+module quark_test::group_v5 {
     use std::signer;
     use std::string::{Self, String};
     use std::vector;
@@ -14,8 +14,8 @@ module quark_test::group_v4 {
     use aptos_framework::fungible_asset::Metadata;
     use aptos_framework::primary_fungible_store;
     use sshift_gpt::fees;
-    use quark_test::admin_v4;
-    use quark_test::user_v4;
+    use quark_test::admin_v5;
+    use quark_test::user_v5;
 
     const EONLY_ADMIN_CAN_CALL: u64 = 1;
     const EONLY_REVIEWER_CAN_CALL: u64 = 2;
@@ -262,9 +262,9 @@ module quark_test::group_v4 {
     public entry fun create_group(admin: &signer, reviewer: &signer, group_id: String) acquires Groups {
         let admin_address = signer::address_of(admin);
 
-        assert!(admin_v4::is_admin(admin_address), EONLY_ADMIN_CAN_CALL);
+        assert!(admin_v5::is_admin(admin_address), EONLY_ADMIN_CAN_CALL);
         let reviewer_address = signer::address_of(reviewer);
-        assert!(admin_v4::is_reviewer(reviewer_address), EONLY_REVIEWER_CAN_CALL);
+        assert!(admin_v5::is_reviewer(reviewer_address), EONLY_REVIEWER_CAN_CALL);
 
         assert!(!exist_group_id(group_id), EGROUP_ALREADY_EXISTS);
 
@@ -284,9 +284,15 @@ module quark_test::group_v4 {
     }
 
     public entry fun pay_ai<CoinType>(admin: &signer, reviewer: &signer, group_id: String, amount: u64) acquires Groups, GroupSigner {
+        let admin_address = signer::address_of(admin);
+        let reviewer_address = signer::address_of(reviewer);
+
+        assert!(admin_v5::is_admin(admin_address), EONLY_ADMIN_CAN_CALL);
+        assert!(admin_v5::is_reviewer(reviewer_address), EONLY_REVIEWER_CAN_CALL);
+
         let group_account = get_group_account(group_id);
 
-        
+        pay_ai_fees<CoinType>(group_account, amount);
     }
 
     public entry fun pay_users_v1<CoinType>(admin: &signer, reviewer: &signer, group_id: String, amount: u64, recipients: vector<address>) acquires Groups, GroupSigner {
@@ -294,12 +300,12 @@ module quark_test::group_v4 {
         let admin_address = signer::address_of(admin);
         let reviewer_address = signer::address_of(reviewer);
 
-        assert!(admin_v4::is_admin(admin_address), EONLY_ADMIN_CAN_CALL);
-        assert!(admin_v4::is_reviewer(reviewer_address), EONLY_REVIEWER_CAN_CALL);
+        assert!(admin_v5::is_admin(admin_address), EONLY_ADMIN_CAN_CALL);
+        assert!(admin_v5::is_reviewer(reviewer_address), EONLY_REVIEWER_CAN_CALL);
 
         let groups = borrow_global<Groups>(@quark_test);
 
-        let (exists_group, group_index) = vector::find<Group>(&groups.groups, |group| group.group_id == group_id);
+        let (exists_group, _group_index) = vector::find<Group>(&groups.groups, |group| group.group_id == group_id);
         assert!(exists_group, EGROUP_NOT_EXISTS);
 
         let group_account = get_group_account(group_id);
@@ -335,8 +341,8 @@ module quark_test::group_v4 {
         let admin_address = signer::address_of(admin);
         let reviewer_address = signer::address_of(reviewer);
 
-        assert!(admin_v4::is_admin(admin_address), EONLY_ADMIN_CAN_CALL);
-        assert!(admin_v4::is_reviewer(reviewer_address), EONLY_REVIEWER_CAN_CALL);
+        assert!(admin_v5::is_admin(admin_address), EONLY_ADMIN_CAN_CALL);
+        assert!(admin_v5::is_reviewer(reviewer_address), EONLY_REVIEWER_CAN_CALL);
 
         let group_account = get_group_account(group_id);
 
@@ -373,8 +379,8 @@ module quark_test::group_v4 {
         let reviewer_address = signer::address_of(reviewer);
         let amount_to_claim;
 
-        assert!(admin_v4::is_admin(admin_address), EONLY_ADMIN_CAN_CALL);
-        assert!(admin_v4::is_reviewer(reviewer_address), EONLY_REVIEWER_CAN_CALL);
+        assert!(admin_v5::is_admin(admin_address), EONLY_ADMIN_CAN_CALL);
+        assert!(admin_v5::is_reviewer(reviewer_address), EONLY_REVIEWER_CAN_CALL);
 
         let group_account = get_group_account(group_id);
 
@@ -428,8 +434,8 @@ module quark_test::group_v4 {
         let admin_address = signer::address_of(admin);
         let reviewer_address = signer::address_of(reviewer);
 
-        assert!(admin_v4::is_admin(admin_address), EONLY_ADMIN_CAN_CALL);
-        assert!(admin_v4::is_reviewer(reviewer_address), EONLY_REVIEWER_CAN_CALL);
+        assert!(admin_v5::is_admin(admin_address), EONLY_ADMIN_CAN_CALL);
+        assert!(admin_v5::is_reviewer(reviewer_address), EONLY_REVIEWER_CAN_CALL);
 
         let group_account = get_group_account(group_id);
 
@@ -478,8 +484,8 @@ module quark_test::group_v4 {
         let admin_address = signer::address_of(admin);
         let reviewer_address = signer::address_of(reviewer);
 
-        assert!(admin_v4::is_admin(admin_address), EONLY_ADMIN_CAN_CALL);
-        assert!(admin_v4::is_reviewer(reviewer_address), EONLY_REVIEWER_CAN_CALL);
+        assert!(admin_v5::is_admin(admin_address), EONLY_ADMIN_CAN_CALL);
+        assert!(admin_v5::is_reviewer(reviewer_address), EONLY_REVIEWER_CAN_CALL);
 
         let group_account = get_group_account(group_id);
         let group_signer_cap = borrow_global<GroupSigner>(group_account);
@@ -538,8 +544,8 @@ module quark_test::group_v4 {
         let admin_address = signer::address_of(admin);
         let reviewer_address = signer::address_of(reviewer);
 
-        assert!(admin_v4::is_admin(admin_address), EONLY_ADMIN_CAN_CALL);
-        assert!(admin_v4::is_reviewer(reviewer_address), EONLY_REVIEWER_CAN_CALL);
+        assert!(admin_v5::is_admin(admin_address), EONLY_ADMIN_CAN_CALL);
+        assert!(admin_v5::is_reviewer(reviewer_address), EONLY_REVIEWER_CAN_CALL);
 
         let group_account = get_group_account(group_id);
         let group_signer_cap = borrow_global<GroupSigner>(group_account);
@@ -590,8 +596,8 @@ module quark_test::group_v4 {
         let admin_address = signer::address_of(admin);
         let reviewer_address = signer::address_of(reviewer);
         
-        assert!(admin_v4::is_admin(admin_address), EONLY_ADMIN_CAN_CALL);
-        assert!(admin_v4::is_reviewer(reviewer_address), EONLY_REVIEWER_CAN_CALL);
+        assert!(admin_v5::is_admin(admin_address), EONLY_ADMIN_CAN_CALL);
+        assert!(admin_v5::is_reviewer(reviewer_address), EONLY_REVIEWER_CAN_CALL);
 
         assert!(from <= to, EFROM_TO_NOT_VALID);
 
@@ -651,8 +657,8 @@ module quark_test::group_v4 {
         let admin_address = signer::address_of(admin);
         let reviewer_address = signer::address_of(reviewer);
 
-        assert!(admin_v4::is_admin(admin_address), EONLY_ADMIN_CAN_CALL);
-        assert!(admin_v4::is_reviewer(reviewer_address), EONLY_REVIEWER_CAN_CALL);
+        assert!(admin_v5::is_admin(admin_address), EONLY_ADMIN_CAN_CALL);
+        assert!(admin_v5::is_reviewer(reviewer_address), EONLY_REVIEWER_CAN_CALL);
 
         assert!(from <= to, EFROM_TO_NOT_VALID);
 
@@ -1123,7 +1129,7 @@ module quark_test::group_v4 {
     }
 
     fun pay_ai_fees<CoinType>(group_account: address, amount: u64) acquires GroupSigner {
-        let coin_type = user_v4::get_token_address(group_account);
+        let coin_type = user_v5::get_token_address();
 
         assert!(option::is_some(&coin_type), ENOT_COIN_PAYMENT_SET);
         assert!(fees::resource_account_exists(), ERESOURCE_ACCOUNT_NOT_EXISTS);

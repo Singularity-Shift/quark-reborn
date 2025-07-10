@@ -1,3 +1,4 @@
+use aptos_rust_sdk_types::api_types::type_tag::TypeTag;
 use open_ai_rust_responses_by_sshift::Model;
 use serde::{Deserialize, Serialize};
 use std::{env, fmt};
@@ -28,6 +29,7 @@ pub struct PurchaseRequest {
     pub model: Model,
     pub tokens_used: u32,
     pub tools_used: Vec<ToolUsage>,
+    pub group_id: Option<String>,
 }
 
 #[derive(Deserialize, Serialize, Debug, ToSchema)]
@@ -37,6 +39,7 @@ pub struct PurchaseMessage {
     pub tokens_used: u32,
     pub tools_used: Vec<ToolUsage>,
     pub account_address: String,
+    pub group_id: Option<String>,
 }
 
 #[derive(Deserialize, Serialize, Debug, ToSchema)]
@@ -67,8 +70,33 @@ pub struct PayUsersRequest {
 }
 
 #[derive(Deserialize, Serialize, Debug, ToSchema)]
-pub struct PayUsersResponse {
+pub struct TransactionResponse {
     pub hash: String,
+}
+
+#[derive(Deserialize, Debug)]
+pub struct SimulateTransactionResponse {
+    pub success: bool,
+    pub vm_status: String,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct TokenAddress {
+    pub vec: Vec<String>,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PriceCoin {
+    pub chain_id: Option<u64>,
+    pub panora_id: Option<String>,
+    pub token_address: Option<String>,
+    pub fa_address: String,
+    pub name: Option<String>,
+    pub symbol: Option<String>,
+    pub decimals: Option<u8>,
+    pub usd_price: Option<String>,
+    pub native_price: Option<String>,
 }
 
 impl fmt::Display for Endpoints {
@@ -89,12 +117,14 @@ impl From<(PurchaseRequest, String)> for PurchaseMessage {
         let model = request.model;
         let tokens_used = request.tokens_used;
         let tools_used = request.tools_used;
+        let group_id = request.group_id;
 
         PurchaseMessage {
             model,
             tokens_used,
             tools_used,
             account_address,
+            group_id,
         }
     }
 }
