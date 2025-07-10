@@ -21,3 +21,8 @@ aptos-crypto = { workspace = true }
 aptos-crypto-derive = { workspace = true }
 hex = "0.4.3"
 bcs = "0.1.6"
+reqwest = { workspace = true }
+anyhow = { workspace = true }
+sled = { workspace = true }
+log = { workspace = true }
+base64 = "0.22.1"

@@ -10,6 +10,7 @@ use teloxide::{Bot, prelude::*, types::Message};
 use super::handler::{
     handle_add_files, handle_chat, handle_help, handle_list_files, handle_login_group,
     handle_login_user, handle_new_chat, handle_reasoning_chat, handle_mod, handle_sentinal, handle_moderation_rules,
+    handle_xlogin,
 };
 use crate::assets::command_image_collector::CommandImageCollector;
 use crate::bot::handler::handle_aptos_connect;
@@ -33,6 +34,7 @@ pub async fn answers(
         Command::Help => handle_help(bot, msg).await?,
         Command::LoginUser => handle_login_user(bot, msg).await?,
         Command::LoginGroup => handle_login_group(bot, msg).await?,
+        Command::XLogin => handle_xlogin(bot, msg, db).await?,
         Command::AddFiles => handle_add_files(bot, msg).await?,
         Command::ListFiles => handle_list_files(bot, msg, db, user_convos).await?,
         Command::NewChat => handle_new_chat(bot, msg, user_convos).await?,

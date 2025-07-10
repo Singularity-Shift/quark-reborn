@@ -5,7 +5,7 @@ use crate::{
         media_aggregator::MediaGroupAggregator,
     },
     bot::hooks::{fund_account_hook, withdraw_funds_hook},
-    credentials::dto::CredentialsPayload,
+    credentials::dto::{CredentialsPayload, TwitterAuthPayload},
     utils,
 };
 use anyhow::Result as AnyResult;
@@ -229,6 +229,83 @@ pub async fn handle_login_group(bot: Bot, msg: Message) -> AnyResult<()> {
 pub async fn handle_help(bot: Bot, msg: Message) -> AnyResult<()> {
     bot.send_message(msg.chat.id, Command::descriptions().to_string())
         .await?;
+    Ok(())
+}
+
+pub async fn handle_xlogin(bot: Bot, msg: Message, db: Db) -> AnyResult<()> {
+    use quark_core::twitter::{auth, dto::OAuthState};
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    // Check if command is used in DM
+    if !msg.chat.is_private() {
+        bot.send_message(
+            msg.chat.id,
+            "❌ This command can only be used in a private chat with the bot.",
+        )
+        .await?;
+        return Ok(());
+    }
+
+    let user = msg.from;
+    if user.is_none() {
+        bot.send_message(msg.chat.id, "❌ Unable to verify permissions.")
+            .await?;
+        return Ok(());
+    }
+
+    let user = user.unwrap();
+    let user_id = user.id;
+    let username = user.username.clone().unwrap_or_else(|| format!("user_{}", user_id));
+
+    // Get environment variables
+    let client_id = env::var("TWITTER_CLIENT_ID").map_err(|_| {
+        anyhow::anyhow!("TWITTER_CLIENT_ID environment variable not set")
+    })?;
+    let redirect_uri = env::var("TWITTER_REDIRECT_URI").map_err(|_| {
+        anyhow::anyhow!("TWITTER_REDIRECT_URI environment variable not set")
+    })?;
+
+    // Generate PKCE pair and nonce
+    let (verifier, challenge) = auth::generate_pkce_pair();
+    let nonce = auth::generate_nonce();
+    let state = auth::create_oauth_state(user_id.0, &nonce);
+
+    // Create OAuth state object
+    let oauth_state = OAuthState {
+        telegram_user_id: user_id.0,
+        telegram_username: username,
+        verifier,
+        nonce,
+        created_at: auth::current_timestamp(),
+    };
+
+    // Store OAuth state in sled with TTL
+    let oauth_states_tree = db.open_tree("oauth_states")?;
+    let state_json = serde_json::to_vec(&oauth_state)?;
+    oauth_states_tree.insert(&state, state_json)?;
+
+    // Build authorization URL
+    let auth_url = auth::build_auth_url(&client_id, &redirect_uri, &state, &challenge);
+
+    // Create web app button
+    let url = Url::parse(&auth_url).expect("Invalid auth URL");
+    let web_app_info = WebAppInfo { url };
+    let xlogin_button = InlineKeyboardButton::web_app("Login with X (Twitter)", web_app_info);
+
+    bot.send_message(
+        msg.chat.id,
+        "🐦 <b>Connect your X (Twitter) Account</b>\n\n\
+         Click the button below to authenticate with X and link your account.\n\n\
+         <i>Requirements for qualification:</i>\n\
+         • At least 50 followers\n\
+         • Profile picture\n\
+         • Banner image\n\
+         • Not verified (blue checkmark)",
+    )
+    .parse_mode(ParseMode::Html)
+    .reply_markup(InlineKeyboardMarkup::new(vec![vec![xlogin_button]]))
+    .await?;
+
     Ok(())
 }
 
@@ -899,29 +976,31 @@ pub async fn handle_new_chat(
     Ok(())
 }
 
-pub async fn handle_web_app_data(bot: Bot, msg: Message, tree: Tree, _db: Db, user_model_prefs: UserModelPreferences) -> AnyResult<()> {
+pub async fn handle_web_app_data(bot: Bot, msg: Message, tree: Tree, db: Db, user_model_prefs: UserModelPreferences) -> AnyResult<()> {
     let web_app_data = msg.web_app_data().unwrap();
-    let payload = web_app_data.data.clone();
-
-    let payload = serde_json::from_str::<CredentialsPayload>(&payload);
-
-    if payload.is_err() {
-        bot.send_message(msg.chat.id, "❌ Error parsing payload")
-            .await?;
-        return Ok(());
-    };
-
-    let payload = payload.unwrap();
+    let payload_str = web_app_data.data.clone();
 
     let user = msg.from;
-
     if user.is_none() {
         bot.send_message(msg.chat.id, "❌ User not found").await?;
         return Ok(());
     }
-
     let user = user.unwrap();
 
+    // Try to parse as Twitter auth payload first
+    if let Ok(twitter_payload) = serde_json::from_str::<TwitterAuthPayload>(&payload_str) {
+        return handle_twitter_auth_callback(bot, msg.chat.id, user, twitter_payload, db).await;
+    }
+
+    // Fall back to Aptos credentials payload
+    let credentials_payload = serde_json::from_str::<CredentialsPayload>(&payload_str);
+    if credentials_payload.is_err() {
+        bot.send_message(msg.chat.id, "❌ Error parsing payload")
+            .await?;
+        return Ok(());
+    }
+
+    let payload = credentials_payload.unwrap();
     let username = user.username;
 
     if username.is_none() {
@@ -931,9 +1010,7 @@ pub async fn handle_web_app_data(bot: Bot, msg: Message, tree: Tree, _db: Db, us
     }
 
     let username = username.unwrap();
-
     let user_id = user.id;
-
     let jwt_manager = JwtManager::new();
 
     generate_new_jwt(
@@ -949,7 +1026,67 @@ pub async fn handle_web_app_data(bot: Bot, msg: Message, tree: Tree, _db: Db, us
     // Initialize default model preferences for new user
     let _ = initialize_user_preferences(&username, &user_model_prefs).await;
 
-    return Ok(());
+    Ok(())
+}
+
+async fn handle_twitter_auth_callback(
+    bot: Bot,
+    chat_id: ChatId,
+    user: teloxide::types::User,
+    payload: TwitterAuthPayload,
+    db: Db,
+) -> AnyResult<()> {
+    log::info!("Received Twitter auth callback for user: @{}", payload.user.twitter_handle);
+
+    let telegram_username = user.username.unwrap_or_else(|| format!("user_{}", user.id));
+
+    // Verify that the Telegram username matches
+    if payload.user.telegram_username != telegram_username {
+        bot.send_message(
+            chat_id, 
+            "❌ Authentication mismatch. Please try again."
+        ).await?;
+        return Ok(());
+    }
+
+    if payload.user.qualifies {
+        bot.send_message(
+            chat_id,
+            format!(
+                "🎉 <b>Successfully Connected X Account!</b>\n\n\
+                🐦 <b>Handle:</b> @{}\n\
+                👥 <b>Followers:</b> {}\n\
+                ✅ <b>Status:</b> Qualified for raids\n\n\
+                You can now participate in Twitter-based raids and activities!",
+                payload.user.twitter_handle,
+                payload.user.follower_count,
+            )
+        )
+        .parse_mode(ParseMode::Html)
+        .await?;
+    } else {
+        bot.send_message(
+            chat_id,
+            format!(
+                "🐦 <b>X Account Connected</b>\n\n\
+                🐦 <b>Handle:</b> @{}\n\
+                👥 <b>Followers:</b> {}\n\
+                ❌ <b>Status:</b> Not qualified\n\n\
+                <i>To qualify for raids, you need:</i>\n\
+                • At least 50 followers\n\
+                • Profile picture\n\
+                • Banner image\n\
+                • No blue verification checkmark\n\n\
+                You can reconnect once you meet these requirements!",
+                payload.user.twitter_handle,
+                payload.user.follower_count,
+            )
+        )
+        .parse_mode(ParseMode::Html)
+        .await?;
+    }
+
+    Ok(())
 }
 
 pub async fn handle_message(

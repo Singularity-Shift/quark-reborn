@@ -12,6 +12,8 @@ pub enum Command {
     LoginUser,
     #[command(description = "Group login (under development).", parse_with = "split")]
     LoginGroup,
+    #[command(description = "Login with X (Twitter) account (DM only).")]
+    XLogin,
     #[command(description = "Display this text.")]
     Help,
     #[command(description = "Upload files to your vector store (DM only).")]
