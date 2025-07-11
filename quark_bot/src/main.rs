@@ -60,14 +60,33 @@ async fn main() {
 
     let panora = Panora::new(&db, aptos).expect("Failed to create Panora");
 
-    // Set up cron job for Panora token list updates
+    // Create clone for dispatcher early to avoid move issues
+    let panora_for_dispatcher = panora.clone();
+
+    // Execute token list updates immediately on startup
+    let panora_startup = panora.clone();
+    log::info!("Executing initial token list update on startup...");
+    match panora_startup.set_panora_token_list().await {
+        Ok(_) => log::info!("Successfully updated Panora token list on startup"),
+        Err(e) => log::error!("Failed to update Panora token list on startup: {}", e),
+    }
+
+    // Execute token AI fees update immediately on startup
+    let panora_startup2 = panora.clone();
+    let token_address = panora_startup2.aptos.get_token_address().await.unwrap();
+    match panora_startup2.set_token_ai_fees(&token_address).await {
+        Ok(_) => log::info!("Successfully updated Panora token AI fees on startup"),
+        Err(e) => log::error!("Failed to update Panora token AI fees on startup: {}", e),
+    }
+
+    // Set up cron job for Panora token list updates (runs every hour)
     let panora_clone1 = panora.clone();
     let panora_clone2 = panora.clone();
     let scheduler = JobScheduler::new()
         .await
         .expect("Failed to create job scheduler");
 
-    let job_token_list = Job::new_async("0 * * * * *", move |_uuid, _l| {
+    let job_token_list = Job::new_async("0 0 * * * *", move |_uuid, _l| {
         let panora_inner = panora_clone1.clone();
         Box::pin(async move {
             match panora_inner.set_panora_token_list().await {
@@ -103,7 +122,7 @@ async fn main() {
 
     scheduler.start().await.expect("Failed to start scheduler");
 
-    log::info!("Panora token list cron job started (runs every minute)");
+    log::info!("Panora token list cron job started (runs every hour)");
 
     let min_deposit = env::var("MIN_DEPOSIT")
         .expect("MIN_DEPOSIT not set")
@@ -155,6 +174,7 @@ async fn main() {
             "moderationrules",
             "Display the moderation rules to avoid getting muted.",
         ),
+        BotCommand::new("balance", "Get your balance of a token."),
     ];
 
     bot.set_my_commands(commands).await.unwrap();
@@ -169,7 +189,8 @@ async fn main() {
             user_model_prefs,
             ai,
             media_aggregator,
-            cmd_collector
+            cmd_collector,
+            panora_for_dispatcher
         ])
         .enable_ctrlc_handler()
         .build()

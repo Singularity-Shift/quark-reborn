@@ -43,6 +43,8 @@ pub enum Command {
     ModerationRules,
     #[command(description = "Get your wallet address.")]
     WalletAddress,
+    #[command(description = "Get your balance of a token.")]
+    Balance(String),
 }
 
 #[derive(Debug, Clone, Default)]

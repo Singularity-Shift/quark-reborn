@@ -8,7 +8,7 @@ use teloxide::prelude::*;
 use tokio::task::JoinHandle;
 use tokio::time::sleep;
 
-use crate::bot::handler::{handle_chat, handle_grouped_chat, handle_reasoning_chat};
+use crate::bot::handler::{handle_chat, handle_reasoning_chat};
 
 /// Holds an in-flight `/c` command and any trailing photo-only messages
 struct PendingCmd {
@@ -181,11 +181,7 @@ impl CommandImageCollector {
                     }
                 }
             } else {
-                if let Err(e) =
-                    handle_grouped_chat(self.bot.clone(), all_msgs, self.db.clone(), ai, tree).await
-                {
-                    log::error!("Error handling grouped chat (ungrouped images): {}", e);
-                }
+                log::error!("Error handling grouped chat (ungrouped images)");
             }
         }
     }
