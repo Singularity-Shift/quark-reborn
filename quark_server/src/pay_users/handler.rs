@@ -23,7 +23,7 @@ use crate::{
     state::ServerState,
 };
 use quark_core::helpers::dto::{
-    PayUsersRequest, PayUsersVersion, TransactionResponse, UserPayload,
+    PayUsersRequest, PayUsersVersion, SimulateTransactionResponse, TransactionResponse, UserPayload,
 };
 
 #[utoipa::path(
@@ -200,7 +200,44 @@ pub async fn pay_users(
             message: e.to_string(),
         })?;
 
-    println!("Simulate Transaction: {:?}", simulate_transaction);
+    let simulate_transaction_inner = simulate_transaction.into_inner();
+
+    let simulate_transaction_success = if simulate_transaction_inner.is_array() {
+        // Handle array response - take the first element
+        let array = simulate_transaction_inner
+            .as_array()
+            .ok_or_else(|| ErrorServer {
+                status: StatusCode::INTERNAL_SERVER_ERROR.into(),
+                message: "Expected array".to_string(),
+            })?;
+        let first_result = array.get(0).ok_or_else(|| ErrorServer {
+            status: StatusCode::INTERNAL_SERVER_ERROR.into(),
+            message: "Empty simulation result array".to_string(),
+        })?;
+        serde_json::from_value::<SimulateTransactionResponse>(first_result.clone()).map_err(
+            |e| ErrorServer {
+                status: StatusCode::INTERNAL_SERVER_ERROR.into(),
+                message: e.to_string(),
+            },
+        )?
+    } else {
+        // Handle single object response
+        serde_json::from_value::<SimulateTransactionResponse>(simulate_transaction_inner.clone())
+            .map_err(|e| ErrorServer {
+                status: StatusCode::INTERNAL_SERVER_ERROR.into(),
+                message: e.to_string(),
+            })?
+    };
+
+    if !simulate_transaction_success.success {
+        return Err(ErrorServer {
+            status: StatusCode::BAD_REQUEST.into(),
+            message: format!(
+                "Simulate transaction failed: {}",
+                simulate_transaction_success.vm_status
+            ),
+        });
+    }
 
     let transaction = node
         .submit_transaction(SignedTransaction::new(
