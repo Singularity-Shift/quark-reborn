@@ -1,7 +1,11 @@
 //! Utility functions for quark_bot.
 
+use open_ai_rust_responses_by_sshift::Model;
+use quark_core::helpers::dto::{AITool, PurchaseRequest, ToolUsage};
 use regex::Regex;
 use std::collections::HashMap;
+
+use crate::services::handler::Services;
 
 /// Get emoji icon based on file extension
 pub fn get_file_icon(filename: &str) -> &'static str {
@@ -66,7 +70,7 @@ pub fn markdown_to_html(md: &str) -> String {
     // We replace code content with placeholders and process them last to avoid
     // issues where markdown (like links) inside a code block is processed,
     // or a link URL containing special characters is broken.
-    
+
     let mut code_blocks = HashMap::new();
     let mut counter = 0;
 
@@ -90,7 +94,10 @@ pub fn markdown_to_html(md: &str) -> String {
             let placeholder = format!("__QUARK_CODE_{}__", counter);
             let code_content = &caps[1];
             // For inline code, we use <code> tags
-            code_blocks.insert(placeholder.clone(), format!("<code>{}</code>", code_content));
+            code_blocks.insert(
+                placeholder.clone(),
+                format!("<code>{}</code>", code_content),
+            );
             counter += 1;
             placeholder
         })
@@ -126,4 +133,53 @@ pub fn markdown_to_html(md: &str) -> String {
     }
 
     html
+}
+
+pub async fn create_purchase_request(
+    file_search_calls: u32,
+    web_search_calls: u32,
+    image_generation_calls: u32,
+    service: Services,
+    total_tokens_used: u32,
+    model: Model,
+    token: &str,
+    group_id: Option<String>,
+) -> Result<(), anyhow::Error> {
+    let mut tools_used = Vec::new();
+
+    if file_search_calls > 0 {
+        tools_used.push(ToolUsage {
+            tool: AITool::FileSearch,
+            calls: file_search_calls,
+        });
+    };
+    if web_search_calls > 0 {
+        tools_used.push(ToolUsage {
+            tool: AITool::WebSearchPreview,
+            calls: web_search_calls,
+        });
+    };
+    if image_generation_calls > 0 {
+        tools_used.push(ToolUsage {
+            tool: AITool::ImageGeneration,
+            calls: image_generation_calls,
+        });
+    };
+
+    let purchase_request = PurchaseRequest {
+        model,
+        tokens_used: total_tokens_used,
+        tools_used,
+        group_id,
+    };
+
+    let response = service.purchase(token.to_string(), purchase_request).await;
+
+    match response {
+        Ok(_) => Ok(()),
+        Err(e) => {
+            log::error!("Error purchasing tokens: {}", e);
+            Err(e)
+        }
+    }
 }

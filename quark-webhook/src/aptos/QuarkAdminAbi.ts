@@ -1,6 +1,6 @@
 export const QuarkAdminAbi = {
   address: "0x2033b72957c2f0b66cf5be479a2aa098d5bf18c36477907eba8be39435f2811",
-  name: "admin_v4",
+  name: "admin_v5",
   friends: [],
   exposed_functions: [
     {
@@ -128,6 +128,14 @@ export const QuarkAdminAbi = {
           type: "0x1::option::Option<address>",
         },
       ],
+    },
+    {
+      name: "Config",
+      is_native: false,
+      is_event: false,
+      abilities: ["key"],
+      generic_type_params: [],
+      fields: [{ name: "coin_addr", type: "0x1::option::Option<address>" }],
     },
   ],
 } as const;

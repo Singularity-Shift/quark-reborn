@@ -5,20 +5,20 @@ use crate::{
         media_aggregator::MediaGroupAggregator,
     },
     bot::hooks::{fund_account_hook, withdraw_funds_hook},
-    credentials::dto::CredentialsPayload,
-    utils,
+    credentials::{dto::CredentialsPayload, helpers::get_credentials},
+    panora::handler::Panora,
+    services::handler::Services,
+    utils::{self, create_purchase_request},
 };
 use anyhow::Result as AnyResult;
 
 use crate::{
-    ai::{handler::AI, vector_store::list_user_files_with_names, moderation::ModerationService},
+    ai::{handler::AI, moderation::ModerationService, vector_store::list_user_files_with_names},
     credentials::helpers::generate_new_jwt,
     user_conversation::handler::UserConversations,
     user_model_preferences::handler::{UserModelPreferences, initialize_user_preferences},
 };
 
-use open_ai_rust_responses_by_sshift::Model;
-use open_ai_rust_responses_by_sshift::types::Effort;
 use open_ai_rust_responses_by_sshift::types::{ReasoningParams, SummarySetting};
 use quark_core::helpers::{bot_commands::Command, jwt::JwtManager};
 use regex;
@@ -326,6 +326,7 @@ pub async fn handle_list_files(
 pub async fn handle_reasoning_chat(
     bot: Bot,
     msg: Message,
+    service: Services,
     ai: AI,
     db: Db,
     tree: Tree,
@@ -358,15 +359,34 @@ pub async fn handle_reasoning_chat(
 
     let user_id = user.unwrap().id;
     let username = user.unwrap().username.as_ref();
-    
+
+    if username.is_none() {
+        typing_indicator_handle.abort();
+        bot.send_message(msg.chat.id, "❌ Unable to verify permissions.")
+            .await?;
+        return Ok(());
+    }
+
+    let username = username.unwrap();
+
+    let credentials = get_credentials(username, tree.clone());
+
+    if credentials.is_none() {
+        typing_indicator_handle.abort();
+        bot.send_message(msg.chat.id, "❌ Unable to verify permissions.")
+            .await?;
+        return Ok(());
+    }
+
+    let credentials = credentials.unwrap();
+
     // Load user's reasoning model preferences
-    let (reasoning_model, effort) = if let Some(username) = username {
-        let preferences = user_model_prefs.get_preferences(username);
-        (preferences.reasoning_model.to_openai_model(), preferences.effort)
-    } else {
-        // Fallback to defaults if no username
-        (Model::O4Mini, Effort::Low)
-    };
+    let preferences = user_model_prefs.get_preferences(username);
+
+    let (reasoning_model, effort) = (
+        preferences.reasoning_model.to_openai_model(),
+        preferences.effort,
+    );
 
     // --- Vision Support: Check for replied-to images ---
     let mut image_url_from_reply: Option<String> = None;
@@ -432,7 +452,6 @@ pub async fn handle_reasoning_chat(
     let response_result = ai
         .generate_response(
             msg.clone(),
-            user_id.0 as i64,
             &prompt,
             &db,
             tree,
@@ -453,14 +472,42 @@ pub async fn handle_reasoning_chat(
 
     match response_result {
         Ok(ai_response) => {
-            log::info!("Reasoning response generated successfully for user {} (tokens: input={}, output={}, total={})", 
-                      user_id, ai_response.prompt_tokens, ai_response.output_tokens, ai_response.total_tokens);
-            
             // Log tool usage if any tools were used
-            let (web_search, file_search, image_gen, code_interp) = ai_response.get_tool_usage_counts();
-            if web_search > 0 || file_search > 0 || image_gen > 0 || code_interp > 0 {
-                log::info!("Tool usage for user {}: web_search={}, file_search={}, image_generation={}, code_interpreter={}", 
-                          user_id, web_search, file_search, image_gen, code_interp);
+            let profile = env::var("PROFILE").unwrap_or("prod".to_string());
+            let (web_search, file_search, image_gen, _) = ai_response.get_tool_usage_counts();
+
+            if profile != "dev" {
+                let response = create_purchase_request(
+                    file_search,
+                    web_search,
+                    image_gen,
+                    service,
+                    ai_response.total_tokens,
+                    ai_response.model,
+                    &credentials.jwt,
+                    None,
+                )
+                .await;
+
+                if response.is_err() {
+                    if response.as_ref().err().unwrap().to_string().contains("401")
+                        || response.as_ref().err().unwrap().to_string().contains("403")
+                    {
+                        bot.send_message(
+                            msg.chat.id,
+                            "Your login has expired. Please login again.",
+                        )
+                        .await?;
+                    } else {
+                        bot.send_message(
+                        msg.chat.id,
+                        "Sorry, I encountered an error while processing your reasoning request.",
+                    )
+                    .await?;
+                    }
+
+                    return Ok(());
+                }
             }
 
             // Check for image data and send as a photo if present
@@ -505,14 +552,17 @@ pub async fn handle_reasoning_chat(
 pub async fn handle_chat(
     bot: Bot,
     msg: Message,
+    service: Services,
     ai: AI,
     db: Db,
     tree: Tree,
     user_model_prefs: UserModelPreferences,
     prompt: String,
+    group_id: Option<String>,
 ) -> AnyResult<()> {
     // --- Start Typing Indicator Immediately ---
     let bot_clone = bot.clone();
+    let profile = env::var("PROFILE").unwrap_or("prod".to_string());
     let typing_indicator_handle = tokio::spawn(async move {
         loop {
             if let Err(e) = bot_clone
@@ -537,15 +587,33 @@ pub async fn handle_chat(
 
     let user_id = user.unwrap().id;
     let username = user.unwrap().username.as_ref();
-    
+
+    if username.is_none() {
+        typing_indicator_handle.abort();
+        bot.send_message(msg.chat.id, "❌ Unable to verify permissions.")
+            .await?;
+        return Ok(());
+    }
+
+    let username = username.unwrap();
+
+    let credentials = get_credentials(username, tree.clone());
+    if credentials.is_none() {
+        typing_indicator_handle.abort();
+        bot.send_message(msg.chat.id, "❌ Unable to verify permissions.")
+            .await?;
+        return Ok(());
+    }
+
+    let credentials = credentials.unwrap();
+
     // Load user's chat model preferences
-    let (chat_model, temperature) = if let Some(username) = username {
-        let preferences = user_model_prefs.get_preferences(username);
-        (preferences.chat_model.to_openai_model(), Some(preferences.temperature))
-    } else {
-        // Fallback to defaults if no username
-        (Model::GPT41Mini, Some(0.6))
-    };
+    let preferences = user_model_prefs.get_preferences(username);
+
+    let (chat_model, temperature) = (
+        preferences.chat_model.to_openai_model(),
+        Some(preferences.temperature),
+    );
 
     // --- Vision Support: Check for replied-to images ---
     let mut image_url_from_reply: Option<String> = None;
@@ -611,7 +679,6 @@ pub async fn handle_chat(
     let response_result = ai
         .generate_response(
             msg.clone(),
-            user_id.0 as i64,
             &prompt,
             &db,
             tree,
@@ -628,16 +695,47 @@ pub async fn handle_chat(
 
     match response_result {
         Ok(ai_response) => {
-            log::info!("Chat response generated successfully for user {} (tokens: input={}, output={}, total={})", 
-                      user_id, ai_response.prompt_tokens, ai_response.output_tokens, ai_response.total_tokens);
-            
-            // Log tool usage if any tools were used
-            let (web_search, file_search, image_gen, code_interp) = ai_response.get_tool_usage_counts();
-            if web_search > 0 || file_search > 0 || image_gen > 0 || code_interp > 0 {
-                log::info!("Tool usage for user {}: web_search={}, file_search={}, image_generation={}, code_interpreter={}", 
-                          user_id, web_search, file_search, image_gen, code_interp);
+            let (web_search, file_search, image_gen, _) = ai_response.get_tool_usage_counts();
+
+            if profile != "dev" {
+                let response = create_purchase_request(
+                    file_search,
+                    web_search,
+                    image_gen,
+                    service,
+                    ai_response.total_tokens,
+                    ai_response.model,
+                    &credentials.jwt,
+                    group_id,
+                )
+                .await;
+
+                if response.is_err() {
+                    log::error!(
+                        "Error purchasing tokens: {}",
+                        response.as_ref().err().unwrap()
+                    );
+
+                    if response.as_ref().err().unwrap().to_string().contains("401")
+                        || response.as_ref().err().unwrap().to_string().contains("403")
+                    {
+                        bot.send_message(
+                            msg.chat.id,
+                            "Your login has expired. Please login again.",
+                        )
+                        .await?;
+                    } else {
+                        bot.send_message(
+                            msg.chat.id,
+                            "Sorry, I encountered an error while processing your chat request.",
+                        )
+                        .await?;
+                    }
+
+                    return Ok(());
+                }
             }
-            
+
             if let Some(image_data) = ai_response.image_data {
                 let photo = InputFile::memory(image_data);
                 let caption = if ai_response.text.len() > 1024 {
@@ -645,9 +743,7 @@ pub async fn handle_chat(
                 } else {
                     &ai_response.text
                 };
-                bot.send_photo(msg.chat.id, photo)
-                    .caption(caption)
-                    .await?;
+                bot.send_photo(msg.chat.id, photo).caption(caption).await?;
                 // If the text is longer than 1024, send the rest as a follow-up message
                 if ai_response.text.len() > 1024 {
                     send_long_message(&bot, msg.chat.id, &ai_response.text[1024..]).await?;
@@ -689,188 +785,6 @@ pub async fn handle_chat(
     Ok(())
 }
 
-pub async fn handle_grouped_chat(
-    bot: Bot,
-    messages: Vec<Message>,
-    db: Db,
-    ai: AI,
-    tree: Tree,
-) -> AnyResult<()> {
-    // Determine the user who initiated the conversation
-    let user = messages.first().and_then(|m| m.from.clone());
-    if user.is_none() {
-        if let Some(first_msg) = messages.first() {
-            bot.send_message(first_msg.chat.id, "❌ Unable to identify sender.")
-                .await?;
-        }
-        return Ok(());
-    }
-    let user_id = user.unwrap().id.0 as i64;
-    let representative_msg = messages.first().unwrap().clone();
-
-    // --- Start Typing Indicator Immediately ---
-    let bot_clone = bot.clone();
-    let chat_id = representative_msg.chat.id;
-    let typing_indicator_handle = tokio::spawn(async move {
-        loop {
-            if let Err(e) = bot_clone
-                .send_chat_action(chat_id, ChatAction::Typing)
-                .await
-            {
-                log::warn!("Failed to send typing action: {}", e);
-                break;
-            }
-            sleep(Duration::from_secs(5)).await;
-        }
-    });
-
-    // --- Download all user-attached images ---
-    let mut user_uploaded_image_paths: Vec<(String, String)> = Vec::new();
-    for msg in &messages {
-        if let Some(photos) = msg.photo() {
-            // Process all photos in each message, not just the last one
-            for photo in photos {
-                let file_id = &photo.file.id;
-                let file_info = bot.get_file(file_id.clone()).await?;
-                let extension = file_info
-                    .path
-                    .split('.')
-                    .last()
-                    .unwrap_or("jpg")
-                    .to_string();
-                let temp_path = format!("/tmp/{}_{}.{}", user_id, photo.file.unique_id, extension);
-                let mut file = File::create(&temp_path)
-                    .await
-                    .map_err(|e| teloxide::RequestError::from(std::sync::Arc::new(e)))?;
-                bot.download_file(&file_info.path, &mut file)
-                    .await
-                    .map_err(|e| teloxide::RequestError::from(e))?;
-                user_uploaded_image_paths.push((temp_path, extension));
-            }
-        }
-    }
-
-    // --- Upload user images to GCS ---
-    let mut all_image_urls = match ai.upload_user_images(user_uploaded_image_paths).await {
-        Ok(urls) => urls,
-        Err(e) => {
-            log::error!("Failed to upload user images: {}", e);
-            typing_indicator_handle.abort();
-            bot.send_message(
-                representative_msg.chat.id,
-                "Sorry, I couldn't upload your images. Please try again.",
-            )
-            .await?;
-            return Ok(());
-        }
-    };
-
-    // Extract all image URLs from the message group (reply or user-uploaded)
-    let mut combined_text_input = String::new();
-
-    for msg in &messages {
-        // Look for URLs in replies
-        if let Some(reply) = msg.reply_to_message() {
-            if let Some(from) = reply.from.as_ref() {
-                if from.is_bot {
-                    let reply_text = reply.text().or_else(|| reply.caption());
-                    if let Some(text) = reply_text {
-                        // A simple regex to find the GCS URL
-                        if let Ok(re) = regex::Regex::new(
-                            r"https://storage\.googleapis\.com/sshift-gpt-bucket/[^\s]+",
-                        ) {
-                            if let Some(mat) = re.find(text) {
-                                all_image_urls.push(mat.as_str().to_string());
-                            }
-                        }
-                    }
-                }
-            }
-        }
-
-        // Aggregate text from all messages
-        if let Some(text) = msg.text() {
-            if !text.is_empty() {
-                if !combined_text_input.is_empty() {
-                    combined_text_input.push(' ');
-                }
-                combined_text_input.push_str(text);
-            }
-        } else if let Some(caption) = msg.caption() {
-            if !caption.is_empty() {
-                if !combined_text_input.is_empty() {
-                    combined_text_input.push(' ');
-                }
-                combined_text_input.push_str(caption);
-            }
-        }
-    }
-
-    // Use the aggregated text as the final input
-    let final_input = if combined_text_input.is_empty() {
-        "Describe the attached images." // Default if no text at all
-    } else {
-        // Clean up command prefix from the combined text if present
-        if let Some(stripped) = combined_text_input.strip_prefix("/c ") {
-            stripped
-        } else {
-            &combined_text_input
-        }
-    };
-
-    // Asynchronously generate the response
-    let response_result = ai
-        .generate_response(
-            representative_msg.clone(),
-            user_id,
-            final_input,
-            &db,
-            tree,
-            None,
-            all_image_urls,
-            Model::GPT41Mini,
-            8192,
-            Some(0.5),
-            None,
-        )
-        .await;
-
-    typing_indicator_handle.abort();
-
-    match response_result {
-        Ok(response) => {
-            // Check for image data and send as a photo if present
-            if let Some(image_data) = response.image_data {
-                let photo = InputFile::memory(image_data);
-                let caption = if response.text.len() > 1024 {
-                    &response.text[..1024]
-                } else {
-                    &response.text
-                };
-                bot.send_photo(representative_msg.chat.id, photo)
-                    .caption(caption)
-                    .parse_mode(ParseMode::Markdown)
-                    .await?;
-                // If the text is longer than 1024, send the rest as a follow-up message
-                if response.text.len() > 1024 {
-                    send_long_message(&bot, representative_msg.chat.id, &response.text[1024..]).await?;
-                }
-            } else {
-                send_long_message(&bot, representative_msg.chat.id, &response.text).await?;
-            }
-        }
-        Err(e) => {
-            bot.send_message(
-                representative_msg.chat.id,
-                format!("An error occurred while processing your request: {}", e),
-            )
-            .await?;
-        }
-    }
-
-    Ok(())
-}
-
 pub async fn handle_new_chat(
     bot: Bot,
     msg: Message,
@@ -899,7 +813,13 @@ pub async fn handle_new_chat(
     Ok(())
 }
 
-pub async fn handle_web_app_data(bot: Bot, msg: Message, tree: Tree, _db: Db, user_model_prefs: UserModelPreferences) -> AnyResult<()> {
+pub async fn handle_web_app_data(
+    bot: Bot,
+    msg: Message,
+    tree: Tree,
+    _db: Db,
+    user_model_prefs: UserModelPreferences,
+) -> AnyResult<()> {
     let web_app_data = msg.web_app_data().unwrap();
     let payload = web_app_data.data.clone();
 
@@ -965,7 +885,11 @@ pub async fn handle_message(
     if !msg.chat.is_private() {
         let sentinal_tree = db.open_tree("sentinal_state").unwrap();
         let chat_id = msg.chat.id.0.to_be_bytes();
-        let sentinal_on = sentinal_tree.get(chat_id).unwrap().map(|v| v == b"on").unwrap_or(false);
+        let sentinal_on = sentinal_tree
+            .get(chat_id)
+            .unwrap()
+            .map(|v| v == b"on")
+            .unwrap_or(false);
         if sentinal_on {
             // Don't moderate admin or bot messages
             if let Some(user) = &msg.from {
@@ -982,30 +906,54 @@ pub async fn handle_message(
                 return Ok(());
             }
             // Use the same moderation logic as /mod
-            let moderation_service = ModerationService::new(std::env::var("OPENAI_API_KEY").unwrap()).unwrap();
+            let moderation_service =
+                ModerationService::new(std::env::var("OPENAI_API_KEY").unwrap()).unwrap();
             let message_text = msg.text().or_else(|| msg.caption()).unwrap_or("");
-            match moderation_service.moderate_message(message_text, &bot, &msg, &msg).await {
+            match moderation_service
+                .moderate_message(message_text, &bot, &msg, &msg)
+                .await
+            {
                 Ok(result) => {
-                    log::info!("Sentinal moderation result: {} for message: {} (tokens: {})", result.verdict, message_text, result.total_tokens);
+                    log::info!(
+                        "Sentinal moderation result: {} for message: {} (tokens: {})",
+                        result.verdict,
+                        message_text,
+                        result.total_tokens
+                    );
                     if result.verdict == "F" {
                         // Mute the user
                         if let Some(flagged_user) = &msg.from {
                             let restricted_permissions = teloxide::types::ChatPermissions::empty();
                             if let Err(mute_error) = bot
-                                .restrict_chat_member(msg.chat.id, flagged_user.id, restricted_permissions)
+                                .restrict_chat_member(
+                                    msg.chat.id,
+                                    flagged_user.id,
+                                    restricted_permissions,
+                                )
                                 .await
                             {
-                                log::error!("Failed to mute user {}: {}", flagged_user.id, mute_error);
+                                log::error!(
+                                    "Failed to mute user {}: {}",
+                                    flagged_user.id,
+                                    mute_error
+                                );
                             } else {
-                                log::info!("Successfully muted user {} for flagged content (sentinal)", flagged_user.id);
+                                log::info!(
+                                    "Successfully muted user {} for flagged content (sentinal)",
+                                    flagged_user.id
+                                );
                             }
                             // Add admin buttons
-                            let keyboard = InlineKeyboardMarkup::new(vec![
-                                vec![
-                                    InlineKeyboardButton::callback("🔇 Unmute", format!("unmute:{}", flagged_user.id)),
-                                    InlineKeyboardButton::callback("🚫 Ban", format!("ban:{}", flagged_user.id)),
-                                ],
-                            ]);
+                            let keyboard = InlineKeyboardMarkup::new(vec![vec![
+                                InlineKeyboardButton::callback(
+                                    "🔇 Unmute",
+                                    format!("unmute:{}", flagged_user.id),
+                                ),
+                                InlineKeyboardButton::callback(
+                                    "🚫 Ban",
+                                    format!("ban:{}", flagged_user.id),
+                                ),
+                            ]]);
                             bot.send_message(
                                 msg.chat.id,
                                 format!(
@@ -1029,13 +977,13 @@ pub async fn handle_message(
     }
 
     if msg.media_group_id().is_some() && msg.photo().is_some() {
-        media_aggregator.add_message(msg, ai, tree).await;
+        media_aggregator.add_message(msg).await;
         return Ok(());
     }
 
     // Photo-only message (no text/caption) may belong to a pending command
     if msg.text().is_none() && msg.caption().is_none() && msg.photo().is_some() {
-        cmd_collector.try_attach_photo(msg, ai, tree).await;
+        cmd_collector.try_attach_photo(msg, ai, tree, None).await;
         return Ok(());
     }
 
@@ -1056,11 +1004,13 @@ pub async fn handle_sentinal(bot: Bot, msg: Message, param: String, db: Db) -> A
     if !msg.chat.is_private() {
         let admins = bot.get_chat_administrators(msg.chat.id).await?;
         let requester_id = msg.from.as_ref().map(|u| u.id);
-        let is_admin = requester_id.map(|uid| admins.iter().any(|member| member.user.id == uid)).unwrap_or(false);
+        let is_admin = requester_id
+            .map(|uid| admins.iter().any(|member| member.user.id == uid))
+            .unwrap_or(false);
         if !is_admin {
             bot.send_message(
                 msg.chat.id,
-                "❌ <b>Permission Denied</b>\n\nOnly group administrators can use /sentinal."
+                "❌ <b>Permission Denied</b>\n\nOnly group administrators can use /sentinal.",
             )
             .parse_mode(ParseMode::Html)
             .await?;
@@ -1101,12 +1051,61 @@ pub async fn handle_sentinal(bot: Bot, msg: Message, param: String, db: Db) -> A
     Ok(())
 }
 
+pub async fn handle_wallet_address(bot: Bot, msg: Message, tree: Tree) -> AnyResult<()> {
+    println!("handle_wallet_address");
+    let user = msg.from;
+
+    if user.is_none() {
+        bot.send_message(msg.chat.id, "❌ User not found").await?;
+        return Ok(());
+    }
+
+    let user = user.unwrap();
+
+    let username = user.username;
+
+    if username.is_none() {
+        bot.send_message(msg.chat.id, "❌ Username not found")
+            .await?;
+        return Ok(());
+    }
+
+    let username = username.unwrap();
+
+    let user_credentials = get_credentials(&username, tree.clone());
+
+    if user_credentials.is_none() {
+        bot.send_message(msg.chat.id, "❌ User not found").await?;
+        return Ok(());
+    }
+
+    let user_credentials = user_credentials.unwrap();
+
+    let wallet_address = user_credentials.resource_account_address;
+
+    bot.send_message(
+        msg.chat.id,
+        format!(
+            "💰 <b>Your Wallet Address</b>\n\n<code>{}</code>",
+            wallet_address
+        ),
+    )
+    .parse_mode(ParseMode::Html)
+    .await?;
+
+    Ok(())
+}
+
 pub async fn handle_mod(bot: Bot, msg: Message, db: Db) -> AnyResult<()> {
     // Check if sentinal is on for this chat
     if !msg.chat.is_private() {
         let sentinal_tree = db.open_tree("sentinal_state").unwrap();
         let chat_id = msg.chat.id.0.to_be_bytes();
-        let sentinal_on = sentinal_tree.get(chat_id).unwrap().map(|v| v == b"on").unwrap_or(false);
+        let sentinal_on = sentinal_tree
+            .get(chat_id)
+            .unwrap()
+            .map(|v| v == b"on")
+            .unwrap_or(false);
         if sentinal_on {
             bot.send_message(
                 msg.chat.id,
@@ -1120,7 +1119,8 @@ pub async fn handle_mod(bot: Bot, msg: Message, db: Db) -> AnyResult<()> {
     // Check if the command is used in reply to a message
     if let Some(reply_to_msg) = msg.reply_to_message() {
         // Extract text from the replied message
-        let message_text = reply_to_msg.text()
+        let message_text = reply_to_msg
+            .text()
             .or_else(|| reply_to_msg.caption())
             .unwrap_or_default();
 
@@ -1137,38 +1137,57 @@ pub async fn handle_mod(bot: Bot, msg: Message, db: Db) -> AnyResult<()> {
         // Create moderation service using environment API key
         let openai_api_key = std::env::var("OPENAI_API_KEY")
             .map_err(|_| anyhow::anyhow!("OPENAI_API_KEY not found in environment"))?;
-        
+
         let moderation_service = ModerationService::new(openai_api_key)
             .map_err(|e| anyhow::anyhow!("Failed to create moderation service: {}", e))?;
 
         // Moderate the message
-        match moderation_service.moderate_message(message_text, &bot, &msg, &reply_to_msg).await {
+        match moderation_service
+            .moderate_message(message_text, &bot, &msg, &reply_to_msg)
+            .await
+        {
             Ok(result) => {
-                log::info!("Manual moderation result: {} for message: {} (tokens: {})", result.verdict, message_text, result.total_tokens);
+                log::info!(
+                    "Manual moderation result: {} for message: {} (tokens: {})",
+                    result.verdict,
+                    message_text,
+                    result.total_tokens
+                );
                 // Only respond if the message is flagged
                 if result.verdict == "F" {
                     // First, mute the user who sent the flagged message
                     if let Some(flagged_user) = &reply_to_msg.from {
                         // Create restricted permissions (muted)
                         let restricted_permissions = teloxide::types::ChatPermissions::empty();
-                        
-                        // Mute the user indefinitely 
+
+                        // Mute the user indefinitely
                         if let Err(mute_error) = bot
-                            .restrict_chat_member(msg.chat.id, flagged_user.id, restricted_permissions)
+                            .restrict_chat_member(
+                                msg.chat.id,
+                                flagged_user.id,
+                                restricted_permissions,
+                            )
                             .await
                         {
                             log::error!("Failed to mute user {}: {}", flagged_user.id, mute_error);
                         } else {
-                            log::info!("Successfully muted user {} for flagged content", flagged_user.id);
+                            log::info!(
+                                "Successfully muted user {} for flagged content",
+                                flagged_user.id
+                            );
                         }
 
                         // Create keyboard with admin controls
-                        let keyboard = InlineKeyboardMarkup::new(vec![
-                            vec![
-                                InlineKeyboardButton::callback("🔇 Unmute", format!("unmute:{}", flagged_user.id)),
-                                InlineKeyboardButton::callback("🚫 Ban", format!("ban:{}", flagged_user.id)),
-                            ],
-                        ]);
+                        let keyboard = InlineKeyboardMarkup::new(vec![vec![
+                            InlineKeyboardButton::callback(
+                                "🔇 Unmute",
+                                format!("unmute:{}", flagged_user.id),
+                            ),
+                            InlineKeyboardButton::callback(
+                                "🚫 Ban",
+                                format!("ban:{}", flagged_user.id),
+                            ),
+                        ]]);
 
                         // Send the flagged message response
                         bot.send_message(
@@ -1221,6 +1240,121 @@ pub async fn handle_mod(bot: Bot, msg: Message, db: Db) -> AnyResult<()> {
         .parse_mode(ParseMode::Html)
         .await?;
     }
+    Ok(())
+}
+
+pub async fn handle_balance(
+    bot: Bot,
+    msg: Message,
+    symbol: &str,
+    tree: Tree,
+    panora: Panora,
+) -> AnyResult<()> {
+    let user = msg.from;
+
+    if user.is_none() {
+        bot.send_message(msg.chat.id, "❌ User not found").await?;
+        return Ok(());
+    }
+
+    let user = user.unwrap();
+
+    let username = user.username;
+
+    if username.is_none() {
+        log::error!("❌ Username not found");
+        bot.send_message(msg.chat.id, "❌ Username not found")
+            .await?;
+        return Ok(());
+    }
+
+    let username = username.unwrap();
+
+    let user_credentials = get_credentials(&username, tree.clone());
+
+    if user_credentials.is_none() {
+        log::error!("❌ User not found");
+        bot.send_message(msg.chat.id, "❌ User not found").await?;
+        return Ok(());
+    }
+
+    let (token_type, decimals, token_symbol) =
+        if symbol.to_lowercase() == "apt" || symbol.to_lowercase() == "aptos" {
+            (
+                "0x1::aptos_coin::AptosCoin".to_string(),
+                8u8,
+                "APT".to_string(),
+            )
+        } else {
+            let tokens = panora.get_token_by_symbol(symbol).await;
+
+            if tokens.is_err() {
+                log::error!("❌ Error getting token: {}", tokens.as_ref().err().unwrap());
+                bot.send_message(msg.chat.id, "❌ Error getting token")
+                    .await?;
+                return Ok(());
+            }
+
+            let token = tokens.unwrap();
+
+            let token_type = if token.token_address.as_ref().is_some() {
+                token.token_address.as_ref().unwrap().to_string()
+            } else {
+                token.fa_address.clone()
+            };
+
+            (token_type, token.decimals, token.symbol.clone())
+        };
+
+    let user_credentials = user_credentials.unwrap();
+
+    let balance = panora
+        .aptos
+        .node
+        .get_account_balance(
+            user_credentials.resource_account_address,
+            token_type.to_string(),
+        )
+        .await;
+
+    if balance.is_err() {
+        log::error!(
+            "❌ Error getting balance: {}",
+            balance.as_ref().err().unwrap()
+        );
+        bot.send_message(msg.chat.id, "❌ Error getting balance")
+            .await?;
+        return Ok(());
+    }
+
+    let raw_balance = balance.unwrap().into_inner();
+
+    let balance_i64 = raw_balance.as_i64();
+
+    if balance_i64.is_none() {
+        log::error!("❌ Balance not found");
+        bot.send_message(msg.chat.id, "❌ Balance not found")
+            .await?;
+        return Ok(());
+    }
+
+    let raw_balance = balance_i64.unwrap();
+
+    // Convert raw balance to human readable format using decimals
+    let human_balance = raw_balance as f64 / 10_f64.powi(decimals as i32);
+
+    println!(
+        "Raw balance: {}, Human balance: {}",
+        raw_balance, human_balance
+    );
+
+    bot.send_message(
+        msg.chat.id,
+        format!("💰 **Balance**: {:.6} {}", human_balance, token_symbol),
+    )
+    .parse_mode(ParseMode::Html)
+    .await?;
+
     Ok(())
 }
 

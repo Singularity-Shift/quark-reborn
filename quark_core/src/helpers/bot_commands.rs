@@ -22,6 +22,8 @@ pub enum Command {
     NewChat,
     #[command(description = "Send a prompt to the bot.")]
     C(String),
+    #[command(description = "Send a prompt to the bot in a group.")]
+    G(String),
     #[command(description = "Send a prompt to the O3 reasoning model.")]
     R(String),
     #[command(description = "Show example prompts.")]
@@ -39,6 +41,10 @@ pub enum Command {
     Mod,
     #[command(description = "Display the moderation rules to avoid getting muted.")]
     ModerationRules,
+    #[command(description = "Get your wallet address.")]
+    WalletAddress,
+    #[command(description = "Get your balance of a token.")]
+    Balance(String),
 }
 
 #[derive(Debug, Clone, Default)]

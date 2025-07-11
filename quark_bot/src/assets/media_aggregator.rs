@@ -1,7 +1,5 @@
-use crate::ai::handler::AI;
-use crate::bot::handler::handle_grouped_chat;
 use dashmap::DashMap;
-use sled::{Db, Tree};
+use sled::Db;
 use std::sync::Arc;
 use std::time::Duration;
 use teloxide::prelude::*;
@@ -10,20 +8,16 @@ pub struct MediaGroupAggregator {
     // Key: media_group_id
     // Value: (Vec of messages in the group, debounce task handle)
     groups: DashMap<String, (Vec<Message>, tokio::task::JoinHandle<()>)>,
-    bot: Bot,
-    db: Db,
 }
 
 impl MediaGroupAggregator {
     pub fn new(bot: Bot, db: Db) -> Self {
         Self {
             groups: DashMap::new(),
-            bot,
-            db,
         }
     }
 
-    pub async fn add_message(self: Arc<Self>, msg: Message, ai: AI, tree: Tree) {
+    pub async fn add_message(self: Arc<Self>, msg: Message) {
         let media_group_id = if let Some(id) = msg.media_group_id() {
             id.to_string()
         } else {
@@ -51,17 +45,11 @@ impl MediaGroupAggregator {
 
             // The timer has elapsed, so we can now process the group.
             if let Some((_, (messages, _))) = aggregator_clone.groups.remove(&media_group_id) {
-                if let Err(e) = handle_grouped_chat(
-                    aggregator_clone.bot.clone(),
-                    messages,
-                    aggregator_clone.db.clone(),
-                    ai,
-                    tree,
-                )
-                .await
-                {
-                    log::error!("Error handling grouped chat for {}: {}", media_group_id, e);
-                }
+                log::error!(
+                    "Error handling grouped chat for {}, {:?}",
+                    media_group_id,
+                    messages
+                );
             }
         });
 

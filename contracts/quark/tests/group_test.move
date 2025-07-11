@@ -16,9 +16,9 @@ module quark_test::group_test {
     use aptos_framework::fungible_asset::{Self, MintRef, TransferRef, Metadata};
     use aptos_framework::primary_fungible_store;
     use sshift_gpt::fees;
-    use quark_test::admin_v4;
-    use quark_test::user_v4;
-    use quark_test::group_v4;
+    use quark_test::admin_v5;
+    use quark_test::user_v5;
+    use quark_test::group_v5;
 
     // Test constants
     const TEST_GROUP_ID: vector<u8> = b"test_group_1";
@@ -92,9 +92,9 @@ module quark_test::group_test {
 
     // Initialize modules same as user_test.move
     fun init_module(sender: &signer) {
-        admin_v4::test_init_admin(sender);
-        user_v4::test_init_account(sender);
-        group_v4::test_init_group(sender);
+        admin_v5::test_init_admin(sender);
+        user_v5::test_init_account(sender);
+        group_v5::test_init_group(sender);
     }
 
     fun mint_coin<CoinType>(admin: &signer, amount: u64, to: &signer) {
@@ -238,8 +238,8 @@ module quark_test::group_test {
         let reviewer_address = signer::address_of(reviewer);
         let amount_to_claim;
 
-        assert!(admin_v4::is_admin(admin_address), EONLY_ADMIN_CAN_CALL);
-        assert!(admin_v4::is_reviewer(reviewer_address), EONLY_REVIEWER_CAN_CALL);
+        assert!(admin_v5::is_admin(admin_address), EONLY_ADMIN_CAN_CALL);
+        assert!(admin_v5::is_reviewer(reviewer_address), EONLY_REVIEWER_CAN_CALL);
 
         let admin_addr = signer::address_of(admin);
         let pools_rewards = borrow_global_mut<MockPoolsRewardsV1>(admin_addr);
@@ -287,8 +287,8 @@ module quark_test::group_test {
         let reviewer_address = signer::address_of(reviewer);
         let amount_to_claim;
 
-        assert!(admin_v4::is_admin(admin_address), EONLY_ADMIN_CAN_CALL);
-        assert!(admin_v4::is_reviewer(reviewer_address), EONLY_REVIEWER_CAN_CALL);
+        assert!(admin_v5::is_admin(admin_address), EONLY_ADMIN_CAN_CALL);
+        assert!(admin_v5::is_reviewer(reviewer_address), EONLY_REVIEWER_CAN_CALL);
 
         let admin_addr = signer::address_of(admin);
         let pools_rewards = borrow_global_mut<MockPoolsRewardsV2>(admin_addr);
@@ -334,91 +334,100 @@ module quark_test::group_test {
         let group_id = string::utf8(TEST_GROUP_ID);
         
         // Should succeed with valid admin and reviewer
-        group_v4::create_group(quark_test, quark_test, group_id);
+        group_v5::create_group(quark_test, quark_test, group_id);
         
         // Verify group exists
-        assert!(group_v4::exist_group_id(group_id), 0);
+        assert!(group_v5::exist_group_id(group_id), 0);
     }
 
     #[test(aptos_framework = @0x1, quark_test = @quark_test)]
-    #[expected_failure(abort_code = 1, location = quark_test::group_v4)] // EONLY_ADMIN_CAN_CALL
+    #[expected_failure(abort_code = 1, location = quark_test::group_v5)] // EONLY_ADMIN_CAN_CALL
     fun test_create_group_invalid_admin(aptos_framework: &signer, quark_test: &signer) {
         timestamp::set_time_has_started_for_testing(aptos_framework);
         init_module(quark_test);
         let fake_admin = account::create_signer_for_test(@0x999);
         let group_id = string::utf8(TEST_GROUP_ID);
         
-        group_v4::create_group(&fake_admin, quark_test, group_id);
+        group_v5::create_group(&fake_admin, quark_test, group_id);
     }
 
     #[test(aptos_framework = @0x1, quark_test = @quark_test)]
-    #[expected_failure(abort_code = 2, location = quark_test::group_v4)] // EONLY_REVIEWER_CAN_CALL
+    #[expected_failure(abort_code = 2, location = quark_test::group_v5)] // EONLY_REVIEWER_CAN_CALL
     fun test_create_group_invalid_reviewer(aptos_framework: &signer, quark_test: &signer) {
         timestamp::set_time_has_started_for_testing(aptos_framework);
         init_module(quark_test);
         let fake_reviewer = account::create_signer_for_test(@0x999);
         let group_id = string::utf8(TEST_GROUP_ID);
         
-        group_v4::create_group(quark_test, &fake_reviewer, group_id);
+        group_v5::create_group(quark_test, &fake_reviewer, group_id);
     }
 
     #[test(aptos_framework = @0x1, quark_test = @quark_test)]
-    #[expected_failure(abort_code = 15, location = quark_test::group_v4)] // EGROUP_ALREADY_EXISTS
+    #[expected_failure(abort_code = 15, location = quark_test::group_v5)] // EGROUP_ALREADY_EXISTS
     fun test_create_group_already_exists(aptos_framework: &signer, quark_test: &signer) {
         timestamp::set_time_has_started_for_testing(aptos_framework);
         init_module(quark_test);
         let group_id = string::utf8(TEST_GROUP_ID);
         
-        group_v4::create_group(quark_test, quark_test, group_id);
-        group_v4::create_group(quark_test, quark_test, group_id);
+        group_v5::create_group(quark_test, quark_test, group_id);
+        group_v5::create_group(quark_test, quark_test, group_id);
     }
 
     // ==================== PAY AI TESTS ====================
 
     #[test(aptos_framework = @0x1, quark_test = @quark_test, admin = @0x2)]
-    fun test_pay_ai_success(aptos_framework: &signer, quark_test: &signer, admin: &signer) acquires FAController {
+    fun test_pay_ai_success(aptos_framework: &signer, quark_test: &signer, admin: &signer) {
+        let (burn_cap, mint_cap) = aptos_coin::initialize_for_test(aptos_framework);
         timestamp::set_time_has_started_for_testing(aptos_framework);
         init_module(quark_test);
         let group_id = string::utf8(TEST_GROUP_ID);
         
-        group_v4::create_group(quark_test, quark_test, group_id);
+        // Set the coin address in the config first
+        user_v5::set_coin_address<AptosCoin>(quark_test);
         
-        // Create and fund FA
-        let fa_obj = create_fa();
-        let fa_addr = object::object_address(&fa_obj);
-        let fa_controller = borrow_global<FAController>(fa_addr);
+        group_v5::create_group(quark_test, quark_test, group_id);
         
-        // Get group account and fund it
-        let group_account_addr = group_v4::get_group_account(group_id);
+        let group_account_addr = group_v5::get_group_account(group_id);
+        account::create_account_for_test(group_account_addr);
         let group_account = account::create_signer_for_test(group_account_addr);
-        
-        mint_fa(&group_account, &fa_controller.mint_ref, TEST_AMOUNT * 2);
+        coin::register<AptosCoin>(&group_account);
+        aptos_coin::mint(aptos_framework, group_account_addr, TEST_AMOUNT * 10);
+
+        let group_account = account::create_signer_for_test(group_account_addr);
+        coin::register<AptosCoin>(&group_account);
         
         // Initialize fees
         create_resource_account(quark_test, admin);
         let fees_account = fees::get_resource_account_address();
+
+        account::create_account_for_test(fees_account);
         
-        let initial_group_balance = primary_fungible_store::balance(group_account_addr, object::address_to_object<Metadata>(fa_addr));
+        let initial_group_balance = coin::balance<AptosCoin>(group_account_addr);
         
-        group_v4::pay_ai(quark_test, quark_test, group_id, TEST_AMOUNT, fa_addr);
+        group_v5::pay_ai<AptosCoin>(quark_test, quark_test, group_id, TEST_AMOUNT);
         
         // Verify balances
-        let final_group_balance = primary_fungible_store::balance(group_account_addr, object::address_to_object<Metadata>(fa_addr));
-        let fees_balance = primary_fungible_store::balance(fees_account, object::address_to_object<Metadata>(fa_addr));
+        let final_group_balance = coin::balance<AptosCoin>(group_account_addr);
+        let fees_balance = coin::balance<AptosCoin>(fees_account);
         
         assert!(final_group_balance == initial_group_balance - TEST_AMOUNT, EIS_BALANCE_NOT_EQUAL);
         assert!(fees_balance == TEST_AMOUNT, EIS_BALANCE_NOT_EQUAL);
+
+        coin::destroy_burn_cap(burn_cap);
+        coin::destroy_mint_cap(mint_cap);
     }
 
     #[test(aptos_framework = @0x1, quark_test = @quark_test)]
-    #[expected_failure(abort_code = 7, location = quark_test::group_v4)] // EGROUP_NOT_EXISTS
+    #[expected_failure(abort_code = 7, location = quark_test::group_v5)] // EGROUP_NOT_EXISTS
     fun test_pay_ai_group_not_exists(aptos_framework: &signer, quark_test: &signer) {
         timestamp::set_time_has_started_for_testing(aptos_framework);
         init_module(quark_test);
         let group_id = string::utf8(b"nonexistent_group");
-        let currency = @0x1;
         
-        group_v4::pay_ai(quark_test, quark_test, group_id, TEST_AMOUNT, currency);
+        // Set the coin address in the config first
+        user_v5::set_coin_address<AptosCoin>(quark_test);
+        
+        group_v5::pay_ai<AptosCoin>(quark_test, quark_test, group_id, TEST_AMOUNT);
     }
 
     // ==================== PAY USERS V1 TESTS ====================
@@ -430,7 +439,7 @@ module quark_test::group_test {
         init_module(quark_test);
         let group_id = string::utf8(TEST_GROUP_ID);
         
-        group_v4::create_group(quark_test, quark_test, group_id);
+        group_v5::create_group(quark_test, quark_test, group_id);
         
         // Create users same as user_test.move
         let user1_addr = signer::address_of(user1);
@@ -439,15 +448,15 @@ module quark_test::group_test {
         account::create_account_for_test(user1_addr);
         account::create_account_for_test(user2_addr);
         
-        user_v4::create_account(user1, string::utf8(b"1234567890"));
-        user_v4::create_account(user2, string::utf8(b"1234567891"));
+        user_v5::create_account(user1, string::utf8(b"1234567890"));
+        user_v5::create_account(user2, string::utf8(b"1234567891"));
         
         // Register AptosCoin for users
         coin::register<AptosCoin>(user1);
         coin::register<AptosCoin>(user2);
         
         // Get group account and fund it
-        let group_account_addr = group_v4::get_group_account(group_id);
+        let group_account_addr = group_v5::get_group_account(group_id);
         account::create_account_for_test(group_account_addr);
         let group_account = account::create_signer_for_test(group_account_addr);
         coin::register<AptosCoin>(&group_account);
@@ -458,7 +467,7 @@ module quark_test::group_test {
         
         let initial_group_balance = coin::balance<AptosCoin>(group_account_addr);
         
-        group_v4::pay_users_v1<AptosCoin>(quark_test, quark_test, group_id, TEST_AMOUNT, recipients);
+        group_v5::pay_users_v1<AptosCoin>(quark_test, quark_test, group_id, TEST_AMOUNT, recipients);
         
         // Verify balances
         let final_group_balance = coin::balance<AptosCoin>(group_account_addr);
@@ -471,36 +480,36 @@ module quark_test::group_test {
     }
 
     #[test(aptos_framework = @0x1, quark_test = @quark_test)]
-    #[expected_failure(abort_code = 6, location = quark_test::group_v4)] // ENOT_USER_PASSED
+    #[expected_failure(abort_code = 6, location = quark_test::group_v5)] // ENOT_USER_PASSED
     fun test_pay_users_v1_empty_recipients(aptos_framework: &signer, quark_test: &signer) {
         let (burn_cap, mint_cap) = aptos_coin::initialize_for_test(aptos_framework);
         timestamp::set_time_has_started_for_testing(aptos_framework);
         init_module(quark_test);
         let group_id = string::utf8(TEST_GROUP_ID);
         
-        group_v4::create_group(quark_test, quark_test, group_id);
+        group_v5::create_group(quark_test, quark_test, group_id);
         
         let empty_recipients = vector::empty<address>();
         
-        group_v4::pay_users_v1<AptosCoin>(quark_test, quark_test, group_id, TEST_AMOUNT, empty_recipients);
+        group_v5::pay_users_v1<AptosCoin>(quark_test, quark_test, group_id, TEST_AMOUNT, empty_recipients);
         
         coin::destroy_burn_cap(burn_cap);
         coin::destroy_mint_cap(mint_cap);
     }
 
     #[test(aptos_framework = @0x1, quark_test = @quark_test)]
-    #[expected_failure(abort_code = 3, location = quark_test::group_v4)] // ENOT_ENOUGH_FUNDS
+    #[expected_failure(abort_code = 3, location = quark_test::group_v5)] // ENOT_ENOUGH_FUNDS
     fun test_pay_users_v1_insufficient_funds(aptos_framework: &signer, quark_test: &signer) {
         let (burn_cap, mint_cap) = aptos_coin::initialize_for_test(aptos_framework);
         timestamp::set_time_has_started_for_testing(aptos_framework);
         init_module(quark_test);
         let group_id = string::utf8(TEST_GROUP_ID);
         
-        group_v4::create_group(quark_test, quark_test, group_id);
+        group_v5::create_group(quark_test, quark_test, group_id);
         
         let recipients = vector[@0x300];
         
-        group_v4::pay_users_v1<AptosCoin>(quark_test, quark_test, group_id, TEST_AMOUNT, recipients);
+        group_v5::pay_users_v1<AptosCoin>(quark_test, quark_test, group_id, TEST_AMOUNT, recipients);
         
         coin::destroy_burn_cap(burn_cap);
         coin::destroy_mint_cap(mint_cap);
@@ -514,7 +523,7 @@ module quark_test::group_test {
         init_module(quark_test);
         let group_id = string::utf8(TEST_GROUP_ID);
         
-        group_v4::create_group(quark_test, quark_test, group_id);
+        group_v5::create_group(quark_test, quark_test, group_id);
         
         // Create and fund FA
         let fa_obj = create_fa();
@@ -529,13 +538,13 @@ module quark_test::group_test {
         account::create_account_for_test(user1_addr);
         account::create_account_for_test(user2_addr);
         
-        user_v4::create_account(user1, string::utf8(b"1234567890"));
-        user_v4::create_account(user2, string::utf8(b"1234567891"));
+        user_v5::create_account(user1, string::utf8(b"1234567890"));
+        user_v5::create_account(user2, string::utf8(b"1234567891"));
         
         let recipients = vector[user1_addr, user2_addr];
         
         // Get group account and fund it
-        let group_account_addr = group_v4::get_group_account(group_id);
+        let group_account_addr = group_v5::get_group_account(group_id);
         let group_account = account::create_signer_for_test(group_account_addr);
         
         mint_fa(&group_account, &fa_controller.mint_ref, TEST_AMOUNT * 10);
@@ -543,7 +552,7 @@ module quark_test::group_test {
         let amount_per_user = TEST_AMOUNT / vector::length(&recipients);
         let initial_group_balance = primary_fungible_store::balance(group_account_addr, fa_metadata);
         
-        group_v4::pay_users_v2(quark_test, quark_test, group_id, TEST_AMOUNT, fa_addr, recipients);
+        group_v5::pay_users_v2(quark_test, quark_test, group_id, TEST_AMOUNT, fa_addr, recipients);
         
         // Verify balances
         let final_group_balance = primary_fungible_store::balance(group_account_addr, fa_metadata);
@@ -562,19 +571,19 @@ module quark_test::group_test {
         let group_id = string::utf8(TEST_GROUP_ID);
         let pool_id = string::utf8(TEST_POOL_ID);
         
-        group_v4::create_group(quark_test, quark_test, group_id);
+        group_v5::create_group(quark_test, quark_test, group_id);
         
         // Fund group account with tokens
-        let group_account_addr = group_v4::get_group_account(group_id);
+        let group_account_addr = group_v5::get_group_account(group_id);
         account::create_account_for_test(group_account_addr);
         let group_account = account::create_signer_for_test(group_account_addr);
         coin::register<AptosCoin>(&group_account);
         aptos_coin::mint(aptos_framework, group_account_addr, TEST_AMOUNT * 2);
         
-        group_v4::create_pool_reward_v1<AptosCoin>(quark_test, quark_test, pool_id, group_id, TEST_AMOUNT, TEST_TOTAL_USERS);
+        group_v5::create_pool_reward_v1<AptosCoin>(quark_test, quark_test, pool_id, group_id, TEST_AMOUNT, TEST_TOTAL_USERS);
         
         // Verify pool reward was created
-        let (reward_amount, _token, total_users, claimed_users, holder_object) = group_v4::get_pool_reward_v1(group_id, pool_id);
+        let (reward_amount, _token, total_users, claimed_users, holder_object) = group_v5::get_pool_reward_v1(group_id, pool_id);
         assert!(reward_amount == TEST_AMOUNT, EIS_BALANCE_NOT_EQUAL);
         assert!(total_users == TEST_TOTAL_USERS, EIS_BALANCE_NOT_EQUAL);
         assert!(vector::length(&claimed_users) == 0, EIS_BALANCE_NOT_EQUAL);
@@ -595,7 +604,7 @@ module quark_test::group_test {
         let group_id = string::utf8(TEST_GROUP_ID);
         let pool_id = string::utf8(TEST_POOL_ID);
         
-        group_v4::create_group(quark_test, quark_test, group_id);
+        group_v5::create_group(quark_test, quark_test, group_id);
         
         let fa_obj = create_fa();
         let fa_addr = object::object_address(&fa_obj);
@@ -603,14 +612,14 @@ module quark_test::group_test {
         let fa_metadata = object::address_to_object<Metadata>(fa_addr);
         
         // Fund group account with FA tokens
-        let group_account_addr = group_v4::get_group_account(group_id);
+        let group_account_addr = group_v5::get_group_account(group_id);
         let group_account = account::create_signer_for_test(group_account_addr);
         mint_fa(&group_account, &fa_controller.mint_ref, TEST_AMOUNT * 2);
         
-        group_v4::create_pool_reward_v2(quark_test, quark_test, pool_id, group_id, fa_addr, TEST_AMOUNT, TEST_TOTAL_USERS);
+        group_v5::create_pool_reward_v2(quark_test, quark_test, pool_id, group_id, fa_addr, TEST_AMOUNT, TEST_TOTAL_USERS);
         
         // Verify pool reward was created
-        let (reward_amount, _token, total_users, claimed_users, holder_object) = group_v4::get_pool_reward_v2(group_id, pool_id);
+        let (reward_amount, _token, total_users, claimed_users, holder_object) = group_v5::get_pool_reward_v2(group_id, pool_id);
         assert!(reward_amount == TEST_AMOUNT, EIS_BALANCE_NOT_EQUAL);
         assert!(total_users == TEST_TOTAL_USERS, EIS_BALANCE_NOT_EQUAL);
         assert!(vector::length(&claimed_users) == 0, EIS_BALANCE_NOT_EQUAL);
@@ -632,16 +641,16 @@ module quark_test::group_test {
         let group_id = string::utf8(TEST_GROUP_ID);
         let dao_id = string::utf8(TEST_DAO_ID);
         
-        group_v4::create_group(quark_test, quark_test, group_id);
+        group_v5::create_group(quark_test, quark_test, group_id);
         
         let choices = get_test_choices();
         let from = timestamp::now_seconds();
         let to = from + 86400; // 24 hours later
         
-        group_v4::create_group_dao_v1<AptosCoin>(quark_test, quark_test, group_id, dao_id, choices, from, to);
+        group_v5::create_group_dao_v1<AptosCoin>(quark_test, quark_test, group_id, dao_id, choices, from, to);
         
         // Verify DAO was created
-        assert!(group_v4::exist_group_dao_v1(group_id, dao_id), 0);
+        assert!(group_v5::exist_group_dao_v1(group_id, dao_id), 0);
     }
 
     #[test(aptos_framework = @0x1, quark_test = @quark_test)]
@@ -651,7 +660,7 @@ module quark_test::group_test {
         let group_id = string::utf8(TEST_GROUP_ID);
         let dao_id = string::utf8(TEST_DAO_ID);
         
-        group_v4::create_group(quark_test, quark_test, group_id);
+        group_v5::create_group(quark_test, quark_test, group_id);
         
         let fa_obj = create_fa();
         let fa_addr = object::object_address(&fa_obj);
@@ -660,44 +669,44 @@ module quark_test::group_test {
         let from = timestamp::now_seconds();
         let to = from + 86400;
         
-        group_v4::create_group_dao_v2(quark_test, quark_test, group_id, dao_id, choices, fa_addr, from, to);
+        group_v5::create_group_dao_v2(quark_test, quark_test, group_id, dao_id, choices, fa_addr, from, to);
         
         // Verify DAO was created
-        assert!(group_v4::exist_group_dao_v2(group_id, dao_id), 0);
+        assert!(group_v5::exist_group_dao_v2(group_id, dao_id), 0);
     }
 
     #[test(aptos_framework = @0x1, quark_test = @quark_test)]
-    #[expected_failure(abort_code = 18, location = quark_test::group_v4)] // EFROM_TO_NOT_VALID
+    #[expected_failure(abort_code = 18, location = quark_test::group_v5)] // EFROM_TO_NOT_VALID
     fun test_create_group_dao_v1_invalid_time_range(aptos_framework: &signer, quark_test: &signer) {
         timestamp::set_time_has_started_for_testing(aptos_framework);
         init_module(quark_test);
         let group_id = string::utf8(TEST_GROUP_ID);
         let dao_id = string::utf8(TEST_DAO_ID);
         
-        group_v4::create_group(quark_test, quark_test, group_id);
+        group_v5::create_group(quark_test, quark_test, group_id);
         
         let choices = get_test_choices();
         let from = timestamp::now_seconds() + 86400;
         let to = from - 1; // to < from
         
-        group_v4::create_group_dao_v1<AptosCoin>(quark_test, quark_test, group_id, dao_id, choices, from, to);
+        group_v5::create_group_dao_v1<AptosCoin>(quark_test, quark_test, group_id, dao_id, choices, from, to);
     }
 
     #[test(aptos_framework = @0x1, quark_test = @quark_test)]
-    #[expected_failure(abort_code = 19, location = quark_test::group_v4)] // ENOT_IN_TIME
+    #[expected_failure(abort_code = 19, location = quark_test::group_v5)] // ENOT_IN_TIME
     fun test_create_group_dao_v1_not_in_time(aptos_framework: &signer, quark_test: &signer) {
         timestamp::set_time_has_started_for_testing(aptos_framework);
         init_module(quark_test);
         let group_id = string::utf8(TEST_GROUP_ID);
         let dao_id = string::utf8(TEST_DAO_ID);
         
-        group_v4::create_group(quark_test, quark_test, group_id);
+        group_v5::create_group(quark_test, quark_test, group_id);
         
         let choices = get_test_choices();
         let from = timestamp::now_seconds() + 86400; // Future time
         let to = from + 86400;
         
-        group_v4::create_group_dao_v1<AptosCoin>(quark_test, quark_test, group_id, dao_id, choices, from, to);
+        group_v5::create_group_dao_v1<AptosCoin>(quark_test, quark_test, group_id, dao_id, choices, from, to);
     }
 
     // ==================== MOCK CLAIM REWARD TESTS ====================
@@ -713,7 +722,7 @@ module quark_test::group_test {
         // Create user account
         account::create_account_for_test(user_addr);
         coin::register<AptosCoin>(user);
-        user_v4::create_account(user, string::utf8(b"1234567890"));
+        user_v5::create_account(user, string::utf8(b"1234567890"));
         
         // Fund admin account for the mock transfer
         account::create_account_for_test(signer::address_of(quark_test));
@@ -752,7 +761,7 @@ module quark_test::group_test {
         // Create user account
         account::create_account_for_test(user_addr);
         coin::register<AptosCoin>(user);
-        user_v4::create_account(user, string::utf8(b"1234567890"));
+        user_v5::create_account(user, string::utf8(b"1234567890"));
         
         // Fund admin account for the mock transfer
         account::create_account_for_test(signer::address_of(quark_test));
@@ -789,7 +798,7 @@ module quark_test::group_test {
         
         // Create user account
         account::create_account_for_test(user_addr);
-        user_v4::create_account(user, string::utf8(b"1234567890"));
+        user_v5::create_account(user, string::utf8(b"1234567890"));
         
         // Fund admin account for the mock transfer
         mint_fa(quark_test, &fa_controller.mint_ref, TEST_AMOUNT);
@@ -830,7 +839,7 @@ module quark_test::group_test {
         
         // Create user account
         account::create_account_for_test(user_addr);
-        user_v4::create_account(user, string::utf8(b"1234567890"));
+        user_v5::create_account(user, string::utf8(b"1234567890"));
         
         // Fund admin account for the mock transfer
         mint_fa(quark_test, &fa_controller.mint_ref, TEST_AMOUNT * 2);
@@ -876,8 +885,8 @@ module quark_test::group_test {
         coin::register<AptosCoin>(&user1);
         coin::register<AptosCoin>(&user2);
         
-        user_v4::create_account(&user1, string::utf8(b"1234567890"));
-        user_v4::create_account(&user2, string::utf8(b"1234567891"));
+        user_v5::create_account(&user1, string::utf8(b"1234567890"));
+        user_v5::create_account(&user2, string::utf8(b"1234567891"));
         
         // First user claims
         mock_claim_reward_v1_with_state<AptosCoin>(quark_test, quark_test, user1_addr, pool_id, aptos_framework);
@@ -905,14 +914,14 @@ module quark_test::group_test {
         let group_id = string::utf8(TEST_GROUP_ID);
         let dao_id = string::utf8(TEST_DAO_ID);
         
-        group_v4::create_group(quark_test, quark_test, group_id);
+        group_v5::create_group(quark_test, quark_test, group_id);
         
         let choices = get_test_choices();
         let from = timestamp::now_seconds();
         let to = from + 86400;
         
         // Create DAO first
-        group_v4::create_group_dao_v1<AptosCoin>(quark_test, quark_test, group_id, dao_id, choices, from, to);
+        group_v5::create_group_dao_v1<AptosCoin>(quark_test, quark_test, group_id, dao_id, choices, from, to);
         
         // Create voter same as user_test.move
         let voter_addr = signer::address_of(voter);
@@ -921,16 +930,16 @@ module quark_test::group_test {
         coin::register<AptosCoin>(voter);
         aptos_coin::mint(aptos_framework, voter_addr, TEST_AMOUNT);
         
-        user_v4::create_account(voter, string::utf8(b"1234567890"));
+        user_v5::create_account(voter, string::utf8(b"1234567890"));
         
         // Verify user hasn't voted yet
-        assert!(!group_v4::exist_group_user_choice_v1(group_id, dao_id, voter_addr), 0);
+        assert!(!group_v5::exist_group_user_choice_v1(group_id, dao_id, voter_addr), 0);
         
         // Vote
-        group_v4::vote_group_dao_v1<AptosCoin>(voter, group_id, dao_id, 0);
+        group_v5::vote_group_dao_v1<AptosCoin>(voter, group_id, dao_id, 0);
         
         // Verify user has voted
-        assert!(group_v4::exist_group_user_choice_v1(group_id, dao_id, voter_addr), 0);
+        assert!(group_v5::exist_group_user_choice_v1(group_id, dao_id, voter_addr), 0);
         
         coin::destroy_burn_cap(burn_cap);
         coin::destroy_mint_cap(mint_cap);
@@ -943,7 +952,7 @@ module quark_test::group_test {
         let group_id = string::utf8(TEST_GROUP_ID);
         let dao_id = string::utf8(TEST_DAO_ID);
         
-        group_v4::create_group(quark_test, quark_test, group_id);
+        group_v5::create_group(quark_test, quark_test, group_id);
         
         let fa_obj = create_fa();
         let fa_addr = object::object_address(&fa_obj);
@@ -954,27 +963,27 @@ module quark_test::group_test {
         let to = from + 86400;
         
         // Create DAO first
-        group_v4::create_group_dao_v2(quark_test, quark_test, group_id, dao_id, choices, fa_addr, from, to);
+        group_v5::create_group_dao_v2(quark_test, quark_test, group_id, dao_id, choices, fa_addr, from, to);
         
         // Create voter same as user_test.move
         let voter_addr = signer::address_of(voter);
         
-        user_v4::create_account(voter, string::utf8(b"1234567890"));
+        user_v5::create_account(voter, string::utf8(b"1234567890"));
         
         mint_fa(voter, &fa_controller.mint_ref, TEST_AMOUNT);
         
         // Verify user hasn't voted yet
-        assert!(!group_v4::exist_group_user_choice_v2(group_id, dao_id, voter_addr), 0);
+        assert!(!group_v5::exist_group_user_choice_v2(group_id, dao_id, voter_addr), 0);
         
         // Vote
-        group_v4::vote_group_dao_v2(voter, group_id, dao_id, 0, fa_addr);
+        group_v5::vote_group_dao_v2(voter, group_id, dao_id, 0, fa_addr);
         
         // Verify user has voted
-        assert!(group_v4::exist_group_user_choice_v2(group_id, dao_id, voter_addr), 0);
+        assert!(group_v5::exist_group_user_choice_v2(group_id, dao_id, voter_addr), 0);
     }
 
     #[test(aptos_framework = @0x1, quark_test = @quark_test, voter = @0x5)]
-    #[expected_failure(abort_code = 17, location = quark_test::group_v4)] // EDAO_NOT_EXISTS
+    #[expected_failure(abort_code = 17, location = quark_test::group_v5)] // EDAO_NOT_EXISTS
     fun test_vote_group_dao_v1_dao_not_exists(aptos_framework: &signer, quark_test: &signer, voter: &signer) {
         let (burn_cap, mint_cap) = aptos_coin::initialize_for_test(aptos_framework);
         timestamp::set_time_has_started_for_testing(aptos_framework);
@@ -982,7 +991,7 @@ module quark_test::group_test {
         let group_id = string::utf8(TEST_GROUP_ID);
         let dao_id = string::utf8(b"nonexistent_dao");
         
-        group_v4::create_group(quark_test, quark_test, group_id);
+        group_v5::create_group(quark_test, quark_test, group_id);
         
         let voter_addr = signer::address_of(voter);
         
@@ -990,23 +999,23 @@ module quark_test::group_test {
         coin::register<AptosCoin>(voter);
         aptos_coin::mint(aptos_framework, voter_addr, TEST_AMOUNT);
         
-        user_v4::create_account(voter, string::utf8(b"1234567890"));
+        user_v5::create_account(voter, string::utf8(b"1234567890"));
         
-        group_v4::vote_group_dao_v1<AptosCoin>(voter, group_id, dao_id, 0);
+        group_v5::vote_group_dao_v1<AptosCoin>(voter, group_id, dao_id, 0);
         
         coin::destroy_burn_cap(burn_cap);
         coin::destroy_mint_cap(mint_cap);
     }
 
     #[test(aptos_framework = @0x1, quark_test = @quark_test, voter = @0x5)]
-    #[expected_failure(abort_code = 22, location = quark_test::group_v4)] // ECURRENCY_NOT_MATCH
+    #[expected_failure(abort_code = 22, location = quark_test::group_v5)] // ECURRENCY_NOT_MATCH
     fun test_vote_group_dao_v2_currency_not_match(aptos_framework: &signer, quark_test: &signer, voter: &signer) {
         timestamp::set_time_has_started_for_testing(aptos_framework);
         init_module(quark_test);
         let group_id = string::utf8(TEST_GROUP_ID);
         let dao_id = string::utf8(TEST_DAO_ID);
         
-        group_v4::create_group(quark_test, quark_test, group_id);
+        group_v5::create_group(quark_test, quark_test, group_id);
         
         let fa_obj = create_fa();
         let fa_addr = object::object_address(&fa_obj);
@@ -1016,16 +1025,16 @@ module quark_test::group_test {
         let to = from + 86400;
         
         // Create DAO with one currency
-        group_v4::create_group_dao_v2(quark_test, quark_test, group_id, dao_id, choices, fa_addr, from, to);
+        group_v5::create_group_dao_v2(quark_test, quark_test, group_id, dao_id, choices, fa_addr, from, to);
         
-        user_v4::create_account(voter, string::utf8(b"1234567890"));
+        user_v5::create_account(voter, string::utf8(b"1234567890"));
         
         // Vote with different currency
-        group_v4::vote_group_dao_v2(voter, group_id, dao_id, 0, @0x2);
+        group_v5::vote_group_dao_v2(voter, group_id, dao_id, 0, @0x2);
     }
 
     #[test(aptos_framework = @0x1, quark_test = @quark_test, voter = @0x5)]
-    #[expected_failure(abort_code = 23, location = quark_test::group_v4)] // EUSER_ALREADY_VOTED
+    #[expected_failure(abort_code = 23, location = quark_test::group_v5)] // EUSER_ALREADY_VOTED
     fun test_vote_group_dao_v1_already_voted(aptos_framework: &signer, quark_test: &signer, voter: &signer) {
         let (burn_cap, mint_cap) = aptos_coin::initialize_for_test(aptos_framework);
         timestamp::set_time_has_started_for_testing(aptos_framework);
@@ -1033,14 +1042,14 @@ module quark_test::group_test {
         let group_id = string::utf8(TEST_GROUP_ID);
         let dao_id = string::utf8(TEST_DAO_ID);
         
-        group_v4::create_group(quark_test, quark_test, group_id);
+        group_v5::create_group(quark_test, quark_test, group_id);
         
         let choices = get_test_choices();
         let from = timestamp::now_seconds();
         let to = from + 86400;
         
         // Create DAO first
-        group_v4::create_group_dao_v1<AptosCoin>(quark_test, quark_test, group_id, dao_id, choices, from, to);
+        group_v5::create_group_dao_v1<AptosCoin>(quark_test, quark_test, group_id, dao_id, choices, from, to);
         
         let voter_addr = signer::address_of(voter);
         
@@ -1048,13 +1057,13 @@ module quark_test::group_test {
         coin::register<AptosCoin>(voter);
         aptos_coin::mint(aptos_framework, voter_addr, TEST_AMOUNT);
         
-        user_v4::create_account(voter, string::utf8(b"1234567890"));
+        user_v5::create_account(voter, string::utf8(b"1234567890"));
         
         // Vote first time
-        group_v4::vote_group_dao_v1<AptosCoin>(voter, group_id, dao_id, 0);
+        group_v5::vote_group_dao_v1<AptosCoin>(voter, group_id, dao_id, 0);
         
         // Try to vote again - should fail
-        group_v4::vote_group_dao_v1<AptosCoin>(voter, group_id, dao_id, 1);
+        group_v5::vote_group_dao_v1<AptosCoin>(voter, group_id, dao_id, 1);
         
         coin::destroy_burn_cap(burn_cap);
         coin::destroy_mint_cap(mint_cap);
@@ -1067,19 +1076,19 @@ module quark_test::group_test {
         use aptos_framework::randomness;
         use std::vector;
         use aptos_std::type_info;
-        use quark_test::group_v4;
+        use quark_test::group_v5;
         
         let admin_address = signer::address_of(admin);
         let reviewer_address = signer::address_of(reviewer);
         let amount_to_claim;
 
-        assert!(admin_v4::is_admin(admin_address), EONLY_ADMIN_CAN_CALL);
-        assert!(admin_v4::is_reviewer(reviewer_address), EONLY_REVIEWER_CAN_CALL);
+        assert!(admin_v5::is_admin(admin_address), EONLY_ADMIN_CAN_CALL);
+        assert!(admin_v5::is_reviewer(reviewer_address), EONLY_REVIEWER_CAN_CALL);
 
-        let _group_account = group_v4::get_group_account(group_id);
+        let _group_account = group_v5::get_group_account(group_id);
 
         // Get pool reward info to calculate claim amount
-        let (reward_amount, reward_token, total_users, claimed_users, _holder_object) = group_v4::get_pool_reward_v1(group_id, pool_id);
+        let (reward_amount, reward_token, total_users, claimed_users, _holder_object) = group_v5::get_pool_reward_v1(group_id, pool_id);
 
         assert!(vector::length(&claimed_users) < total_users, EPOOL_REWARD_ALREADY_CLAIMED);
         assert!(!vector::contains<address>(&claimed_users, &user), EUSER_ALREADY_CLAIMED);

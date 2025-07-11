@@ -8,12 +8,14 @@ WORKDIR /app/quark_server
 COPY quark_server/Cargo.toml ./
 COPY quark_core/Cargo.toml ../quark_core/
 COPY quark_bot/Cargo.toml ../quark_bot/
+COPY quark_consumer/Cargo.toml ../quark_consumer/
 COPY Cargo.toml ../
 
 # Copy the source code
 COPY quark_server/src/ ./src/
 COPY quark_core/src/ ../quark_core/src/
 COPY quark_bot/src/ ../quark_bot/src/
+COPY quark_consumer/src/ ../quark_consumer/src/
 
 # Build the application
 RUN cargo build --release --bin quark_server

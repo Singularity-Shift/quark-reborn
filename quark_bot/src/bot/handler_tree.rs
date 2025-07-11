@@ -57,10 +57,8 @@ pub fn handler_tree() -> Handler<'static, Result<()>, DpHandlerDescription> {
                             |media_aggregator: std::sync::Arc<
                                 crate::assets::media_aggregator::MediaGroupAggregator,
                             >,
-                             ai: AI,
-                             msg: Message,
-                             tree: sled::Tree| async move {
-                                media_aggregator.add_message(msg, ai, tree).await;
+                             msg: Message,| async move {
+                                media_aggregator.add_message(msg).await;
                                 Ok(())
                             },
                         ),
@@ -88,7 +86,10 @@ pub fn handler_tree() -> Handler<'static, Result<()>, DpHandlerDescription> {
                             matches!(
                                 cmd,
                                 Command::C(_)
+                                    | Command::G(_)
                                     | Command::R(_)
+                                    | Command::WalletAddress
+                                    | Command::Balance(_)
                                     | Command::AddFiles
                                     | Command::ListFiles
                                     | Command::NewChat

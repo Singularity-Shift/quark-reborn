@@ -22,7 +22,9 @@ use crate::{
     error::ErrorServer,
     state::ServerState,
 };
-use quark_core::helpers::dto::{PayUsersRequest, PayUsersResponse, PayUsersVersion, UserPayload};
+use quark_core::helpers::dto::{
+    PayUsersRequest, PayUsersVersion, SimulateTransactionResponse, TransactionResponse, UserPayload,
+};
 
 #[utoipa::path(
     post,
@@ -39,7 +41,7 @@ pub async fn pay_users(
     State(server_state): State<Arc<ServerState>>,
     Extension(user): Extension<UserPayload>,
     Json(request): Json<PayUsersRequest>,
-) -> Result<Json<PayUsersResponse>, ErrorServer> {
+) -> Result<Json<TransactionResponse>, ErrorServer> {
     let (admin, signer) = get_admin().map_err(|e| ErrorServer {
         status: StatusCode::INTERNAL_SERVER_ERROR.into(),
         message: e.to_string(),
@@ -86,7 +88,7 @@ pub async fn pay_users(
             })?;
 
             TransactionPayload::EntryFunction(EntryFunction::new(
-                ModuleId::new(contract_address, "user_v4".to_string()),
+                ModuleId::new(contract_address, "user_v5".to_string()),
                 "pay_to_users_v1".to_string(),
                 vec![token_type],
                 vec![
@@ -100,7 +102,7 @@ pub async fn pay_users(
             ))
         }
         PayUsersVersion::V2 => TransactionPayload::EntryFunction(EntryFunction::new(
-            ModuleId::new(contract_address, "user_v4".to_string()),
+            ModuleId::new(contract_address, "user_v5".to_string()),
             "pay_to_users_v2".to_string(),
             vec![],
             vec![
@@ -198,7 +200,44 @@ pub async fn pay_users(
             message: e.to_string(),
         })?;
 
-    println!("Simulate Transaction: {:?}", simulate_transaction);
+    let simulate_transaction_inner = simulate_transaction.into_inner();
+
+    let simulate_transaction_success = if simulate_transaction_inner.is_array() {
+        // Handle array response - take the first element
+        let array = simulate_transaction_inner
+            .as_array()
+            .ok_or_else(|| ErrorServer {
+                status: StatusCode::INTERNAL_SERVER_ERROR.into(),
+                message: "Expected array".to_string(),
+            })?;
+        let first_result = array.get(0).ok_or_else(|| ErrorServer {
+            status: StatusCode::INTERNAL_SERVER_ERROR.into(),
+            message: "Empty simulation result array".to_string(),
+        })?;
+        serde_json::from_value::<SimulateTransactionResponse>(first_result.clone()).map_err(
+            |e| ErrorServer {
+                status: StatusCode::INTERNAL_SERVER_ERROR.into(),
+                message: e.to_string(),
+            },
+        )?
+    } else {
+        // Handle single object response
+        serde_json::from_value::<SimulateTransactionResponse>(simulate_transaction_inner.clone())
+            .map_err(|e| ErrorServer {
+                status: StatusCode::INTERNAL_SERVER_ERROR.into(),
+                message: e.to_string(),
+            })?
+    };
+
+    if !simulate_transaction_success.success {
+        return Err(ErrorServer {
+            status: StatusCode::BAD_REQUEST.into(),
+            message: format!(
+                "Simulate transaction failed: {}",
+                simulate_transaction_success.vm_status
+            ),
+        });
+    }
 
     let transaction = node
         .submit_transaction(SignedTransaction::new(
@@ -221,7 +260,7 @@ pub async fn pay_users(
 
     println!("Transaction: {:?}", transaction);
 
-    let pay_users_response: PayUsersResponse =
+    let pay_users_response: TransactionResponse =
         serde_json::from_value(transaction).map_err(|e| ErrorServer {
             status: StatusCode::INTERNAL_SERVER_ERROR.into(),
             message: e.to_string(),
