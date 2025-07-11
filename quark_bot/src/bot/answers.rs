@@ -1,4 +1,5 @@
 use crate::ai::handler::AI;
+use crate::panora::handler::Panora;
 use crate::services::handler::Services;
 use crate::user_conversation::handler::UserConversations;
 use crate::user_model_preferences::handler::UserModelPreferences;
@@ -14,7 +15,7 @@ use super::handler::{
     handle_sentinal,
 };
 use crate::assets::command_image_collector::CommandImageCollector;
-use crate::bot::handler::{handle_aptos_connect, handle_wallet_address};
+use crate::bot::handler::{handle_aptos_connect, handle_balance, handle_wallet_address};
 use crate::user_model_preferences::handler::{
     handle_my_settings, handle_select_model, handle_select_reasoning_model,
 };
@@ -30,11 +31,13 @@ pub async fn answers(
     user_model_prefs: UserModelPreferences,
     ai: AI,
     cmd_collector: Arc<CommandImageCollector>,
+    panora: Panora,
 ) -> Result<()> {
     match cmd {
         Command::AptosConnect => handle_aptos_connect(bot, msg).await?,
         Command::Help => handle_help(bot, msg).await?,
         Command::WalletAddress => handle_wallet_address(bot, msg, tree).await?,
+        Command::Balance(symbol) => handle_balance(bot, msg, &symbol, tree, panora).await?,
         Command::LoginUser => handle_login_user(bot, msg).await?,
         Command::LoginGroup => handle_login_group(bot, msg).await?,
         Command::AddFiles => handle_add_files(bot, msg).await?,

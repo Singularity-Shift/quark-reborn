@@ -1,6 +1,5 @@
 use std::env;
 
-use aptos_rust_sdk::client::rest_api::AptosFullnodeClient;
 use quark_core::helpers::dto::{PayUsersRequest, PayUsersVersion};
 use sled::Tree;
 use teloxide::types::Message;
@@ -1196,25 +1195,11 @@ pub async fn execute_pay_users(
             version = PayUsersVersion::V1;
             ("0x1::aptos_coin::AptosCoin".to_string(), 8u8)
         } else {
-            let tokens = panora.get_panora_token_list().await;
+            let token = panora.get_token_by_symbol(symbol).await;
 
-            if tokens.is_err() {
-                log::error!(
-                    "❌ Error getting tokens: {}",
-                    tokens.as_ref().err().unwrap()
-                );
-                return format!("❌ Error getting tokens: {}", tokens.err().unwrap());
-            }
-
-            let tokens = tokens.unwrap();
-
-            let token = tokens
-                .iter()
-                .find(|t| t.panora_symbol.to_lowercase() == symbol.to_lowercase() && !t.is_banned);
-
-            if token.is_none() {
-                log::error!("❌ Token not found: {}", symbol);
-                return format!("❌ Token not found: {}", symbol);
+            if token.is_err() {
+                log::error!("❌ Error getting token: {}", token.as_ref().err().unwrap());
+                return format!("❌ Error getting token: {}", token.err().unwrap());
             }
 
             let token = token.unwrap();
@@ -1369,29 +1354,14 @@ pub async fn execute_get_balance(
                 "APT".to_string(),
             )
         } else {
-            let tokens = panora.get_panora_token_list().await;
+            let tokens = panora.get_token_by_symbol(symbol).await;
 
             if tokens.is_err() {
-                log::error!(
-                    "❌ Error getting tokens: {}",
-                    tokens.as_ref().err().unwrap()
-                );
-                return format!("❌ Error getting tokens: {}", tokens.err().unwrap());
+                log::error!("❌ Error getting token: {}", tokens.as_ref().err().unwrap());
+                return format!("❌ Error getting token: {}", tokens.err().unwrap());
             }
 
-            let tokens = tokens.unwrap();
-
-            let token = tokens
-                .iter()
-                .find(|t| t.panora_symbol.to_lowercase() == symbol.to_lowercase() && !t.is_banned);
-
-            if token.is_none() {
-                log::error!("❌ Token not found: {}", symbol);
-                return format!("❌ Token not found: {}", symbol);
-            }
-
-            let token = token.unwrap();
-            println!("token: {:?}", token);
+            let token = tokens.unwrap();
 
             let token_type = if token.token_address.as_ref().is_some() {
                 token.token_address.as_ref().unwrap().to_string()

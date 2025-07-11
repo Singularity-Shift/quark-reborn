@@ -6,6 +6,7 @@ use crate::{
     },
     bot::hooks::{fund_account_hook, withdraw_funds_hook},
     credentials::{dto::CredentialsPayload, helpers::get_credentials},
+    panora::handler::Panora,
     services::handler::Services,
     utils::{self, create_purchase_request},
 };
@@ -556,6 +557,7 @@ pub async fn handle_chat(
 ) -> AnyResult<()> {
     // --- Start Typing Indicator Immediately ---
     let bot_clone = bot.clone();
+    let profile = env::var("PROFILE").unwrap_or("dev".to_string());
     let typing_indicator_handle = tokio::spawn(async move {
         loop {
             if let Err(e) = bot_clone
@@ -773,188 +775,6 @@ pub async fn handle_chat(
     Ok(())
 }
 
-pub async fn handle_grouped_chat(
-    bot: Bot,
-    messages: Vec<Message>,
-    db: Db,
-    ai: AI,
-    tree: Tree,
-) -> AnyResult<()> {
-    // Determine the user who initiated the conversation
-    let user = messages.first().and_then(|m| m.from.clone());
-    if user.is_none() {
-        if let Some(first_msg) = messages.first() {
-            bot.send_message(first_msg.chat.id, "❌ Unable to identify sender.")
-                .await?;
-        }
-        return Ok(());
-    }
-    let user_id = user.unwrap().id.0 as i64;
-    let representative_msg = messages.first().unwrap().clone();
-
-    // --- Start Typing Indicator Immediately ---
-    let bot_clone = bot.clone();
-    let chat_id = representative_msg.chat.id;
-    let typing_indicator_handle = tokio::spawn(async move {
-        loop {
-            if let Err(e) = bot_clone
-                .send_chat_action(chat_id, ChatAction::Typing)
-                .await
-            {
-                log::warn!("Failed to send typing action: {}", e);
-                break;
-            }
-            sleep(Duration::from_secs(5)).await;
-        }
-    });
-
-    // --- Download all user-attached images ---
-    let mut user_uploaded_image_paths: Vec<(String, String)> = Vec::new();
-    for msg in &messages {
-        if let Some(photos) = msg.photo() {
-            // Process all photos in each message, not just the last one
-            for photo in photos {
-                let file_id = &photo.file.id;
-                let file_info = bot.get_file(file_id.clone()).await?;
-                let extension = file_info
-                    .path
-                    .split('.')
-                    .last()
-                    .unwrap_or("jpg")
-                    .to_string();
-                let temp_path = format!("/tmp/{}_{}.{}", user_id, photo.file.unique_id, extension);
-                let mut file = File::create(&temp_path)
-                    .await
-                    .map_err(|e| teloxide::RequestError::from(std::sync::Arc::new(e)))?;
-                bot.download_file(&file_info.path, &mut file)
-                    .await
-                    .map_err(|e| teloxide::RequestError::from(e))?;
-                user_uploaded_image_paths.push((temp_path, extension));
-            }
-        }
-    }
-
-    // --- Upload user images to GCS ---
-    let mut all_image_urls = match ai.upload_user_images(user_uploaded_image_paths).await {
-        Ok(urls) => urls,
-        Err(e) => {
-            log::error!("Failed to upload user images: {}", e);
-            typing_indicator_handle.abort();
-            bot.send_message(
-                representative_msg.chat.id,
-                "Sorry, I couldn't upload your images. Please try again.",
-            )
-            .await?;
-            return Ok(());
-        }
-    };
-
-    // Extract all image URLs from the message group (reply or user-uploaded)
-    let mut combined_text_input = String::new();
-
-    for msg in &messages {
-        // Look for URLs in replies
-        if let Some(reply) = msg.reply_to_message() {
-            if let Some(from) = reply.from.as_ref() {
-                if from.is_bot {
-                    let reply_text = reply.text().or_else(|| reply.caption());
-                    if let Some(text) = reply_text {
-                        // A simple regex to find the GCS URL
-                        if let Ok(re) = regex::Regex::new(
-                            r"https://storage\.googleapis\.com/sshift-gpt-bucket/[^\s]+",
-                        ) {
-                            if let Some(mat) = re.find(text) {
-                                all_image_urls.push(mat.as_str().to_string());
-                            }
-                        }
-                    }
-                }
-            }
-        }
-
-        // Aggregate text from all messages
-        if let Some(text) = msg.text() {
-            if !text.is_empty() {
-                if !combined_text_input.is_empty() {
-                    combined_text_input.push(' ');
-                }
-                combined_text_input.push_str(text);
-            }
-        } else if let Some(caption) = msg.caption() {
-            if !caption.is_empty() {
-                if !combined_text_input.is_empty() {
-                    combined_text_input.push(' ');
-                }
-                combined_text_input.push_str(caption);
-            }
-        }
-    }
-
-    // Use the aggregated text as the final input
-    let final_input = if combined_text_input.is_empty() {
-        "Describe the attached images." // Default if no text at all
-    } else {
-        // Clean up command prefix from the combined text if present
-        if let Some(stripped) = combined_text_input.strip_prefix("/c ") {
-            stripped
-        } else {
-            &combined_text_input
-        }
-    };
-
-    // Asynchronously generate the response
-    let response_result = ai
-        .generate_response(
-            representative_msg.clone(),
-            final_input,
-            &db,
-            tree,
-            None,
-            all_image_urls,
-            Model::GPT41Mini,
-            8192,
-            Some(0.5),
-            None,
-        )
-        .await;
-
-    typing_indicator_handle.abort();
-
-    match response_result {
-        Ok(response) => {
-            // Check for image data and send as a photo if present
-            if let Some(image_data) = response.image_data {
-                let photo = InputFile::memory(image_data);
-                let caption = if response.text.len() > 1024 {
-                    &response.text[..1024]
-                } else {
-                    &response.text
-                };
-                bot.send_photo(representative_msg.chat.id, photo)
-                    .caption(caption)
-                    .parse_mode(ParseMode::Markdown)
-                    .await?;
-                // If the text is longer than 1024, send the rest as a follow-up message
-                if response.text.len() > 1024 {
-                    send_long_message(&bot, representative_msg.chat.id, &response.text[1024..])
-                        .await?;
-                }
-            } else {
-                send_long_message(&bot, representative_msg.chat.id, &response.text).await?;
-            }
-        }
-        Err(e) => {
-            bot.send_message(
-                representative_msg.chat.id,
-                format!("An error occurred while processing your request: {}", e),
-            )
-            .await?;
-        }
-    }
-
-    Ok(())
-}
-
 pub async fn handle_new_chat(
     bot: Bot,
     msg: Message,
@@ -1147,7 +967,7 @@ pub async fn handle_message(
     }
 
     if msg.media_group_id().is_some() && msg.photo().is_some() {
-        media_aggregator.add_message(msg, ai, tree).await;
+        media_aggregator.add_message(msg).await;
         return Ok(());
     }
 
@@ -1410,6 +1230,121 @@ pub async fn handle_mod(bot: Bot, msg: Message, db: Db) -> AnyResult<()> {
         .parse_mode(ParseMode::Html)
         .await?;
     }
+    Ok(())
+}
+
+pub async fn handle_balance(
+    bot: Bot,
+    msg: Message,
+    symbol: &str,
+    tree: Tree,
+    panora: Panora,
+) -> AnyResult<()> {
+    let user = msg.from;
+
+    if user.is_none() {
+        bot.send_message(msg.chat.id, "❌ User not found").await?;
+        return Ok(());
+    }
+
+    let user = user.unwrap();
+
+    let username = user.username;
+
+    if username.is_none() {
+        log::error!("❌ Username not found");
+        bot.send_message(msg.chat.id, "❌ Username not found")
+            .await?;
+        return Ok(());
+    }
+
+    let username = username.unwrap();
+
+    let user_credentials = get_credentials(&username, tree.clone());
+
+    if user_credentials.is_none() {
+        log::error!("❌ User not found");
+        bot.send_message(msg.chat.id, "❌ User not found").await?;
+        return Ok(());
+    }
+
+    let (token_type, decimals, token_symbol) =
+        if symbol.to_lowercase() == "apt" || symbol.to_lowercase() == "aptos" {
+            (
+                "0x1::aptos_coin::AptosCoin".to_string(),
+                8u8,
+                "APT".to_string(),
+            )
+        } else {
+            let tokens = panora.get_token_by_symbol(symbol).await;
+
+            if tokens.is_err() {
+                log::error!("❌ Error getting token: {}", tokens.as_ref().err().unwrap());
+                bot.send_message(msg.chat.id, "❌ Error getting token")
+                    .await?;
+                return Ok(());
+            }
+
+            let token = tokens.unwrap();
+
+            let token_type = if token.token_address.as_ref().is_some() {
+                token.token_address.as_ref().unwrap().to_string()
+            } else {
+                token.fa_address.clone()
+            };
+
+            (token_type, token.decimals, token.symbol.clone())
+        };
+
+    let user_credentials = user_credentials.unwrap();
+
+    let balance = panora
+        .aptos
+        .node
+        .get_account_balance(
+            user_credentials.resource_account_address,
+            token_type.to_string(),
+        )
+        .await;
+
+    if balance.is_err() {
+        log::error!(
+            "❌ Error getting balance: {}",
+            balance.as_ref().err().unwrap()
+        );
+        bot.send_message(msg.chat.id, "❌ Error getting balance")
+            .await?;
+        return Ok(());
+    }
+
+    let raw_balance = balance.unwrap().into_inner();
+
+    let balance_i64 = raw_balance.as_i64();
+
+    if balance_i64.is_none() {
+        log::error!("❌ Balance not found");
+        bot.send_message(msg.chat.id, "❌ Balance not found")
+            .await?;
+        return Ok(());
+    }
+
+    let raw_balance = balance_i64.unwrap();
+
+    // Convert raw balance to human readable format using decimals
+    let human_balance = raw_balance as f64 / 10_f64.powi(decimals as i32);
+
+    println!(
+        "Raw balance: {}, Human balance: {}",
+        raw_balance, human_balance
+    );
+
+    bot.send_message(
+        msg.chat.id,
+        format!("💰 **Balance**: {:.6} {}", human_balance, token_symbol),
+    )
+    .parse_mode(ParseMode::Html)
+    .await?;
+
     Ok(())
 }
 
