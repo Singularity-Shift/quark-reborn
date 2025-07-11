@@ -45,6 +45,7 @@ services:
       - BACKEND_URL=${BACKEND_URL}
       - MIN_DEPOSIT=${MIN_DEPOSIT}
       - CONTRACT_ADDRESS=${CONTRACT_ADDRESS}
+      - PROFILE=${PROFILE}
     networks:
       - quark-net
     volumes:

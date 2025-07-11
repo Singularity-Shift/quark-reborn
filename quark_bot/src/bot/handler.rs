@@ -19,7 +19,6 @@ use crate::{
     user_model_preferences::handler::{UserModelPreferences, initialize_user_preferences},
 };
 
-use open_ai_rust_responses_by_sshift::Model;
 use open_ai_rust_responses_by_sshift::types::{ReasoningParams, SummarySetting};
 use quark_core::helpers::{bot_commands::Command, jwt::JwtManager};
 use regex;
@@ -474,35 +473,41 @@ pub async fn handle_reasoning_chat(
     match response_result {
         Ok(ai_response) => {
             // Log tool usage if any tools were used
+            let profile = env::var("PROFILE").unwrap_or("prod".to_string());
             let (web_search, file_search, image_gen, _) = ai_response.get_tool_usage_counts();
 
-            let response = create_purchase_request(
-                file_search,
-                web_search,
-                image_gen,
-                service,
-                ai_response.total_tokens,
-                ai_response.model,
-                &credentials.jwt,
-                None,
-            )
-            .await;
+            if profile != "dev" {
+                let response = create_purchase_request(
+                    file_search,
+                    web_search,
+                    image_gen,
+                    service,
+                    ai_response.total_tokens,
+                    ai_response.model,
+                    &credentials.jwt,
+                    None,
+                )
+                .await;
 
-            if response.is_err() {
-                if response.as_ref().err().unwrap().to_string().contains("401")
-                    || response.as_ref().err().unwrap().to_string().contains("403")
-                {
-                    bot.send_message(msg.chat.id, "Your login has expired. Please login again.")
+                if response.is_err() {
+                    if response.as_ref().err().unwrap().to_string().contains("401")
+                        || response.as_ref().err().unwrap().to_string().contains("403")
+                    {
+                        bot.send_message(
+                            msg.chat.id,
+                            "Your login has expired. Please login again.",
+                        )
                         .await?;
-                } else {
-                    bot.send_message(
+                    } else {
+                        bot.send_message(
                         msg.chat.id,
                         "Sorry, I encountered an error while processing your reasoning request.",
                     )
                     .await?;
-                }
+                    }
 
-                return Ok(());
+                    return Ok(());
+                }
             }
 
             // Check for image data and send as a photo if present
@@ -557,7 +562,7 @@ pub async fn handle_chat(
 ) -> AnyResult<()> {
     // --- Start Typing Indicator Immediately ---
     let bot_clone = bot.clone();
-    let profile = env::var("PROFILE").unwrap_or("dev".to_string());
+    let profile = env::var("PROFILE").unwrap_or("prod".to_string());
     let typing_indicator_handle = tokio::spawn(async move {
         loop {
             if let Err(e) = bot_clone
@@ -692,38 +697,43 @@ pub async fn handle_chat(
         Ok(ai_response) => {
             let (web_search, file_search, image_gen, _) = ai_response.get_tool_usage_counts();
 
-            let response = create_purchase_request(
-                file_search,
-                web_search,
-                image_gen,
-                service,
-                ai_response.total_tokens,
-                ai_response.model,
-                &credentials.jwt,
-                group_id,
-            )
-            .await;
+            if profile != "dev" {
+                let response = create_purchase_request(
+                    file_search,
+                    web_search,
+                    image_gen,
+                    service,
+                    ai_response.total_tokens,
+                    ai_response.model,
+                    &credentials.jwt,
+                    group_id,
+                )
+                .await;
 
-            if response.is_err() {
-                log::error!(
-                    "Error purchasing tokens: {}",
-                    response.as_ref().err().unwrap()
-                );
+                if response.is_err() {
+                    log::error!(
+                        "Error purchasing tokens: {}",
+                        response.as_ref().err().unwrap()
+                    );
 
-                if response.as_ref().err().unwrap().to_string().contains("401")
-                    || response.as_ref().err().unwrap().to_string().contains("403")
-                {
-                    bot.send_message(msg.chat.id, "Your login has expired. Please login again.")
+                    if response.as_ref().err().unwrap().to_string().contains("401")
+                        || response.as_ref().err().unwrap().to_string().contains("403")
+                    {
+                        bot.send_message(
+                            msg.chat.id,
+                            "Your login has expired. Please login again.",
+                        )
                         .await?;
-                } else {
-                    bot.send_message(
-                        msg.chat.id,
-                        "Sorry, I encountered an error while processing your chat request.",
-                    )
-                    .await?;
-                }
+                    } else {
+                        bot.send_message(
+                            msg.chat.id,
+                            "Sorry, I encountered an error while processing your chat request.",
+                        )
+                        .await?;
+                    }
 
-                return Ok(());
+                    return Ok(());
+                }
             }
 
             if let Some(image_data) = ai_response.image_data {
