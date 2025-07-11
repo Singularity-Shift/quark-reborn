@@ -269,7 +269,6 @@ pub async fn execute_custom_tool(
     msg: Message,
     service: Services,
     tree: Tree,
-    node: AptosFullnodeClient,
     panora: Panora,
 ) -> String {
     log::info!(
@@ -279,10 +278,10 @@ pub async fn execute_custom_tool(
     );
 
     let result = match tool_name {
-        "get_balance" => execute_get_balance(arguments, msg, tree, node, panora).await,
+        "get_balance" => execute_get_balance(arguments, msg, tree, panora).await,
         "get_wallet_address" => execute_get_wallet_address(msg, tree).await,
-        "withdraw_funds" => execute_withdraw_funds(arguments, msg, tree, node, panora).await,
-        "fund_account" => execute_fund_account(arguments, msg, tree, node, panora).await,
+        "withdraw_funds" => execute_withdraw_funds(arguments, msg, tree, panora).await,
+        "fund_account" => execute_fund_account(arguments, msg, tree, panora).await,
         "get_trending_pools" => execute_trending_pools(arguments).await,
         "search_pools" => execute_search_pools(arguments).await,
         "get_new_pools" => execute_new_pools(arguments).await,

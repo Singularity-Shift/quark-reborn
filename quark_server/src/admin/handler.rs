@@ -4,8 +4,9 @@ use aptos_crypto::ed25519::{Ed25519PrivateKey, Ed25519PublicKey};
 use aptos_rust_sdk_types::api_types::{
     address::AccountAddress, transaction_authenticator::AuthenticationKey,
 };
+use quark_core::helpers::gpg::decrypt_private_key_in_memory;
 
-use crate::{error::ErrorServer, gpg::decrypt_private_key_in_memory};
+use crate::error::ErrorServer;
 
 pub fn get_admin() -> Result<(AccountAddress, Ed25519PrivateKey), ErrorServer> {
     let private_key = env::var("PRIVATE_KEY").expect("PRIVATE_KEY environment variable not set");

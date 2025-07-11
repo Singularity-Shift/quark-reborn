@@ -1,17 +1,11 @@
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Serialize)]
-pub enum QueryValue {
-    Boolean(bool),
-    String(String),
-}
-
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Serialize)]
 pub struct PanoraResponse {
     pub data: Vec<Token>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct Token {
     #[serde(rename = "chainId")]
     pub chain_id: u64,

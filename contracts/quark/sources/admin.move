@@ -1,4 +1,4 @@
-module quark_test::admin_v4 {
+module quark_test::admin_v5 {
     use std::signer;
     use std::option::{Self, Option};
 
@@ -7,6 +7,10 @@ module quark_test::admin_v4 {
         pending_admin: Option<address>,
         reviewer_account: address,
         reviewer_pending_admin: Option<address>,
+    }
+
+    struct Config has key {
+        coin_addr: Option<address>,
     }
 
     const ONLY_ADMIN_CAN_CALL: u64 = 1;
