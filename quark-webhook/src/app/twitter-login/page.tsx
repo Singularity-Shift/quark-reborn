@@ -1,18 +1,23 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import { useSearchParams } from 'next/navigation';
 
 export default function TwitterLoginPage() {
   const [status, setStatus] = useState<'loading' | 'redirecting' | 'error'>('loading');
   const [error, setError] = useState<string>('');
   const searchParams = useSearchParams();
+  const hasRun = useRef(false);
+
+  // Extract search parameters once
+  const userId = searchParams.get('userId');
+  const state = searchParams.get('state');
+  const challenge = searchParams.get('challenge');
+  const verifier = searchParams.get('verifier');
 
   useEffect(() => {
-    const userId = searchParams.get('userId');
-    const state = searchParams.get('state');
-    const challenge = searchParams.get('challenge');
-    const verifier = searchParams.get('verifier');
+    if (hasRun.current) return;
+    hasRun.current = true;
 
     if (!userId || !state || !challenge || !verifier) {
       setStatus('error');
@@ -36,7 +41,7 @@ export default function TwitterLoginPage() {
 
     setStatus('redirecting');
     window.location.href = twitterAuthUrl.toString();
-  }, [searchParams]);
+  }, [userId, state, challenge, verifier]);
 
   if (status === 'loading') {
     return (

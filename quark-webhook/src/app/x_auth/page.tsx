@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import { useSearchParams } from 'next/navigation';
 
 // Telegram WebApp types
@@ -31,18 +31,18 @@ export default function TwitterCallbackPage() {
   const [status, setStatus] = useState<'loading' | 'success' | 'error'>('loading');
   const [result, setResult] = useState<TwitterAuthResponse | null>(null);
   const searchParams = useSearchParams();
+  const hasRun = useRef(false);
+  
+  // Extract search parameters once
+  const code = searchParams.get('code');
+  const state = searchParams.get('state');
+  const error = searchParams.get('error');
 
   useEffect(() => {
-    let hasRun = false;
     const handleCallback = async () => {
-      if (hasRun) return;
-      hasRun = true;
+      if (hasRun.current) return;
+      hasRun.current = true;
       try {
-        // Get OAuth response from URL
-        const code = searchParams.get('code');
-        const state = searchParams.get('state');
-        const error = searchParams.get('error');
-
         if (error) {
           throw new Error(`Twitter OAuth error: ${error}`);
         }
@@ -124,7 +124,7 @@ export default function TwitterCallbackPage() {
     };
 
     handleCallback();
-  }, [searchParams]);
+  }, [code, state, error]);
 
   if (status === 'loading') {
     return (
