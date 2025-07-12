@@ -165,7 +165,7 @@ impl AI {
 
         let token_decimals = token_decimals.unwrap();
 
-        let min_deposit = (self.min_deposit / token_price);
+        let min_deposit = self.min_deposit / token_price;
 
         let min_deposit = (min_deposit as f64 * 10_f64.powi(token_decimals as i32)) as u64;
 
@@ -404,6 +404,7 @@ impl AI {
                         msg.clone(),
                         self.service.clone(),
                         tree.clone(),
+                        self.panora.aptos.node.clone(),
                         self.panora.clone(),
                     )
                     .await;
