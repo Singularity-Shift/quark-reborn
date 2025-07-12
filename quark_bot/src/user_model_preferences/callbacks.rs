@@ -54,7 +54,7 @@ pub async fn handle_model_preferences_callback(
                     )
                 )
                 .reply_markup(keyboard)
-                .parse_mode(ParseMode::Markdown)
+                .parse_mode(ParseMode::MarkdownV2)
                 .await?;
             }
         }
@@ -94,7 +94,7 @@ pub async fn handle_model_preferences_callback(
                         temperature
                     )
                 )
-                .parse_mode(ParseMode::Markdown)
+                .parse_mode(ParseMode::MarkdownV2)
                 .await?;
             }
         }
@@ -130,7 +130,7 @@ pub async fn handle_model_preferences_callback(
                     )
                 )
                 .reply_markup(keyboard)
-                .parse_mode(ParseMode::Markdown)
+                .parse_mode(ParseMode::MarkdownV2)
                 .await?;
             }
         }
@@ -169,7 +169,7 @@ pub async fn handle_model_preferences_callback(
                         effort_to_display_string(&effort)
                     )
                 )
-                .parse_mode(ParseMode::Markdown)
+                .parse_mode(ParseMode::MarkdownV2)
                 .await?;
             }
         }

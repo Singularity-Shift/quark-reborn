@@ -11,7 +11,7 @@ pub struct MediaGroupAggregator {
 }
 
 impl MediaGroupAggregator {
-    pub fn new(bot: Bot, db: Db) -> Self {
+    pub fn new(_bot: Bot, _db: Db) -> Self {
         Self {
             groups: DashMap::new(),
         }
