@@ -1,11 +1,13 @@
 use crate::ai::handler::AI;
+use crate::credentials::handler::Auth;
+use crate::group::handler::Group;
 use crate::panora::handler::Panora;
 use crate::services::handler::Services;
 use crate::user_conversation::handler::UserConversations;
 use crate::user_model_preferences::handler::UserModelPreferences;
 use anyhow::Result;
 use quark_core::helpers::bot_commands::Command;
-use sled::{Db, Tree};
+use sled::Db;
 use std::sync::Arc;
 use teloxide::{Bot, prelude::*, types::Message};
 
@@ -15,7 +17,10 @@ use super::handler::{
     handle_sentinal,
 };
 use crate::assets::command_image_collector::CommandImageCollector;
-use crate::bot::handler::{handle_aptos_connect, handle_balance, handle_wallet_address};
+use crate::bot::handler::{
+    handle_aptos_connect, handle_balance, handle_group_balance, handle_group_wallet_address,
+    handle_wallet_address,
+};
 use crate::user_model_preferences::handler::{
     handle_my_settings, handle_select_model, handle_select_reasoning_model,
 };
@@ -25,27 +30,28 @@ pub async fn answers(
     msg: Message,
     cmd: Command,
     db: Db,
-    tree: Tree,
+    auth: Auth,
     service: Services,
     user_convos: UserConversations,
     user_model_prefs: UserModelPreferences,
     ai: AI,
     cmd_collector: Arc<CommandImageCollector>,
     panora: Panora,
+    group: Group,
 ) -> Result<()> {
     match cmd {
         Command::AptosConnect => handle_aptos_connect(bot, msg).await?,
         Command::Help => handle_help(bot, msg).await?,
-        Command::WalletAddress => handle_wallet_address(bot, msg, tree).await?,
-        Command::Balance(symbol) => handle_balance(bot, msg, &symbol, tree, panora).await?,
+        Command::WalletAddress => handle_wallet_address(bot, msg, auth).await?,
+        Command::Balance(symbol) => handle_balance(bot, msg, &symbol, auth, panora).await?,
         Command::LoginUser => handle_login_user(bot, msg).await?,
-        Command::LoginGroup => handle_login_group(bot, msg).await?,
+        Command::LoginGroup => handle_login_group(bot, msg, group, service).await?,
         Command::AddFiles => handle_add_files(bot, msg).await?,
         Command::ListFiles => handle_list_files(bot, msg, db, user_convos).await?,
         Command::NewChat => handle_new_chat(bot, msg, user_convos).await?,
         Command::C(prompt) => {
             if prompt.trim().is_empty() && msg.photo().is_some() {
-                cmd_collector.add_command(ai, msg, tree, None).await;
+                cmd_collector.add_command(ai, msg, auth, None, group).await;
             } else if prompt.trim().is_empty() {
                 bot.send_message(
                     msg.chat.id,
@@ -59,10 +65,11 @@ pub async fn answers(
                     service,
                     ai,
                     db,
-                    tree,
+                    auth,
                     user_model_prefs.clone(),
                     prompt,
                     None,
+                    group,
                 )
                 .await?;
             }
@@ -100,7 +107,7 @@ pub async fn answers(
 
             if prompt.trim().is_empty() && multimedia_message.photo().is_some() {
                 cmd_collector
-                    .add_command(ai, multimedia_message, tree, Some(group_id))
+                    .add_command(ai, multimedia_message, auth, Some(group_id), group)
                     .await;
             } else if prompt.trim().is_empty() {
                 bot.send_message(
@@ -115,17 +122,18 @@ pub async fn answers(
                     service,
                     ai,
                     db,
-                    tree,
+                    auth,
                     user_model_prefs.clone(),
                     prompt,
                     Some(group_id),
+                    group,
                 )
                 .await?;
             }
         }
         Command::R(prompt) => {
             if prompt.trim().is_empty() && msg.photo().is_some() {
-                cmd_collector.add_command(ai, msg, tree, None).await;
+                cmd_collector.add_command(ai, msg, auth, None, group).await;
             } else if prompt.trim().is_empty() {
                 bot.send_message(
                     msg.chat.id,
@@ -139,9 +147,10 @@ pub async fn answers(
                     service,
                     ai,
                     db,
-                    tree,
+                    auth,
                     user_model_prefs.clone(),
                     prompt,
+                    group,
                 )
                 .await?;
             }
@@ -164,6 +173,12 @@ pub async fn answers(
             handle_select_reasoning_model(bot, msg, user_model_prefs.clone()).await?
         }
         Command::MySettings => handle_my_settings(bot, msg, user_model_prefs.clone()).await?,
+        Command::GroupWalletAddress => {
+            handle_group_wallet_address(bot, msg, group).await?;
+        }
+        Command::GroupBalance(symbol) => {
+            handle_group_balance(bot, msg, group, panora, &symbol).await?;
+        }
     };
     Ok(())
 }

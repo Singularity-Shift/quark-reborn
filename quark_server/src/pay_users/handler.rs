@@ -1,14 +1,9 @@
 use std::{str::FromStr, sync::Arc};
 
-use aptos_crypto::ed25519::Ed25519PublicKey;
 use aptos_rust_sdk_types::api_types::{
     address::AccountAddress,
     module_id::ModuleId,
-    transaction::{
-        EntryFunction, GenerateSigningMessage, RawTransaction, RawTransactionWithData,
-        SignedTransaction, TransactionPayload,
-    },
-    transaction_authenticator::{AccountAuthenticator, TransactionAuthenticator},
+    transaction::{EntryFunction, TransactionPayload},
     type_tag::TypeTag,
 };
 use axum::{
@@ -21,9 +16,10 @@ use crate::{
     admin::handler::{get_admin, get_reviewer_priv_acc},
     error::ErrorServer,
     state::ServerState,
+    util::execute_transaction,
 };
 use quark_core::helpers::dto::{
-    PayUsersRequest, PayUsersVersion, SimulateTransactionResponse, TransactionResponse, UserPayload,
+    PayUsersRequest, PayUsersVersion, TransactionResponse, UserPayload,
 };
 
 #[utoipa::path(
@@ -122,149 +118,21 @@ pub async fn pay_users(
         )),
     };
 
-    let resource = node
-        .get_account_resources(admin.to_string())
-        .await
-        .map_err(|e| ErrorServer {
-            status: StatusCode::INTERNAL_SERVER_ERROR.into(),
-            message: e.to_string(),
-        })?
-        .into_inner();
-
-    let sequence_number = resource
-        .iter()
-        .find(|r| r.type_ == "0x1::account::Account")
-        .ok_or(ErrorServer {
-            status: StatusCode::NOT_FOUND.into(),
-            message: "Account resource not found".to_string(),
-        })?
-        .data
-        .get("sequence_number")
-        .ok_or(ErrorServer {
-            status: StatusCode::NOT_FOUND.into(),
-            message: "Sequence number not found".to_string(),
-        })?
-        .as_str()
-        .ok_or(ErrorServer {
-            status: StatusCode::NOT_FOUND.into(),
-            message: "Sequence number not found".to_string(),
-        })?
-        .parse::<u64>()
-        .map_err(|e| ErrorServer {
-            status: StatusCode::INTERNAL_SERVER_ERROR.into(),
-            message: e.to_string(),
-        })?;
-
-    let max_gas_amount = 1500;
-    let gas_unit_price = 100;
-    let expiration_timestamp_secs = state.timestamp_usecs / 1000 / 1000 + 60 * 10;
-
-    let raw_transaction = RawTransactionWithData::new_multi_agent(
-        RawTransaction::new(
-            admin,
-            sequence_number,
-            payload,
-            max_gas_amount,
-            gas_unit_price,
-            expiration_timestamp_secs,
-            chain_id,
-        ),
-        vec![reviewer],
-    );
-
-    let message = raw_transaction
-        .generate_signing_message()
-        .map_err(|e| ErrorServer {
-            status: StatusCode::INTERNAL_SERVER_ERROR.into(),
-            message: e.to_string(),
-        })?;
-
-    let signature = signer.sign_message(&message);
-
-    let reviewer_signature = reviewer_signer.sign_message(&message);
-
-    println!("Start simulate transaction");
-
-    let simulate_transaction = node
-        .simulate_transaction(SignedTransaction::new(
-            raw_transaction.raw_txn().to_owned(),
-            TransactionAuthenticator::multi_agent(
-                AccountAuthenticator::no_authenticator(),
-                vec![reviewer],
-                vec![AccountAuthenticator::no_authenticator()],
-            ),
-        ))
-        .await
-        .map_err(|e| ErrorServer {
-            status: StatusCode::INTERNAL_SERVER_ERROR.into(),
-            message: e.to_string(),
-        })?;
-
-    let simulate_transaction_inner = simulate_transaction.into_inner();
-
-    let simulate_transaction_success = if simulate_transaction_inner.is_array() {
-        // Handle array response - take the first element
-        let array = simulate_transaction_inner
-            .as_array()
-            .ok_or_else(|| ErrorServer {
-                status: StatusCode::INTERNAL_SERVER_ERROR.into(),
-                message: "Expected array".to_string(),
-            })?;
-        let first_result = array.get(0).ok_or_else(|| ErrorServer {
-            status: StatusCode::INTERNAL_SERVER_ERROR.into(),
-            message: "Empty simulation result array".to_string(),
-        })?;
-        serde_json::from_value::<SimulateTransactionResponse>(first_result.clone()).map_err(
-            |e| ErrorServer {
-                status: StatusCode::INTERNAL_SERVER_ERROR.into(),
-                message: e.to_string(),
-            },
-        )?
-    } else {
-        // Handle single object response
-        serde_json::from_value::<SimulateTransactionResponse>(simulate_transaction_inner.clone())
-            .map_err(|e| ErrorServer {
-                status: StatusCode::INTERNAL_SERVER_ERROR.into(),
-                message: e.to_string(),
-            })?
-    };
-
-    if !simulate_transaction_success.success {
-        return Err(ErrorServer {
-            status: StatusCode::BAD_REQUEST.into(),
-            message: format!(
-                "Simulate transaction failed: {}",
-                simulate_transaction_success.vm_status
-            ),
-        });
-    }
-
-    let transaction = node
-        .submit_transaction(SignedTransaction::new(
-            raw_transaction.raw_txn().to_owned(),
-            TransactionAuthenticator::multi_agent(
-                AccountAuthenticator::ed25519(Ed25519PublicKey::from(&signer), signature),
-                vec![reviewer],
-                vec![AccountAuthenticator::ed25519(
-                    Ed25519PublicKey::from(&reviewer_signer),
-                    reviewer_signature,
-                )],
-            ),
-        ))
-        .await
-        .map_err(|e| ErrorServer {
-            status: StatusCode::INTERNAL_SERVER_ERROR.into(),
-            message: e.to_string(),
-        })?
-        .into_inner();
-
-    println!("Transaction: {:?}", transaction);
-
-    let pay_users_response: TransactionResponse =
-        serde_json::from_value(transaction).map_err(|e| ErrorServer {
-            status: StatusCode::INTERNAL_SERVER_ERROR.into(),
-            message: e.to_string(),
-        })?;
+    let pay_users_response = execute_transaction(
+        node,
+        admin,
+        reviewer,
+        &signer,
+        &reviewer_signer,
+        payload,
+        &state,
+        chain_id,
+    )
+    .await
+    .map_err(|e| ErrorServer {
+        status: StatusCode::INTERNAL_SERVER_ERROR.into(),
+        message: e.to_string(),
+    })?;
 
     Ok(Json(pay_users_response))
 }

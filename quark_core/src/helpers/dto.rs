@@ -1,13 +1,14 @@
-use aptos_rust_sdk_types::api_types::type_tag::TypeTag;
 use open_ai_rust_responses_by_sshift::Model;
 use serde::{Deserialize, Serialize};
 use std::{env, fmt};
-use teloxide::types::UserId;
+use teloxide::types::{ChatId, UserId};
 use utoipa::ToSchema;
 
 pub enum Endpoints {
+    CreateGroup,
     PayUsers,
     Purchase,
+    PayMembers,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -16,11 +17,24 @@ pub struct Claims {
     pub exp: i64, // Expiration time
     pub iat: i64, // Issued at
     pub account_address: String,
+    pub group_id: Option<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct GroupClaims {
+    pub group_id: ChatId,
+    pub exp: i64, // Expiration time
+    pub iat: i64, // Issued at
 }
 
 #[derive(Debug, Clone)]
 pub struct UserPayload {
     pub account_address: String,
+}
+
+#[derive(Debug, Clone)]
+pub struct GroupPayload {
+    pub group_id: ChatId,
 }
 
 #[derive(Deserialize, Serialize, Debug, ToSchema)]
@@ -74,6 +88,11 @@ pub struct TransactionResponse {
     pub hash: String,
 }
 
+#[derive(Deserialize, Serialize, Debug, ToSchema)]
+pub struct CreateGroupResponse {
+    pub resource_account_address: String,
+}
+
 #[derive(Deserialize, Debug)]
 pub struct SimulateTransactionResponse {
     pub success: bool,
@@ -108,6 +127,8 @@ impl fmt::Display for Endpoints {
         match self {
             &Endpoints::PayUsers => write!(f, "{}/pay-users", backend_url),
             &Endpoints::Purchase => write!(f, "{}/purchase", backend_url),
+            &Endpoints::PayMembers => write!(f, "{}/pay-members", backend_url),
+            &Endpoints::CreateGroup => write!(f, "{}/create-group", backend_url),
         }
     }
 }

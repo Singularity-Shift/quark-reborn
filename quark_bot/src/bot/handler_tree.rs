@@ -1,5 +1,6 @@
-use crate::ai::handler::AI;
+use crate::group::handler::Group;
 use crate::user_conversation::handler::UserConversations;
+use crate::{ai::handler::AI, credentials::handler::Auth};
 use anyhow::Result;
 use quark_core::helpers::bot_commands::{Command, QuarkState};
 use teloxide::{
@@ -13,7 +14,6 @@ use teloxide::{
 use crate::{
     bot::{answers::answers, handler::handle_message, handler::handle_web_app_data},
     callbacks::handle_callback_query,
-    middleware::auth::auth,
 };
 
 async fn handle_unauthenticated(bot: Bot, msg: Message) -> Result<()> {
@@ -40,8 +40,8 @@ pub fn handler_tree() -> Handler<'static, Result<()>, DpHandlerDescription> {
                             msg.web_app_data().is_some() && msg.chat.is_private()
                         })
                         .endpoint(
-                            |bot: Bot, msg: Message, tree: sled::Tree, db: sled::Db, user_model_prefs: crate::user_model_preferences::handler::UserModelPreferences| async move {
-                                handle_web_app_data(bot, msg, tree, db, user_model_prefs).await
+                            |bot: Bot, msg: Message, db: sled::Db, auth: Auth, user_model_prefs: crate::user_model_preferences::handler::UserModelPreferences| async move {
+                                handle_web_app_data(bot, msg, auth, db, user_model_prefs).await
                             }
                         ),
                 )
@@ -86,7 +86,6 @@ pub fn handler_tree() -> Handler<'static, Result<()>, DpHandlerDescription> {
                             matches!(
                                 cmd,
                                 Command::C(_)
-                                    | Command::G(_)
                                     | Command::R(_)
                                     | Command::WalletAddress
                                     | Command::Balance(_)
@@ -94,12 +93,26 @@ pub fn handler_tree() -> Handler<'static, Result<()>, DpHandlerDescription> {
                                     | Command::ListFiles
                                     | Command::NewChat
                                     | Command::PromptExamples
-                                    | Command::Sentinal(_)
-                                    | Command::Mod
                                     | Command::ModerationRules
                             )
                         })
-                        .filter_async(auth)
+                        .filter_async(|msg: Message, auth: Auth| async move {
+                            auth.verify(msg).await
+                        })
+                        .endpoint(answers),
+                )
+                .branch(
+                    dptree::entry()
+                        .filter_command::<Command>()
+                        .filter(|cmd| {
+                            matches!(
+                                cmd,
+                                Command::G(_) | Command::Mod | Command::Sentinal(_) | Command::GroupBalance(_) | Command::GroupWalletAddress
+                            )
+                        })
+                        .filter_async(|msg: Message, group: Group| async move {
+                            group.verify(msg).await
+                        })
                         .endpoint(answers),
                 )
                 .branch(
@@ -113,7 +126,9 @@ pub fn handler_tree() -> Handler<'static, Result<()>, DpHandlerDescription> {
                             )
                         })
                         .filter(|msg: Message| msg.chat.is_private())
-                        .filter_async(auth)
+                        .filter_async(|msg: Message, auth: Auth| async move {
+                            auth.verify(msg).await
+                        })
                         .endpoint(answers),
                 )
                 // Fallback for any non-command message in PRIVATE CHATS.

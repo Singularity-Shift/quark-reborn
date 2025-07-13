@@ -4,13 +4,13 @@ use super::actions::{
 };
 use crate::{
     ai::actions::{execute_fund_account, execute_get_balance, execute_withdraw_funds},
+    credentials::handler::Auth,
+    group::handler::Group,
     panora::handler::Panora,
     services::handler::Services,
 };
-use aptos_rust_sdk::client::rest_api::AptosFullnodeClient;
 use open_ai_rust_responses_by_sshift::types::Tool;
 use serde_json::json;
-use sled::Tree;
 use teloxide::types::Message;
 
 /// Get account balance tool - returns a Tool for checking user balance
@@ -268,8 +268,9 @@ pub async fn execute_custom_tool(
     arguments: &serde_json::Value,
     msg: Message,
     service: Services,
-    tree: Tree,
+    auth: Auth,
     panora: Panora,
+    group: Group,
 ) -> String {
     log::info!(
         "Executing tool: {} with arguments: {}",
@@ -278,16 +279,16 @@ pub async fn execute_custom_tool(
     );
 
     let result = match tool_name {
-        "get_balance" => execute_get_balance(arguments, msg, tree, panora).await,
-        "get_wallet_address" => execute_get_wallet_address(msg, tree).await,
-        "withdraw_funds" => execute_withdraw_funds(arguments, msg, tree, panora).await,
-        "fund_account" => execute_fund_account(arguments, msg, tree, panora).await,
+        "get_balance" => execute_get_balance(arguments, msg, auth, panora).await,
+        "get_wallet_address" => execute_get_wallet_address(msg, auth).await,
+        "withdraw_funds" => execute_withdraw_funds(arguments, msg, auth, panora).await,
+        "fund_account" => execute_fund_account(arguments, msg, auth, panora).await,
         "get_trending_pools" => execute_trending_pools(arguments).await,
         "search_pools" => execute_search_pools(arguments).await,
         "get_new_pools" => execute_new_pools(arguments).await,
         "get_current_time" => execute_get_time(arguments).await,
         "get_fear_and_greed_index" => execute_fear_and_greed_index(arguments).await,
-        "get_pay_users" => execute_pay_users(arguments, msg, service, tree, panora).await,
+        "get_pay_users" => execute_pay_users(arguments, msg, service, auth, panora, group).await,
         _ => {
             format!("Error: Unknown custom tool '{}'", tool_name)
         }

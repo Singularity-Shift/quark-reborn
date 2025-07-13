@@ -2,7 +2,8 @@ use crate::ai::dto::AIResponse;
 use crate::ai::gcs::GcsImageUploader;
 use crate::ai::prompt::get_prompt;
 use crate::ai::tools::{execute_custom_tool, get_all_custom_tools};
-use crate::credentials::helpers::get_credentials;
+use crate::credentials::handler::Auth;
+use crate::group::handler::Group;
 use crate::panora::handler::Panora;
 use crate::services::handler::Services;
 use crate::user_conversation::handler::UserConversations;
@@ -14,7 +15,7 @@ use open_ai_rust_responses_by_sshift::{
     Client as OAIClient, FunctionCallInfo, Model, RecoveryPolicy, Request,
 };
 use serde_json;
-use sled::{Db, Tree};
+use sled::Db;
 use teloxide::types::Message;
 
 #[derive(Clone)]
@@ -90,13 +91,14 @@ impl AI {
         msg: Message,
         input: &str,
         db: &Db,
-        tree: Tree,
+        auth: Auth,
         image_url_from_reply: Option<String>,
         user_uploaded_image_urls: Vec<String>,
         model: Model,
         max_tokens: u32,
         temperature: Option<f32>,
         reasoning: Option<ReasoningParams>,
+        group: Group,
     ) -> Result<AIResponse, anyhow::Error> {
         let user = msg.from.clone();
 
@@ -121,7 +123,7 @@ impl AI {
 
         let username = username.unwrap();
 
-        let user_credentials = get_credentials(&username, tree.clone());
+        let user_credentials = auth.clone().get_credentials(&username);
 
         if user_credentials.is_none() {
             return Err(anyhow::anyhow!("User credentials not found"));
@@ -165,7 +167,7 @@ impl AI {
 
         let token_decimals = token_decimals.unwrap();
 
-        let min_deposit = (self.min_deposit / token_price);
+        let min_deposit = self.min_deposit / token_price;
 
         let min_deposit = (min_deposit as f64 * 10_f64.powi(token_decimals as i32)) as u64;
 
@@ -403,8 +405,9 @@ impl AI {
                         &args_value,
                         msg.clone(),
                         self.service.clone(),
-                        tree.clone(),
+                        auth.clone(),
                         self.panora.clone(),
+                        group.clone(),
                     )
                     .await;
 
