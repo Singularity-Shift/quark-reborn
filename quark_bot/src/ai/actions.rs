@@ -1151,6 +1151,7 @@ pub async fn execute_pay_users(
     auth: Auth,
     panora: Panora,
     group: Group,
+    group_id: Option<String>,
 ) -> String {
     let mut version = PayUsersVersion::V1;
 
@@ -1222,7 +1223,7 @@ pub async fn execute_pay_users(
 
     let result: Result<TransactionResponse, anyhow::Error>;
 
-    if msg.chat.is_group() || msg.chat.is_supergroup() {
+    if group_id.is_some() {
         let group_credentials = group.get_credentials(&msg.chat.id);
 
         if group_credentials.is_none() {
@@ -1232,7 +1233,17 @@ pub async fn execute_pay_users(
 
         let group_credentials = group_credentials.unwrap();
 
-        result = services.pay_members(group_credentials.jwt).await
+        result = services
+            .pay_members(
+                group_credentials.jwt,
+                PayUsersRequest {
+                    amount: blockchain_amount,
+                    users: user_addresses,
+                    coin_type: token_type,
+                    version: version,
+                },
+            )
+            .await;
     } else {
         let user = msg.from;
 
@@ -1294,7 +1305,12 @@ pub async fn execute_pay_users(
     )
 }
 
-pub async fn execute_get_wallet_address(msg: Message, auth: Auth) -> String {
+pub async fn execute_get_wallet_address(
+    msg: Message,
+    auth: Auth,
+    group: Group,
+    group_id: Option<String>,
+) -> String {
     let user = msg.from;
 
     if user.is_none() {
@@ -1313,18 +1329,29 @@ pub async fn execute_get_wallet_address(msg: Message, auth: Auth) -> String {
 
     let username = username.unwrap();
 
-    let user_credentials = auth.get_credentials(&username);
+    let resource_account_address = if group_id.is_some() {
+        let group_credentials = group.get_credentials(&msg.chat.id);
 
-    if user_credentials.is_none() {
-        log::error!("❌ User not found");
-        return "❌ User not found".to_string();
-    }
+        if group_credentials.is_none() {
+            log::error!("❌ Group not found");
+            return "❌ Group not found".to_string();
+        }
 
-    let user_credentials = user_credentials.unwrap();
+        let group_credentials = group_credentials.unwrap();
 
-    let wallet_address = user_credentials.resource_account_address;
+        group_credentials.resource_account_address
+    } else {
+        let user_credentials = auth.get_credentials(&username);
 
-    wallet_address
+        if user_credentials.is_none() {
+            log::error!("❌ User not found");
+            return "❌ User not found".to_string();
+        }
+
+        user_credentials.unwrap().resource_account_address
+    };
+
+    resource_account_address
 }
 
 pub async fn execute_get_balance(
@@ -1332,30 +1359,41 @@ pub async fn execute_get_balance(
     msg: Message,
     auth: Auth,
     panora: Panora,
+    group: Group,
+    group_id: Option<String>,
 ) -> String {
-    let user = msg.from;
+    let resource_account_address = if group_id.is_some() {
+        let group_credentials = group.get_credentials(&msg.chat.id);
 
-    if user.is_none() {
-        return "❌ User not found".to_string();
-    }
+        if group_credentials.is_none() {
+            log::error!("❌ Group not found");
+            return "❌ Group not found".to_string();
+        }
 
-    let user = user.unwrap();
+        group_credentials.unwrap().resource_account_address
+    } else {
+        let user = msg.from;
 
-    let username = user.username;
+        if user.is_none() {
+            log::error!("❌ User not found");
+            return "❌ User not found".to_string();
+        }
 
-    if username.is_none() {
-        log::error!("❌ Username not found");
-        return "❌ Username not found".to_string();
-    }
+        let user = user.unwrap();
 
-    let username = username.unwrap();
+        let username = user.username;
 
-    let user_credentials = auth.get_credentials(&username);
+        if username.is_none() {
+            log::error!("❌ Username not found");
+            return "❌ Username not found".to_string();
+        }
 
-    if user_credentials.is_none() {
-        log::error!("❌ User not found");
-        return "❌ User not found".to_string();
-    }
+        let username = username.unwrap();
+
+        auth.get_credentials(&username)
+            .unwrap()
+            .resource_account_address
+    };
 
     let symbol = arguments
         .get("symbol")
@@ -1388,15 +1426,10 @@ pub async fn execute_get_balance(
             (token_type, token.decimals, token.symbol.clone())
         };
 
-    let user_credentials = user_credentials.unwrap();
-
     let balance = panora
         .aptos
         .node
-        .get_account_balance(
-            user_credentials.resource_account_address,
-            token_type.to_string(),
-        )
+        .get_account_balance(resource_account_address, token_type.to_string())
         .await;
 
     if balance.is_err() {

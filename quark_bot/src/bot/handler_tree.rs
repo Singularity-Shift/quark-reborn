@@ -106,7 +106,8 @@ pub fn handler_tree() -> Handler<'static, Result<()>, DpHandlerDescription> {
                         .filter(|cmd| {
                             matches!(
                                 cmd,
-                                Command::G(_) | Command::Mod | Command::Sentinel(_) | Command::GroupBalance(_) | Command::GroupWalletAddress | Command::ModerationRules
+                                Command::G(_) 
+                                    | Command::Mod | Command::Sentinel(_) | Command::GroupBalance(_) | Command::GroupWalletAddress | Command::ModerationRules
                             )
                         })
                         .filter_async(|msg: Message, group: Group| async move {
@@ -135,15 +136,9 @@ pub fn handler_tree() -> Handler<'static, Result<()>, DpHandlerDescription> {
                 // sent via DM while ignoring non-command chatter in groups.
                 .branch(
                     dptree::entry()
-                        .filter(|msg: Message| msg.chat.is_private())
                         .endpoint(handle_message),
                 )
                 // Handle group messages for sentinel auto-moderation
-                .branch(
-                    dptree::entry()
-                        .filter(|msg: Message| !msg.chat.is_private())
-                        .endpoint(handle_message),
-                )
                 .branch(
                     // Handle DM-only commands when used in groups - direct to DMs
                     dptree::entry()

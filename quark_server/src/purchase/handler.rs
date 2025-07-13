@@ -5,7 +5,7 @@ use axum::{
     extract::{Json, State},
     http::StatusCode,
 };
-use quark_core::helpers::dto::{PurchaseMessage, PurchaseRequest, UserPayload};
+use quark_core::helpers::dto::{GroupPayload, PurchaseMessage, PurchaseRequest, UserPayload};
 use redis::AsyncCommands;
 
 use crate::{error::ErrorServer, state::ServerState};
@@ -33,6 +33,38 @@ pub async fn purchase(
     let mut redis_client = server_state.redis_client().clone();
 
     println!("Purchase message: {}", message);
+
+    let _: () = redis_client
+        .lpush("purchase", message)
+        .await
+        .map_err(|e| ErrorServer {
+            status: StatusCode::INTERNAL_SERVER_ERROR.into(),
+            message: e.to_string(),
+        })?;
+
+    Ok(Json(()))
+}
+
+#[utoipa::path(
+    post,
+    path = "/group-purchase",
+    request_body = [PurchaseRequest],
+    description = "Purchase",
+    responses(
+        (status = 200, description = "Success"),
+        (status = 400, description = "Bad Request"),
+    )
+)]
+pub async fn group_purchase(
+    State(server_state): State<Arc<ServerState>>,
+    Extension(group): Extension<GroupPayload>,
+    Json(request): Json<PurchaseRequest>,
+) -> Result<Json<()>, ErrorServer> {
+    let purchase_message: PurchaseMessage = (request, group.group_id.0.to_string()).into();
+
+    let message = serde_json::to_string(&purchase_message).unwrap();
+
+    let mut redis_client = server_state.redis_client().clone();
 
     let _: () = redis_client
         .lpush("purchase", message)

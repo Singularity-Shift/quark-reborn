@@ -9,6 +9,7 @@ pub enum Endpoints {
     PayUsers,
     Purchase,
     PayMembers,
+    GroupPurchase,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -89,8 +90,8 @@ pub struct TransactionResponse {
 }
 
 #[derive(Deserialize, Serialize, Debug, ToSchema)]
-pub struct CreateGroupResponse {
-    pub resource_account_address: String,
+pub struct CreateGroupRequest {
+    pub group_id: String,
 }
 
 #[derive(Deserialize, Debug)]
@@ -129,6 +130,7 @@ impl fmt::Display for Endpoints {
             &Endpoints::Purchase => write!(f, "{}/purchase", backend_url),
             &Endpoints::PayMembers => write!(f, "{}/pay-members", backend_url),
             &Endpoints::CreateGroup => write!(f, "{}/create-group", backend_url),
+            &Endpoints::GroupPurchase => write!(f, "{}/group-purchase", backend_url),
         }
     }
 }

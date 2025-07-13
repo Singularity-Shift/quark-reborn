@@ -99,6 +99,7 @@ impl AI {
         temperature: Option<f32>,
         reasoning: Option<ReasoningParams>,
         group: Group,
+        group_id: Option<String>,
     ) -> Result<AIResponse, anyhow::Error> {
         let user = msg.from.clone();
 
@@ -115,25 +116,43 @@ impl AI {
             input
         );
 
-        let username = user.username.clone();
+        let address = if group_id.is_some() {
+            let group_credentials = group.get_credentials(&msg.chat.id);
 
-        if username.is_none() {
-            return Err(anyhow::anyhow!("Username not found"));
+            if group_credentials.is_none() {
+                return Err(anyhow::anyhow!("Group credentials not found"));
+            }
+
+            let group_credentials = group_credentials.unwrap();
+
+            group_credentials.resource_account_address
+        } else {
+            let username = user.username.clone();
+
+            if username.is_none() {
+                return Err(anyhow::anyhow!("Username not found"));
+            }
+
+            let username = username.unwrap();
+
+            let user_credentials = auth.clone().get_credentials(&username);
+
+            if user_credentials.is_none() {
+                return Err(anyhow::anyhow!("User credentials not found"));
+            }
+
+            let user_credentials = user_credentials.unwrap();
+
+            user_credentials.resource_account_address
+        };
+
+        let coin_address = self.panora.aptos.get_token_address().await;
+
+        if coin_address.is_err() {
+            return Err(anyhow::anyhow!("Coin address not found"));
         }
 
-        let username = username.unwrap();
-
-        let user_credentials = auth.clone().get_credentials(&username);
-
-        if user_credentials.is_none() {
-            return Err(anyhow::anyhow!("User credentials not found"));
-        }
-
-        let user_credentials = user_credentials.unwrap();
-
-        let coin_address = self.panora.aptos.get_token_address().await?;
-
-        let address = user_credentials.resource_account_address;
+        let coin_address = coin_address.unwrap();
 
         let user_balance = self
             .panora
@@ -408,6 +427,7 @@ impl AI {
                         auth.clone(),
                         self.panora.clone(),
                         group.clone(),
+                        group_id.clone(),
                     )
                     .await;
 

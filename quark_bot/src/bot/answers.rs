@@ -45,7 +45,7 @@ pub async fn answers(
         Command::WalletAddress => handle_wallet_address(bot, msg, auth).await?,
         Command::Balance(symbol) => handle_balance(bot, msg, &symbol, auth, panora).await?,
         Command::LoginUser => handle_login_user(bot, msg).await?,
-        Command::LoginGroup => handle_login_group(bot, msg, group, service).await?,
+        Command::LoginGroup => handle_login_group(bot, msg, group, service, panora).await?,
         Command::AddFiles => handle_add_files(bot, msg).await?,
         Command::ListFiles => handle_list_files(bot, msg, db, user_convos).await?,
         Command::NewChat => handle_new_chat(bot, msg, user_convos).await?,
@@ -159,7 +159,7 @@ pub async fn answers(
             handle_sentinel(bot, msg, param, db).await?;
         }
         Command::Mod => {
-            handle_mod(bot, msg, db).await?;
+            handle_mod(bot, msg, db, group, service).await?;
         }
         Command::ModerationRules => {
             handle_moderation_rules(bot, msg).await?;
