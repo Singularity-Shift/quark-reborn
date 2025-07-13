@@ -12,7 +12,7 @@ use teloxide::{Bot, prelude::*, types::Message};
 use super::handler::{
     handle_add_files, handle_chat, handle_help, handle_list_files, handle_login_group,
     handle_login_user, handle_mod, handle_moderation_rules, handle_new_chat, handle_reasoning_chat,
-    handle_sentinal,
+    handle_sentinel,
 };
 use crate::assets::command_image_collector::CommandImageCollector;
 use crate::bot::handler::{handle_aptos_connect, handle_balance, handle_wallet_address};
@@ -146,8 +146,8 @@ pub async fn answers(
                 .await?;
             }
         }
-        Command::Sentinal(param) => {
-            handle_sentinal(bot, msg, param, db).await?;
+        Command::Sentinel(param) => {
+            handle_sentinel(bot, msg, param, db).await?;
         }
         Command::Mod => {
             handle_mod(bot, msg, db).await?;
