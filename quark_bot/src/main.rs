@@ -168,7 +168,7 @@ async fn main() {
             "mysettings",
             "View your current model preferences (DM only).",
         ),
-        BotCommand::new("sentinal", "Monitor system status (on/off)."),
+        BotCommand::new("sentinel", "Monitor system status (on/off)."),
         BotCommand::new("mod", "Moderate content (reply to message)."),
         BotCommand::new(
             "moderationrules",
