@@ -19,6 +19,6 @@ aptos-rust-sdk = { workspace = true }
 aptos-rust-sdk-types = { workspace = true }
 aptos-crypto = { workspace = true }
 aptos-crypto-derive = { workspace = true }
-bcs = "0.1.6"
+bcs = { workspace = true }
 redis = { workspace = true }
 hex = { workspace = true }

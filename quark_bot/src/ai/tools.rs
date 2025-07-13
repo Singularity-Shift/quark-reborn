@@ -271,6 +271,7 @@ pub async fn execute_custom_tool(
     auth: Auth,
     panora: Panora,
     group: Group,
+    group_id: Option<String>,
 ) -> String {
     log::info!(
         "Executing tool: {} with arguments: {}",
@@ -279,8 +280,8 @@ pub async fn execute_custom_tool(
     );
 
     let result = match tool_name {
-        "get_balance" => execute_get_balance(arguments, msg, auth, panora).await,
-        "get_wallet_address" => execute_get_wallet_address(msg, auth).await,
+        "get_balance" => execute_get_balance(arguments, msg, auth, panora, group, group_id).await,
+        "get_wallet_address" => execute_get_wallet_address(msg, auth, group, group_id).await,
         "withdraw_funds" => execute_withdraw_funds(arguments, msg, auth, panora).await,
         "fund_account" => execute_fund_account(arguments, msg, auth, panora).await,
         "get_trending_pools" => execute_trending_pools(arguments).await,
@@ -288,7 +289,9 @@ pub async fn execute_custom_tool(
         "get_new_pools" => execute_new_pools(arguments).await,
         "get_current_time" => execute_get_time(arguments).await,
         "get_fear_and_greed_index" => execute_fear_and_greed_index(arguments).await,
-        "get_pay_users" => execute_pay_users(arguments, msg, service, auth, panora, group).await,
+        "get_pay_users" => {
+            execute_pay_users(arguments, msg, service, auth, panora, group, group_id).await
+        }
         _ => {
             format!("Error: Unknown custom tool '{}'", tool_name)
         }

@@ -9,14 +9,12 @@ use crate::{
 use aptos_rust_sdk_types::api_types::{
     module_id::ModuleId,
     transaction::{EntryFunction, TransactionPayload},
-    view::ViewRequest,
 };
 use axum::{
-    Extension,
     extract::{Json, State},
     http::StatusCode,
 };
-use quark_core::helpers::dto::{CreateGroupResponse, GroupPayload};
+use quark_core::helpers::dto::CreateGroupRequest;
 
 #[utoipa::path(
     post,
@@ -29,9 +27,9 @@ use quark_core::helpers::dto::{CreateGroupResponse, GroupPayload};
 )]
 pub async fn create_group(
     State(server_state): State<Arc<ServerState>>,
-    Extension(group): Extension<GroupPayload>,
-) -> Result<Json<CreateGroupResponse>, ErrorServer> {
-    let group_id = group.group_id;
+    Json(request): Json<CreateGroupRequest>,
+) -> Result<Json<()>, ErrorServer> {
+    let group_id = request.group_id;
 
     let group_id = group_id.to_string();
 
@@ -53,11 +51,16 @@ pub async fn create_group(
         message: e.to_string(),
     })?;
 
+    println!("Creating group: {}", group_id);
+
     let payload = TransactionPayload::EntryFunction(EntryFunction::new(
-        ModuleId::new(contract_address, "group".to_string()),
+        ModuleId::new(contract_address, "group_v5".to_string()),
         "create_group".to_string(),
         vec![],
-        vec![group_id.clone().into()],
+        vec![bcs::to_bytes(&group_id).map_err(|e| ErrorServer {
+            status: StatusCode::INTERNAL_SERVER_ERROR.into(),
+            message: e.to_string(),
+        })?],
     ));
 
     execute_transaction(
@@ -76,25 +79,5 @@ pub async fn create_group(
         message: e.to_string(),
     })?;
 
-    let resource_account_address = node
-        .view_function(ViewRequest {
-            function: format!("{}::group::get_group_account", contract_address),
-            type_arguments: vec![],
-            arguments: vec![group_id.clone().into()],
-        })
-        .await
-        .map_err(|e| ErrorServer {
-            status: StatusCode::INTERNAL_SERVER_ERROR.into(),
-            message: e.to_string(),
-        })?
-        .into_inner();
-
-    let resource_account_address = resource_account_address.as_str().ok_or(ErrorServer {
-        status: StatusCode::NOT_FOUND.into(),
-        message: "Resource account address not found".to_string(),
-    })?;
-
-    Ok(Json(CreateGroupResponse {
-        resource_account_address: resource_account_address.to_string(),
-    }))
+    Ok(Json(()))
 }

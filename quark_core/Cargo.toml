@@ -20,7 +20,7 @@ chrono = "0.4.41"
 utoipa = { workspace = true }
 regex.workspace = true
 open-ai-rust-responses-by-sshift = { workspace = true }
-aptos-rust-sdk-types = { workspace = true }
+
 
 [dev-dependencies]
 mockito = "1.4.0"

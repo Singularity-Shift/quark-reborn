@@ -81,10 +81,13 @@ pub async fn pay_members(
 
             TransactionPayload::EntryFunction(EntryFunction::new(
                 ModuleId::new(contract_address, "group_v5".to_string()),
-                "pay_to_users_v1".to_string(),
+                "pay_users_v1".to_string(),
                 vec![token_type],
                 vec![
-                    group_id.to_string().into(),
+                    bcs::to_bytes(&&group_id.0.to_string()).map_err(|e| ErrorServer {
+                        status: StatusCode::INTERNAL_SERVER_ERROR.into(),
+                        message: e.to_string(),
+                    })?,
                     amount.to_le_bytes().to_vec(),
                     bcs::to_bytes(&users).map_err(|e| ErrorServer {
                         status: StatusCode::INTERNAL_SERVER_ERROR.into(),
@@ -95,10 +98,13 @@ pub async fn pay_members(
         }
         PayUsersVersion::V2 => TransactionPayload::EntryFunction(EntryFunction::new(
             ModuleId::new(contract_address, "group_v5".to_string()),
-            "pay_to_users_v2".to_string(),
+            "pay_users_v1".to_string(),
             vec![],
             vec![
-                group_id.to_string().into(),
+                bcs::to_bytes(&group_id.0.to_string()).map_err(|e| ErrorServer {
+                    status: StatusCode::INTERNAL_SERVER_ERROR.into(),
+                    message: e.to_string(),
+                })?,
                 amount.to_le_bytes().to_vec(),
                 AccountAddress::from_str(&coin_type)
                     .map_err(|e| ErrorServer {

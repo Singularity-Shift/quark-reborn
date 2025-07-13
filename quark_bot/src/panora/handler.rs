@@ -74,8 +74,6 @@ impl Panora {
             token_address
         };
 
-        println!("token_address_param: {}", token_address_param);
-
         let price_coins_response = self
             .client
             .get(format!("{}/prices", self.panora_url))

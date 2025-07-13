@@ -12,6 +12,8 @@ use crate::{
     utils::{self, create_purchase_request},
 };
 use anyhow::Result as AnyResult;
+use aptos_rust_sdk_types::api_types::view::ViewRequest;
+use serde_json::value;
 
 use crate::{
     ai::{handler::AI, moderation::ModerationService, vector_store::list_user_files_with_names},
@@ -19,8 +21,14 @@ use crate::{
     user_model_preferences::handler::{UserModelPreferences, initialize_user_preferences},
 };
 
-use open_ai_rust_responses_by_sshift::types::{ReasoningParams, SummarySetting};
-use quark_core::helpers::bot_commands::Command;
+use open_ai_rust_responses_by_sshift::{
+    Model,
+    types::{ReasoningParams, SummarySetting},
+};
+use quark_core::helpers::{
+    bot_commands::Command,
+    dto::{CreateGroupRequest, PurchaseRequest},
+};
 use regex;
 use reqwest::Url;
 use sled::Db;
@@ -194,6 +202,7 @@ pub async fn handle_login_group(
     msg: Message,
     group: Group,
     services: Services,
+    panora: Panora,
 ) -> AnyResult<()> {
     // Ensure this command is used in a group chat
     if msg.chat.is_private() {
@@ -206,6 +215,9 @@ pub async fn handle_login_group(
     let admins = bot.get_chat_administrators(msg.chat.id).await?;
     let requester_id = msg.from.as_ref().map(|u| u.id);
     let group_id = msg.chat.id;
+
+    let payload: GroupCredentials;
+
     if let Some(uid) = requester_id {
         let is_admin = admins.iter().any(|member| member.user.id == uid);
         if !is_admin {
@@ -226,6 +238,18 @@ pub async fn handle_login_group(
     let credentials = group.get_credentials(&group_id);
 
     if credentials.is_none() {
+        let group_result = services
+            .create_group(CreateGroupRequest {
+                group_id: group_id.to_string(),
+            })
+            .await;
+
+        if group_result.is_err() {
+            bot.send_message(msg.chat.id, "❌ Unable to create group.")
+                .await?;
+            return Ok(());
+        }
+
         let jwt = group.generate_new_jwt(group_id);
 
         if !jwt {
@@ -234,28 +258,32 @@ pub async fn handle_login_group(
             return Ok(());
         }
 
-        let payload = group.get_credentials(&group_id);
+        let payload_response = group.get_credentials(&group_id);
 
-        if payload.is_none() {
+        if payload_response.is_none() {
             bot.send_message(group_id, "❌ Unable to get credentials.")
                 .await?;
             return Ok(());
         }
 
-        let payload = payload.unwrap();
-        let resource_account_address = services.create_group(payload.jwt.clone()).await?;
-        let resource_account_address = resource_account_address.resource_account_address;
-
-        let new_credentials = GroupCredentials {
-            jwt: payload.jwt,
-            group_id,
-            resource_account_address,
-            users: vec![],
-        };
-
-        group.save_credentials(new_credentials)?;
+        payload = payload_response.unwrap();
+    } else {
+        payload = credentials.unwrap();
     }
-    bot.send_message(msg.chat.id, "🔑 <b>Group Login Successful!</b>\n\n<i>You can now use the group's Quark account to interact with the bot.</i>\n\n💡 <i>Tap any button below to manage your group's Quark account</i>").parse_mode(ParseMode::Html).await?;
+
+    let updated_credentials =
+        check_group_resource_account_address(&bot, &group, payload, msg.clone(), panora.clone())
+            .await;
+
+    if updated_credentials.is_err() {
+        bot.send_message(msg.chat.id, "❌ Unable to save credentials.")
+            .await?;
+        return Ok(());
+    }
+
+    bot.send_message(msg.chat.id, format!("🔑 <b>Group Login Successful!</b>\n\n<i>You can now use the group's Quark account to interact with the bot.</i>\n\n💡 <i>Use /groupwalletaddress to get the group's wallet address and /groupbalance to get the group's balance of a token.</i>"))
+        .parse_mode(ParseMode::Html)
+        .await?;
     Ok(())
 }
 
@@ -500,6 +528,7 @@ pub async fn handle_reasoning_chat(
                     .with_summary(SummarySetting::Detailed),
             ),
             group,
+            None,
         )
         .await;
 
@@ -641,6 +670,8 @@ pub async fn handle_chat(
         return Ok(());
     }
 
+    let group_credentials = group.get_credentials(&msg.chat.id);
+
     let credentials = credentials.unwrap();
 
     // Load user's chat model preferences
@@ -725,6 +756,7 @@ pub async fn handle_chat(
             temperature,
             None,
             group,
+            group_id.clone(),
         )
         .await;
 
@@ -734,6 +766,18 @@ pub async fn handle_chat(
         Ok(ai_response) => {
             let (web_search, file_search, image_gen, _) = ai_response.get_tool_usage_counts();
 
+            let jwt = if group_id.is_some() {
+                let group_credentials = group_credentials;
+
+                if group_credentials.is_some() {
+                    group_credentials.unwrap().jwt
+                } else {
+                    credentials.jwt
+                }
+            } else {
+                credentials.jwt
+            };
+
             if profile != "dev" {
                 let response = create_purchase_request(
                     file_search,
@@ -742,7 +786,7 @@ pub async fn handle_chat(
                     service,
                     ai_response.total_tokens,
                     ai_response.model,
-                    &credentials.jwt,
+                    &jwt,
                     group_id,
                 )
                 .await;
@@ -914,11 +958,47 @@ pub async fn handle_message(
     db: Db,
     auth: Auth,
     group: Group,
+    services: Services,
 ) -> AnyResult<()> {
     // Sentinel: moderate every message in group if sentinel is on
     if !msg.chat.is_private() {
         let sentinel_tree = db.open_tree("sentinel_state").unwrap();
         let chat_id = msg.chat.id.0.to_be_bytes();
+        let user = msg.from.clone();
+
+        if user.is_none() {
+            bot.send_message(msg.chat.id, "❌ User not found").await?;
+            return Ok(());
+        }
+
+        let user = user.unwrap();
+
+        let username = user.username;
+
+        if username.is_none() {
+            bot.send_message(msg.chat.id, "❌ Username not found")
+                .await?;
+            return Ok(());
+        }
+
+        let username = username.unwrap();
+        let group_credentials = group.get_credentials(&msg.chat.id);
+
+        if group_credentials.is_none() {
+            log::error!("Group credentials not found");
+
+            bot.send_message(msg.chat.id, "❌ Group not found, please login again")
+                .await?;
+            return Ok(());
+        }
+
+        let group_credentials = group_credentials.unwrap();
+
+        if !group_credentials.users.contains(&username) {
+            group.add_user_to_group(msg.chat.id, username).await?;
+        }
+
+        // Check if sentinel is on for this group
         let sentinel_on = sentinel_tree
             .get(chat_id)
             .unwrap()
@@ -958,6 +1038,28 @@ pub async fn handle_message(
                         // Mute the user
                         if let Some(flagged_user) = &msg.from {
                             let restricted_permissions = teloxide::types::ChatPermissions::empty();
+
+                            let purchase_result = services
+                                .group_purchase(
+                                    group_credentials.jwt,
+                                    PurchaseRequest {
+                                        model: Model::GPT41Nano,
+                                        tokens_used: result.total_tokens,
+                                        tools_used: vec![],
+                                        group_id: Some(msg.chat.id.0.to_string()),
+                                    },
+                                )
+                                .await;
+
+                            if purchase_result.is_err() {
+                                log::error!(
+                                    "Failed to purchase ai for flagged content: {}",
+                                    purchase_result.err().unwrap()
+                                );
+                                return Ok(());
+                            }
+
+                            // Check if the user is already muted
                             if let Err(mute_error) = bot
                                 .restrict_chat_member(
                                     msg.chat.id,
@@ -1132,7 +1234,13 @@ pub async fn handle_wallet_address(bot: Bot, msg: Message, auth: Auth) -> AnyRes
     Ok(())
 }
 
-pub async fn handle_mod(bot: Bot, msg: Message, db: Db) -> AnyResult<()> {
+pub async fn handle_mod(
+    bot: Bot,
+    msg: Message,
+    db: Db,
+    group: Group,
+    services: Services,
+) -> AnyResult<()> {
     // Check if sentinel is on for this chat
     if !msg.chat.is_private() {
         let sentinel_tree = db.open_tree("sentinel_state").unwrap();
@@ -1152,6 +1260,14 @@ pub async fn handle_mod(bot: Bot, msg: Message, db: Db) -> AnyResult<()> {
             return Ok(());
         }
     }
+
+    let group_credentials = group.get_credentials(&msg.chat.id);
+
+    if group_credentials.is_none() {
+        bot.send_message(msg.chat.id, "❌ Group not found").await?;
+        return Ok(());
+    }
+
     // Check if the command is used in reply to a message
     if let Some(reply_to_msg) = msg.reply_to_message() {
         // Extract text from the replied message
@@ -1189,6 +1305,27 @@ pub async fn handle_mod(bot: Bot, msg: Message, db: Db) -> AnyResult<()> {
                     message_text,
                     result.total_tokens
                 );
+
+                let purchase_result = services
+                    .group_purchase(
+                        group_credentials.unwrap().jwt,
+                        PurchaseRequest {
+                            model: Model::GPT41Nano,
+                            tokens_used: result.total_tokens,
+                            tools_used: vec![],
+                            group_id: Some(msg.chat.id.0.to_string()),
+                        },
+                    )
+                    .await;
+
+                if purchase_result.is_err() {
+                    log::error!(
+                        "Failed to purchase ai for flagged content: {}",
+                        purchase_result.err().unwrap()
+                    );
+                    return Ok(());
+                }
+
                 // Only respond if the message is flagged
                 if result.verdict == "F" {
                     // First, mute the user who sent the flagged message
@@ -1551,4 +1688,70 @@ If you have questions, ask an admin before posting.
         .parse_mode(ParseMode::Html)
         .await?;
     Ok(())
+}
+
+async fn check_group_resource_account_address(
+    bot: &Bot,
+    group: &Group,
+    group_credentials: GroupCredentials,
+    msg: Message,
+    panora: Panora,
+) -> AnyResult<GroupCredentials> {
+    let group_credentials = group_credentials;
+
+    if group_credentials.resource_account_address.is_empty() {
+        let resource_account_address = panora
+            .aptos
+            .node
+            .view_function(ViewRequest {
+                function: format!(
+                    "{}::group_v5::get_group_account",
+                    panora.aptos.contract_address
+                ),
+                type_arguments: vec![],
+                arguments: vec![value::Value::String(msg.chat.id.to_string())],
+            })
+            .await;
+
+        if resource_account_address.is_err() {
+            bot.send_message(msg.chat.id, "❌ Error getting resource account address")
+                .await?;
+            return Err(anyhow::anyhow!("Error getting resource account address"));
+        }
+
+        let resource_account_address = resource_account_address.unwrap().into_inner();
+
+        let resource_account_address =
+            serde_json::from_value::<Vec<String>>(resource_account_address);
+
+        if resource_account_address.is_err() {
+            bot.send_message(msg.chat.id, "❌ Error getting resource account address")
+                .await?;
+            return Err(anyhow::anyhow!("Error getting resource account address"));
+        }
+
+        let resource_account_address = resource_account_address.unwrap();
+
+        let new_credentials = GroupCredentials {
+            jwt: group_credentials.jwt.clone(),
+            group_id: group_credentials.group_id,
+            resource_account_address: resource_account_address[0].clone(),
+            users: group_credentials.users.clone(),
+        };
+
+        group
+            .save_credentials(new_credentials)
+            .map_err(|_| anyhow::anyhow!("Error saving group credentials"))?;
+
+        let updated_credentials = GroupCredentials {
+            jwt: group_credentials.jwt,
+            group_id: group_credentials.group_id,
+            resource_account_address: resource_account_address[0].clone(),
+            users: group_credentials.users,
+        };
+
+        return Ok(updated_credentials);
+    }
+
+    Ok(group_credentials)
 }
