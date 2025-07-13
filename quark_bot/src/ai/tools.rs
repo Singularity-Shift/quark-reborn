@@ -220,13 +220,13 @@ pub fn get_fear_and_greed_index_tool() -> Tool {
 pub fn get_pay_users_tool() -> Tool {
     Tool::function(
         "get_pay_users",
-        "Token Send Tool — Usage Protocol\n\nThis tool executes token transfers to multiple Telegram users by username.\n\nImportant: To prevent costly errors, the assistant must always confirm with the user exactly how the amount should be applied before calling this tool. Specifically, the assistant should clarify and receive explicit confirmation of whether:\n\n- The specified amount is to be sent to each individual user, or,\n- The specified amount is the total to be shared equally among all recipients.\n\nOnly after the user's clear confirmation should the tool be invoked.\n\nParameters:\n- amount: Number of tokens to send.\n- symbol: Token symbol.\n- users: List of usernames (without @).\n- Optional flags (e.g., share_total) can be used if supported.",
+        "Token Send Tool — Streamlined Protocol\n\nThis tool executes token transfers to multiple Telegram users by username. The contract automatically splits the total amount evenly among all recipients.\n\nConfirmation Protocol:\n• Ask for ONE clear confirmation before executing\n• Use explicit format: 'Confirm sending [X] [TOKEN] total, split evenly among [Y] users ([Z] each). Reply \"YES\" to confirm or \"CHANGE\" to modify.'\n• Only proceed after user confirms with \"YES\" or similar affirmative response\n• After execution, immediately provide blockchain explorer link for transaction tracking\n\nParameters:\n- amount: Total amount of tokens to send (will be split evenly)\n- symbol: Token symbol\n- users: List of usernames (without @)",
         json!({
             "type": "object",
             "properties": {
                 "amount": {
                     "type": "number",
-                    "description": "The amount of tokens to send"
+                    "description": "The total amount of tokens to send (will be split evenly among all users)"
                 },
                 "symbol": {
                     "type": "string",
