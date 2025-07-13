@@ -1,11 +1,11 @@
 use std::env;
 
-use quark_core::helpers::dto::{PayUsersRequest, PayUsersVersion};
-use sled::Tree;
+use quark_core::helpers::dto::{PayUsersRequest, PayUsersVersion, TransactionResponse};
 use teloxide::types::Message;
 
 use crate::{
-    credentials::helpers::get_credentials, panora::handler::Panora, services::handler::Services,
+    credentials::handler::Auth, group::handler::Group, panora::handler::Panora,
+    services::handler::Services,
 };
 
 /// Execute trending pools fetch from GeckoTerminal
@@ -1148,28 +1148,11 @@ pub async fn execute_pay_users(
     arguments: &serde_json::Value,
     msg: Message,
     services: Services,
-    tree: Tree,
+    auth: Auth,
     panora: Panora,
+    group: Group,
 ) -> String {
     let mut version = PayUsersVersion::V1;
-
-    let user = msg.from;
-
-    if user.is_none() {
-        log::error!("❌ User not found");
-        return "❌ User not found".to_string();
-    }
-
-    let user = user.unwrap();
-
-    let username = user.username;
-
-    if username.is_none() {
-        log::error!("❌ Username not found");
-        return "❌ Username not found".to_string();
-    }
-
-    let username = username.unwrap();
 
     let amount = arguments
         .get("amount")
@@ -1219,7 +1202,7 @@ pub async fn execute_pay_users(
     let user_addresses = users
         .iter()
         .map(|u| {
-            let user_data = get_credentials(u.as_str(), tree.clone());
+            let user_data = auth.get_credentials(u.as_str());
 
             if user_data.is_none() {
                 log::error!("❌ User not found");
@@ -1237,26 +1220,59 @@ pub async fn execute_pay_users(
         return "❌ No users found".to_string();
     }
 
-    let user_credentials = get_credentials(&username, tree.clone());
+    let result: Result<TransactionResponse, anyhow::Error>;
 
-    if user_credentials.is_none() {
-        log::error!("❌ User not found");
-        return "❌ User not found".to_string();
+    if msg.chat.is_group() || msg.chat.is_supergroup() {
+        let group_credentials = group.get_credentials(&msg.chat.id);
+
+        if group_credentials.is_none() {
+            log::error!("❌ Group not found");
+            return "❌ Group not found".to_string();
+        }
+
+        let group_credentials = group_credentials.unwrap();
+
+        result = services.pay_members(group_credentials.jwt).await
+    } else {
+        let user = msg.from;
+
+        if user.is_none() {
+            log::error!("❌ User not found");
+            return "❌ User not found".to_string();
+        }
+
+        let user = user.unwrap();
+
+        let username = user.username;
+
+        if username.is_none() {
+            log::error!("❌ Username not found");
+            return "❌ Username not found".to_string();
+        }
+
+        let username = username.unwrap();
+
+        let user_credentials = auth.get_credentials(&username);
+
+        if user_credentials.is_none() {
+            log::error!("❌ User not found");
+            return "❌ User not found".to_string();
+        }
+
+        let user_credentials = user_credentials.unwrap();
+
+        result = services
+            .pay_users(
+                user_credentials.jwt,
+                PayUsersRequest {
+                    amount: blockchain_amount,
+                    users: user_addresses,
+                    coin_type: token_type,
+                    version,
+                },
+            )
+            .await;
     }
-
-    let user_credentials = user_credentials.unwrap();
-
-    let result = services
-        .pay_users(
-            user_credentials.jwt,
-            PayUsersRequest {
-                amount: blockchain_amount,
-                users: user_addresses,
-                coin_type: token_type,
-                version,
-            },
-        )
-        .await;
 
     if result.is_err() {
         log::error!(
@@ -1278,7 +1294,7 @@ pub async fn execute_pay_users(
     )
 }
 
-pub async fn execute_get_wallet_address(msg: Message, tree: Tree) -> String {
+pub async fn execute_get_wallet_address(msg: Message, auth: Auth) -> String {
     let user = msg.from;
 
     if user.is_none() {
@@ -1297,7 +1313,7 @@ pub async fn execute_get_wallet_address(msg: Message, tree: Tree) -> String {
 
     let username = username.unwrap();
 
-    let user_credentials = get_credentials(&username, tree.clone());
+    let user_credentials = auth.get_credentials(&username);
 
     if user_credentials.is_none() {
         log::error!("❌ User not found");
@@ -1314,7 +1330,7 @@ pub async fn execute_get_wallet_address(msg: Message, tree: Tree) -> String {
 pub async fn execute_get_balance(
     arguments: &serde_json::Value,
     msg: Message,
-    tree: Tree,
+    auth: Auth,
     panora: Panora,
 ) -> String {
     let user = msg.from;
@@ -1334,7 +1350,7 @@ pub async fn execute_get_balance(
 
     let username = username.unwrap();
 
-    let user_credentials = get_credentials(&username, tree.clone());
+    let user_credentials = auth.get_credentials(&username);
 
     if user_credentials.is_none() {
         log::error!("❌ User not found");
@@ -1416,7 +1432,7 @@ pub async fn execute_get_balance(
 pub async fn execute_withdraw_funds(
     arguments: &serde_json::Value,
     msg: Message,
-    tree: Tree,
+    auth: Auth,
     panora: Panora,
 ) -> String {
     let app_url = env::var("APP_URL");
@@ -1449,7 +1465,7 @@ pub async fn execute_withdraw_funds(
 
     let username = username.unwrap();
 
-    let user_credentials = get_credentials(&username, tree.clone());
+    let user_credentials = auth.get_credentials(&username);
 
     if user_credentials.is_none() {
         return "❌ User not found".to_string();
@@ -1526,7 +1542,7 @@ pub async fn execute_withdraw_funds(
 pub async fn execute_fund_account(
     arguments: &serde_json::Value,
     msg: Message,
-    tree: Tree,
+    auth: Auth,
     panora: Panora,
 ) -> String {
     let app_url = env::var("APP_URL");
@@ -1559,7 +1575,7 @@ pub async fn execute_fund_account(
 
     let username = username.unwrap();
 
-    let user_credentials = get_credentials(&username, tree.clone());
+    let user_credentials = auth.get_credentials(&username);
 
     if user_credentials.is_none() {
         return "❌ User not found".to_string();

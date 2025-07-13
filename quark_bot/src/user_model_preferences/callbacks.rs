@@ -1,5 +1,5 @@
 use super::dto::{ChatModel, ReasoningModel, effort_to_display_string};
-use super::handler::{UserModelPreferences, get_temperature_keyboard, get_effort_keyboard};
+use super::handler::{UserModelPreferences, get_effort_keyboard, get_temperature_keyboard};
 use anyhow::Result;
 use open_ai_rust_responses_by_sshift::types::Effort;
 
@@ -13,7 +13,7 @@ pub async fn handle_model_preferences_callback(
 ) -> Result<()> {
     let data = query.data.as_ref().unwrap();
     let user = &query.from;
-    
+
     let username = user.username.as_ref();
     if username.is_none() {
         bot.answer_callback_query(query.id)
@@ -41,7 +41,7 @@ pub async fn handle_model_preferences_callback(
 
         // Store the selected model temporarily in the callback data
         let keyboard = get_temperature_keyboard();
-        
+
         // Update the message to show temperature selection
         if let Some(message) = query.message {
             if let teloxide::types::MaybeInaccessibleMessage::Regular(msg) = message {
@@ -63,11 +63,10 @@ pub async fn handle_model_preferences_callback(
         bot.answer_callback_query(query.id)
             .text(format!("Selected {}", model.to_display_string()))
             .await?;
-
     } else if data.starts_with("set_temperature:") {
         let temp_str = data.strip_prefix("set_temperature:").unwrap();
         let temperature: f32 = temp_str.parse().unwrap_or(0.6);
-        
+
         // We need to get the previously selected model from the message context
         // For now, we'll parse it from the message text
         if let Some(message) = &query.message {
@@ -102,7 +101,6 @@ pub async fn handle_model_preferences_callback(
         bot.answer_callback_query(query.id)
             .text("Preferences saved!")
             .await?;
-
     } else if data.starts_with("select_reasoning_model:") {
         let model_str = data.strip_prefix("select_reasoning_model:").unwrap();
         let model = match model_str {
@@ -117,7 +115,7 @@ pub async fn handle_model_preferences_callback(
         };
 
         let keyboard = get_effort_keyboard();
-        
+
         // Update the message to show effort selection
         if let Some(message) = query.message {
             if let teloxide::types::MaybeInaccessibleMessage::Regular(msg) = message {
@@ -138,7 +136,6 @@ pub async fn handle_model_preferences_callback(
         bot.answer_callback_query(query.id)
             .text(format!("Selected {}", model.to_display_string()))
             .await?;
-
     } else if data.starts_with("set_effort:") {
         let effort_str = data.strip_prefix("set_effort:").unwrap();
         let effort = match effort_str {
@@ -147,7 +144,7 @@ pub async fn handle_model_preferences_callback(
             "High" => Effort::High,
             _ => Effort::Low, // fallback
         };
-        
+
         // Parse model from message text
         if let Some(message) = &query.message {
             if let teloxide::types::MaybeInaccessibleMessage::Regular(msg) = message {
@@ -180,4 +177,4 @@ pub async fn handle_model_preferences_callback(
     }
 
     Ok(())
-} 
+}

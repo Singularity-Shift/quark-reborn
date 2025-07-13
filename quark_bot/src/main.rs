@@ -5,7 +5,7 @@ mod bot;
 mod callbacks;
 mod credentials;
 mod db;
-mod middleware;
+mod group;
 mod panora;
 mod services;
 mod user_conversation;
@@ -15,6 +15,8 @@ mod utils;
 use crate::{
     ai::{gcs::GcsImageUploader, handler::AI},
     aptos::handler::Aptos,
+    credentials::handler::Auth,
+    group::handler::Group,
     panora::handler::Panora,
     services::handler::Services,
     user_conversation::handler::UserConversations,
@@ -41,16 +43,14 @@ async fn main() {
     let bot = Bot::from_env();
     let db = db::init_tree();
     let auth_db = db.open_tree("auth").expect("Failed to open auth tree");
+    let group_db = db.open_tree("group").expect("Failed to open group tree");
     let openai_api_key = env::var("OPENAI_API_KEY").expect("OPENAI_API_KEY not set");
     let gcs_creds = env::var("STORAGE_CREDENTIALS").expect("STORAGE_CREDENTIALS not set");
     let bucket_name = env::var("GCS_BUCKET_NAME").expect("GCS_BUCKET_NAME not set");
     let aptos_network = env::var("APTOS_NETWORK").expect("APTOS_NETWORK not set");
     let contract_address = env::var("CONTRACT_ADDRESS").expect("CONTRACT_ADDRESS not set");
 
-    let media_aggregator = Arc::new(media_aggregator::MediaGroupAggregator::new(
-        bot.clone(),
-        db.clone(),
-    ));
+    let media_aggregator = Arc::new(media_aggregator::MediaGroupAggregator::new());
 
     let google_cloud = GcsImageUploader::new(&gcs_creds, bucket_name)
         .await
@@ -62,6 +62,9 @@ async fn main() {
 
     // Create clone for dispatcher early to avoid move issues
     let panora_for_dispatcher = panora.clone();
+
+    let auth = Auth::new(auth_db);
+    let group = Group::new(group_db);
 
     // Execute token list updates immediately on startup
     let panora_startup = panora.clone();
@@ -175,6 +178,8 @@ async fn main() {
             "Display the moderation rules to avoid getting muted.",
         ),
         BotCommand::new("balance", "Get your balance of a token."),
+        BotCommand::new("groupwalletaddress", "Get the group's wallet address."),
+        BotCommand::new("groupbalance", "Get the group's balance of a token."),
     ];
 
     bot.set_my_commands(commands).await.unwrap();
@@ -182,7 +187,8 @@ async fn main() {
     Dispatcher::builder(bot.clone(), handler_tree())
         .dependencies(dptree::deps![
             InMemStorage::<QuarkState>::new(),
-            auth_db,
+            auth,
+            group,
             db,
             service,
             user_convos,
