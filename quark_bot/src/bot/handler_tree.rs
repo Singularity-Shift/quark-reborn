@@ -93,7 +93,6 @@ pub fn handler_tree() -> Handler<'static, Result<()>, DpHandlerDescription> {
                                     | Command::ListFiles
                                     | Command::NewChat
                                     | Command::PromptExamples
-                                    | Command::ModerationRules
                             )
                         })
                         .filter_async(|msg: Message, auth: Auth| async move {
@@ -107,7 +106,7 @@ pub fn handler_tree() -> Handler<'static, Result<()>, DpHandlerDescription> {
                         .filter(|cmd| {
                             matches!(
                                 cmd,
-                                Command::G(_) | Command::Mod | Command::Sentinal(_) | Command::GroupBalance(_) | Command::GroupWalletAddress
+                                Command::G(_) | Command::Mod | Command::Sentinel(_) | Command::GroupBalance(_) | Command::GroupWalletAddress | Command::ModerationRules
                             )
                         })
                         .filter_async(|msg: Message, group: Group| async move {
@@ -139,7 +138,7 @@ pub fn handler_tree() -> Handler<'static, Result<()>, DpHandlerDescription> {
                         .filter(|msg: Message| msg.chat.is_private())
                         .endpoint(handle_message),
                 )
-                // Handle group messages for sentinal auto-moderation
+                // Handle group messages for sentinel auto-moderation
                 .branch(
                     dptree::entry()
                         .filter(|msg: Message| !msg.chat.is_private())

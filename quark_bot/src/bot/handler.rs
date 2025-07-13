@@ -915,16 +915,16 @@ pub async fn handle_message(
     auth: Auth,
     group: Group,
 ) -> AnyResult<()> {
-    // Sentinal: moderate every message in group if sentinal is on
+    // Sentinel: moderate every message in group if sentinel is on
     if !msg.chat.is_private() {
-        let sentinal_tree = db.open_tree("sentinal_state").unwrap();
+        let sentinel_tree = db.open_tree("sentinel_state").unwrap();
         let chat_id = msg.chat.id.0.to_be_bytes();
-        let sentinal_on = sentinal_tree
+        let sentinel_on = sentinel_tree
             .get(chat_id)
             .unwrap()
             .map(|v| v == b"on")
             .unwrap_or(false);
-        if sentinal_on {
+        if sentinel_on {
             // Don't moderate admin or bot messages
             if let Some(user) = &msg.from {
                 if user.is_bot {
@@ -949,7 +949,7 @@ pub async fn handle_message(
             {
                 Ok(result) => {
                     log::info!(
-                        "Sentinal moderation result: {} for message: {} (tokens: {})",
+                        "Sentinel moderation result: {} for message: {} (tokens: {})",
                         result.verdict,
                         message_text,
                         result.total_tokens
@@ -973,7 +973,7 @@ pub async fn handle_message(
                                 );
                             } else {
                                 log::info!(
-                                    "Successfully muted user {} for flagged content (sentinal)",
+                                    "Successfully muted user {} for flagged content (sentinel)",
                                     flagged_user.id
                                 );
                             }
@@ -1003,7 +1003,7 @@ pub async fn handle_message(
                     }
                 }
                 Err(e) => {
-                    log::error!("Sentinal moderation failed: {}", e);
+                    log::error!("Sentinel moderation failed: {}", e);
                 }
             }
             return Ok(());
@@ -1035,8 +1035,8 @@ pub async fn handle_message(
     Ok(())
 }
 
-pub async fn handle_sentinal(bot: Bot, msg: Message, param: String, db: Db) -> AnyResult<()> {
-    // Only admins can use /sentinal
+pub async fn handle_sentinel(bot: Bot, msg: Message, param: String, db: Db) -> AnyResult<()> {
+    // Only admins can use /sentinel
     if !msg.chat.is_private() {
         let admins = bot.get_chat_administrators(msg.chat.id).await?;
         let requester_id = msg.from.as_ref().map(|u| u.id);
@@ -1046,7 +1046,7 @@ pub async fn handle_sentinal(bot: Bot, msg: Message, param: String, db: Db) -> A
         if !is_admin {
             bot.send_message(
                 msg.chat.id,
-                "❌ <b>Permission Denied</b>\n\nOnly group administrators can use /sentinal.",
+                "❌ <b>Permission Denied</b>\n\nOnly group administrators can use /sentinel.",
             )
             .parse_mode(ParseMode::Html)
             .await?;
@@ -1054,23 +1054,23 @@ pub async fn handle_sentinal(bot: Bot, msg: Message, param: String, db: Db) -> A
         }
     }
     let param = param.trim().to_lowercase();
-    let sentinal_tree = db.open_tree("sentinal_state").unwrap();
+    let sentinel_tree = db.open_tree("sentinel_state").unwrap();
     let chat_id = msg.chat.id.0.to_be_bytes();
     match param.as_str() {
         "on" => {
-            sentinal_tree.insert(chat_id, b"on").unwrap();
+            sentinel_tree.insert(chat_id, b"on").unwrap();
             bot.send_message(
                 msg.chat.id,
-                "🛡️ <b>Sentinal System</b>\n\n✅ <b>Sentinal is now ON</b>\n\nAll messages will be automatically moderated. /mod command is disabled."
+                "🛡️ <b>Sentinel System</b>\n\n✅ <b>Sentinel is now ON</b>\n\nAll messages will be automatically moderated. /mod command is disabled."
             )
             .parse_mode(ParseMode::Html)
             .await?;
         }
         "off" => {
-            sentinal_tree.insert(chat_id, b"off").unwrap();
+            sentinel_tree.insert(chat_id, b"off").unwrap();
             bot.send_message(
                 msg.chat.id,
-                "🛡️ <b>Sentinal System</b>\n\n⏹️ <b>Sentinal is now OFF</b>\n\nManual moderation via /mod is re-enabled."
+                "🛡️ <b>Sentinel System</b>\n\n⏹️ <b>Sentinel is now OFF</b>\n\nManual moderation via /mod is re-enabled."
             )
             .parse_mode(ParseMode::Html)
             .await?;
@@ -1078,7 +1078,7 @@ pub async fn handle_sentinal(bot: Bot, msg: Message, param: String, db: Db) -> A
         _ => {
             bot.send_message(
                 msg.chat.id,
-                "❌ <b>Invalid Parameter</b>\n\n📝 Usage: <code>/sentinal on</code> or <code>/sentinal off</code>\n\n💡 Please specify either 'on' or 'off' to control the sentinal system."
+                "❌ <b>Invalid Parameter</b>\n\n📝 Usage: <code>/sentinel on</code> or <code>/sentinel off</code>\n\n💡 Please specify either 'on' or 'off' to control the sentinel system."
             )
             .parse_mode(ParseMode::Html)
             .await?;
@@ -1133,19 +1133,19 @@ pub async fn handle_wallet_address(bot: Bot, msg: Message, auth: Auth) -> AnyRes
 }
 
 pub async fn handle_mod(bot: Bot, msg: Message, db: Db) -> AnyResult<()> {
-    // Check if sentinal is on for this chat
+    // Check if sentinel is on for this chat
     if !msg.chat.is_private() {
-        let sentinal_tree = db.open_tree("sentinal_state").unwrap();
+        let sentinel_tree = db.open_tree("sentinel_state").unwrap();
         let chat_id = msg.chat.id.0.to_be_bytes();
-        let sentinal_on = sentinal_tree
+        let sentinel_on = sentinel_tree
             .get(chat_id)
             .unwrap()
             .map(|v| v == b"on")
             .unwrap_or(false);
-        if sentinal_on {
+        if sentinel_on {
             bot.send_message(
                 msg.chat.id,
-                "🛡️ <b>Sentinal Mode Active</b>\n\n/mod is disabled while sentinal is ON. All messages are being automatically moderated."
+                "🛡️ <b>Sentinel Mode Active</b>\n\n/mod is disabled while sentinel is ON. All messages are being automatically moderated."
             )
             .parse_mode(ParseMode::Html)
             .await?;
