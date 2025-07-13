@@ -73,7 +73,7 @@ pub async fn handle_select_model(bot: Bot, msg: Message, _user_model_prefs: User
 
     bot.send_message(msg.chat.id, "🤖 **Select your chat model:**\n\nChoose which model to use for regular chat commands (/c):")
         .reply_markup(keyboard)
-        .parse_mode(teloxide::types::ParseMode::Markdown)
+        .parse_mode(teloxide::types::ParseMode::MarkdownV2)
         .await?;
 
     Ok(())
@@ -102,7 +102,7 @@ pub async fn handle_select_reasoning_model(bot: Bot, msg: Message, _user_model_p
 
     bot.send_message(msg.chat.id, "🧠 **Select your reasoning model:**\n\nChoose which model to use for reasoning commands (/r):")
         .reply_markup(keyboard)
-        .parse_mode(teloxide::types::ParseMode::Markdown)
+        .parse_mode(teloxide::types::ParseMode::MarkdownV2)
         .await?;
 
     Ok(())
@@ -143,7 +143,7 @@ pub async fn handle_my_settings(bot: Bot, msg: Message, user_model_prefs: UserMo
     );
 
     bot.send_message(msg.chat.id, settings_text)
-        .parse_mode(teloxide::types::ParseMode::Markdown)
+        .parse_mode(teloxide::types::ParseMode::MarkdownV2)
         .await?;
 
     Ok(())

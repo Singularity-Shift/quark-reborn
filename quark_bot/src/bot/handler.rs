@@ -555,7 +555,7 @@ pub async fn handle_reasoning_chat(
                 };
                 bot.send_photo(msg.chat.id, photo)
                     .caption(caption)
-                    .parse_mode(ParseMode::Markdown)
+                    .parse_mode(ParseMode::MarkdownV2)
                     .await?;
                 // If the text is longer than 1024, send the rest as a follow-up message
                 if ai_response.text.len() > 1024 {
