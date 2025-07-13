@@ -170,10 +170,16 @@ pub async fn create_purchase_request(
         model,
         tokens_used: total_tokens_used,
         tools_used,
-        group_id,
+        group_id: group_id.clone(),
     };
 
-    let response = service.purchase(token.to_string(), purchase_request).await;
+    let response = if group_id.is_some() {
+        service
+            .group_purchase(token.to_string(), purchase_request)
+            .await
+    } else {
+        service.purchase(token.to_string(), purchase_request).await
+    };
 
     match response {
         Ok(_) => Ok(()),

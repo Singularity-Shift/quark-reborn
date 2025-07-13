@@ -45,6 +45,10 @@ pub enum Command {
     WalletAddress,
     #[command(description = "Get your balance of a token.")]
     Balance(String),
+    #[command(description = "Get the group's wallet address.")]
+    GroupWalletAddress,
+    #[command(description = "Get the group's balance of a token.")]
+    GroupBalance(String),
 }
 
 #[derive(Debug, Clone, Default)]

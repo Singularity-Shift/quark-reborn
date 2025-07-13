@@ -1,6 +1,6 @@
 use anyhow::Result;
-use open_ai_rust_responses_by_sshift::{Client, Request, Model};
-use teloxide::{Bot, types::Message, prelude::*};
+use open_ai_rust_responses_by_sshift::{Client, Model, Request};
+use teloxide::{Bot, prelude::*, types::Message};
 
 pub struct ModerationService {
     client: Client,
@@ -8,9 +8,7 @@ pub struct ModerationService {
 
 #[derive(Debug, Clone)]
 pub struct ModerationResult {
-    pub verdict: String,           // "P" or "F"
-    pub prompt_tokens: u32,
-    pub output_tokens: u32,
+    pub verdict: String, // "P" or "F"
     pub total_tokens: u32,
 }
 
@@ -20,21 +18,25 @@ impl ModerationService {
         Ok(Self { client })
     }
 
-    pub async fn moderate_message(&self, message_text: &str, bot: &Bot, original_msg: &Message, replied_msg: &Message) -> Result<ModerationResult> {
+    pub async fn moderate_message(
+        &self,
+        message_text: &str,
+        bot: &Bot,
+        original_msg: &Message,
+        replied_msg: &Message,
+    ) -> Result<ModerationResult> {
         // Check if the user who sent the replied message has admin role
         if let Some(user) = &replied_msg.from {
             let user_id = user.id;
-            
+
             // Get chat administrators
             if let Ok(admins) = bot.get_chat_administrators(original_msg.chat.id).await {
                 let is_admin = admins.iter().any(|member| member.user.id == user_id);
-                
+
                 if is_admin {
                     // Admin users automatically pass moderation (no API call, no tokens used)
                     return Ok(ModerationResult {
                         verdict: "P".to_string(),
-                        prompt_tokens: 0,
-                        output_tokens: 0,
                         total_tokens: 0,
                     });
                 }
@@ -56,18 +58,14 @@ impl ModerationService {
 
         let response = self.client.responses.create(request).await?;
         let result = response.output_text().trim().to_uppercase();
-        
+
         // Extract token usage
-        let (prompt_tokens, output_tokens, total_tokens) = if let Some(usage) = &response.usage {
-            (
-                usage.input_tokens,
-                usage.output_tokens,
-                usage.total_tokens
-            )
+        let total_tokens = if let Some(usage) = &response.usage {
+            usage.total_tokens
         } else {
-            (0, 0, 0)
+            0
         };
-        
+
         // Ensure we only return P or F
         let verdict = if result.contains('F') {
             "F".to_string()
@@ -77,9 +75,7 @@ impl ModerationService {
 
         Ok(ModerationResult {
             verdict,
-            prompt_tokens,
-            output_tokens,
             total_tokens,
         })
     }
-} 
+}

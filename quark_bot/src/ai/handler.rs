@@ -2,7 +2,8 @@ use crate::ai::dto::AIResponse;
 use crate::ai::gcs::GcsImageUploader;
 use crate::ai::prompt::get_prompt;
 use crate::ai::tools::{execute_custom_tool, get_all_custom_tools};
-use crate::credentials::helpers::get_credentials;
+use crate::credentials::handler::Auth;
+use crate::group::handler::Group;
 use crate::panora::handler::Panora;
 use crate::services::handler::Services;
 use crate::user_conversation::handler::UserConversations;
@@ -14,7 +15,7 @@ use open_ai_rust_responses_by_sshift::{
     Client as OAIClient, FunctionCallInfo, Model, RecoveryPolicy, Request,
 };
 use serde_json;
-use sled::{Db, Tree};
+use sled::Db;
 use teloxide::types::Message;
 
 #[derive(Clone)]
@@ -90,13 +91,15 @@ impl AI {
         msg: Message,
         input: &str,
         db: &Db,
-        tree: Tree,
+        auth: Auth,
         image_url_from_reply: Option<String>,
         user_uploaded_image_urls: Vec<String>,
         model: Model,
         max_tokens: u32,
         temperature: Option<f32>,
         reasoning: Option<ReasoningParams>,
+        group: Group,
+        group_id: Option<String>,
     ) -> Result<AIResponse, anyhow::Error> {
         let user = msg.from.clone();
 
@@ -113,25 +116,43 @@ impl AI {
             input
         );
 
-        let username = user.username.clone();
+        let address = if group_id.is_some() {
+            let group_credentials = group.get_credentials(&msg.chat.id);
 
-        if username.is_none() {
-            return Err(anyhow::anyhow!("Username not found"));
+            if group_credentials.is_none() {
+                return Err(anyhow::anyhow!("Group credentials not found"));
+            }
+
+            let group_credentials = group_credentials.unwrap();
+
+            group_credentials.resource_account_address
+        } else {
+            let username = user.username.clone();
+
+            if username.is_none() {
+                return Err(anyhow::anyhow!("Username not found"));
+            }
+
+            let username = username.unwrap();
+
+            let user_credentials = auth.clone().get_credentials(&username);
+
+            if user_credentials.is_none() {
+                return Err(anyhow::anyhow!("User credentials not found"));
+            }
+
+            let user_credentials = user_credentials.unwrap();
+
+            user_credentials.resource_account_address
+        };
+
+        let coin_address = self.panora.aptos.get_token_address().await;
+
+        if coin_address.is_err() {
+            return Err(anyhow::anyhow!("Coin address not found"));
         }
 
-        let username = username.unwrap();
-
-        let user_credentials = get_credentials(&username, tree.clone());
-
-        if user_credentials.is_none() {
-            return Err(anyhow::anyhow!("User credentials not found"));
-        }
-
-        let user_credentials = user_credentials.unwrap();
-
-        let coin_address = self.panora.aptos.get_token_address().await?;
-
-        let address = user_credentials.resource_account_address;
+        let coin_address = coin_address.unwrap();
 
         let user_balance = self
             .panora
@@ -403,9 +424,10 @@ impl AI {
                         &args_value,
                         msg.clone(),
                         self.service.clone(),
-                        tree.clone(),
-                        self.panora.aptos.node.clone(),
+                        auth.clone(),
                         self.panora.clone(),
+                        group.clone(),
+                        group_id.clone(),
                     )
                     .await;
 

@@ -19,23 +19,23 @@ use crate::{
     util::execute_transaction,
 };
 use quark_core::helpers::dto::{
-    PayUsersRequest, PayUsersVersion, TransactionResponse, UserPayload,
+    GroupPayload, PayUsersRequest, PayUsersVersion, TransactionResponse,
 };
 
 #[utoipa::path(
     post,
-    path = "/pay-users",
+    path = "/pay-members",
     request_body = [PayUsersRequest],
-    description = "Pay users",
+    description = "Pay members",
     responses(
         (status = 200, description = "Success"),
         (status = 400, description = "Bad Request"),
     )
 )]
 #[axum::debug_handler]
-pub async fn pay_users(
+pub async fn pay_members(
     State(server_state): State<Arc<ServerState>>,
-    Extension(user): Extension<UserPayload>,
+    Extension(group): Extension<GroupPayload>,
     Json(request): Json<PayUsersRequest>,
 ) -> Result<Json<TransactionResponse>, ErrorServer> {
     let (admin, signer) = get_admin().map_err(|e| ErrorServer {
@@ -56,11 +56,7 @@ pub async fn pay_users(
         message: e.to_string(),
     })?;
 
-    let account_address =
-        AccountAddress::from_str(&user.account_address).map_err(|e| ErrorServer {
-            status: StatusCode::INTERNAL_SERVER_ERROR.into(),
-            message: e.to_string(),
-        })?;
+    let group_id = group.group_id;
 
     let amount = request.amount;
     let users = request.users;
@@ -84,11 +80,14 @@ pub async fn pay_users(
             })?;
 
             TransactionPayload::EntryFunction(EntryFunction::new(
-                ModuleId::new(contract_address, "user_v5".to_string()),
-                "pay_to_users_v1".to_string(),
+                ModuleId::new(contract_address, "group_v5".to_string()),
+                "pay_users_v1".to_string(),
                 vec![token_type],
                 vec![
-                    account_address.to_vec(),
+                    bcs::to_bytes(&&group_id.0.to_string()).map_err(|e| ErrorServer {
+                        status: StatusCode::INTERNAL_SERVER_ERROR.into(),
+                        message: e.to_string(),
+                    })?,
                     amount.to_le_bytes().to_vec(),
                     bcs::to_bytes(&users).map_err(|e| ErrorServer {
                         status: StatusCode::INTERNAL_SERVER_ERROR.into(),
@@ -98,11 +97,14 @@ pub async fn pay_users(
             ))
         }
         PayUsersVersion::V2 => TransactionPayload::EntryFunction(EntryFunction::new(
-            ModuleId::new(contract_address, "user_v5".to_string()),
-            "pay_to_users_v2".to_string(),
+            ModuleId::new(contract_address, "group_v5".to_string()),
+            "pay_users_v1".to_string(),
             vec![],
             vec![
-                account_address.to_vec(),
+                bcs::to_bytes(&group_id.0.to_string()).map_err(|e| ErrorServer {
+                    status: StatusCode::INTERNAL_SERVER_ERROR.into(),
+                    message: e.to_string(),
+                })?,
                 amount.to_le_bytes().to_vec(),
                 AccountAddress::from_str(&coin_type)
                     .map_err(|e| ErrorServer {

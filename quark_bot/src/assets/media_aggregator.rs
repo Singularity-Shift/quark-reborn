@@ -1,5 +1,4 @@
 use dashmap::DashMap;
-use sled::Db;
 use std::sync::Arc;
 use std::time::Duration;
 use teloxide::prelude::*;
@@ -11,7 +10,7 @@ pub struct MediaGroupAggregator {
 }
 
 impl MediaGroupAggregator {
-    pub fn new(_bot: Bot, _db: Db) -> Self {
+    pub fn new() -> Self {
         Self {
             groups: DashMap::new(),
         }
