@@ -1,0 +1,142 @@
+services:
+  quark-server:
+    container_name: quark-server
+    build:
+      context: .
+      dockerfile: quark_server/Dockerfile.dev
+    ports:
+      - "3200:3200"
+    depends_on:
+      - valkey
+    environment:
+      - SERVER_DOMAIN=${SERVER_DOMAIN}
+      - APTOS_NETWORK=${APTOS_NETWORK}
+      - PRIVATE_KEY=${PRIVATE_KEY}
+      - CONTRACT_ADDRESS=${CONTRACT_ADDRESS}
+      - TOKEN_PAYMENT_ADDRESS=${TOKEN_PAYMENT_ADDRESS}
+      - SECRET=${SECRET}
+      - GPG_PASSPHRASE=${GPG_PASSPHRASE}
+      - GPG_PRIVATE_KEY=${GPG_PRIVATE_KEY}
+      - GPG_PUBLIC_KEY=${GPG_PUBLIC_KEY}
+      - GPG_REVIEWER=${GPG_REVIEWER}
+      - REDIS_URL=redis://:${VALKEY_PASSWORD}@valkey:6379
+    networks:
+      - quark-net
+
+  quark-bot:
+    container_name: quark-bot
+    build:
+      context: .
+      dockerfile: quark_bot/Dockerfile.dev
+    depends_on:
+      - quark-server
+    environment:
+      - TELOXIDE_TOKEN=${TELOXIDE_TOKEN}
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - STORAGE_CREDENTIALS=${STORAGE_CREDENTIALS}
+      - GCS_BUCKET_NAME=${GCS_BUCKET_NAME}
+      - APTOS_NETWORK=${APTOS_NETWORK}
+      - PANORA_URL=${PANORA_URL}
+      - PANORA_API_KEY=${PANORA_API_KEY}
+      - TIME_API_BASE_URL=${TIME_API_BASE_URL}
+      - SLED_URL=${SLED_URL}
+      - SECRET=${SECRET}
+      - APP_URL=${APP_URL}
+      - BACKEND_URL=${BACKEND_URL}
+      - MIN_DEPOSIT=${MIN_DEPOSIT}
+      - CONTRACT_ADDRESS=${CONTRACT_ADDRESS}
+      - PROFILE=${PROFILE}
+    networks:
+      - quark-net
+    volumes:
+      - quark-data:/app/quark_data
+
+  quark-webhook:
+    build:
+      context: .
+      dockerfile: quark-webhook/Dockerfile
+    ports:
+      - "3000:3000"
+    environment:
+      - NEXT_PUBLIC_EXPLORER_URL=${NEXT_PUBLIC_EXPLORER_URL}
+      - ACCOUNT_SEED=${ACCOUNT_SEED}
+      - APTOS_NODE_URL=${APTOS_NODE_URL}
+      - APTOS_INDEXER=${APTOS_INDEXER}
+      - NEXT_PUBLIC_APTOS_NETWORK=${NEXT_PUBLIC_APTOS_NETWORK}
+    networks:
+      - quark-net
+
+  valkey:
+    image: bitnami/valkey:latest
+    environment:
+      - ALLOW_EMPTY_PASSWORD=no
+      - VALKEY_PASSWORD=${VALKEY_PASSWORD}
+      - VALKEY_DISABLE_COMMANDS=FLUSHDB,FLUSHALL
+    ports:
+      - '6379:6379'
+    volumes:
+      - 'valkey_data:/app/valkey_data'
+    networks:
+      - quark-net
+
+  quark-consumer-one:
+    container_name: quark-consumer-one
+    build:
+      context: .
+      dockerfile: quark_consumer/Dockerfile.dev
+    depends_on:
+      - valkey
+      - quark-server
+    environment:
+      - REDIS_URL=redis://:${VALKEY_PASSWORD}@valkey:6379
+      - CONSUMER_ID=consumer-one
+      - PROFILE=${PROFILE}
+      - PANORA_URL=${PANORA_URL}
+      - PANORA_API_KEY=${PANORA_API_KEY}
+      - CONTRACT_ADDRESS=${CONTRACT_ADDRESS}
+      - APTOS_NETWORK=${APTOS_NETWORK}
+      - GPG_PASSPHRASE=${GPG_PASSPHRASE}
+      - GPG_PRIVATE_KEY=${GPG_PRIVATE_KEY}
+      - GPG_PUBLIC_KEY=${GPG_PUBLIC_KEY}
+      - GPG_REVIEWER=${GPG_REVIEWER}
+      - PRIVATE_KEY=${PRIVATE_KEY}
+    restart: unless-stopped
+    networks:
+      - quark-net
+
+  quark-consumer-two:
+    container_name: quark-consumer-two
+    build:
+      context: .
+      dockerfile: quark_consumer/Dockerfile.dev
+    depends_on:
+      - valkey
+      - quark-server
+    environment:
+      - REDIS_URL=redis://:${VALKEY_PASSWORD}@valkey:6379
+      - CONSUMER_ID=consumer-two
+      - PROFILE=${PROFILE}
+      - PANORA_URL=${PANORA_URL}
+      - PANORA_API_KEY=${PANORA_API_KEY}
+      - CONTRACT_ADDRESS=${CONTRACT_ADDRESS}
+      - APTOS_NETWORK=${APTOS_NETWORK}
+      - GPG_PASSPHRASE=${GPG_PASSPHRASE}
+      - GPG_PRIVATE_KEY=${GPG_PRIVATE_KEY}
+      - GPG_PUBLIC_KEY=${GPG_PUBLIC_KEY}
+      - GPG_REVIEWER=${GPG_REVIEWER}
+      - PRIVATE_KEY=${PRIVATE_KEY}
+    restart: unless-stopped
+    networks:
+      - quark-net
+
+volumes:
+  quark-data:
+    driver: local
+  valkey_data:
+    driver: local
+  quark_redis_data:
+    driver: local
+
+networks:
+  quark-net:
+    driver: bridge 

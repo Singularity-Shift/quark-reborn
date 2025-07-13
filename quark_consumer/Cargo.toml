@@ -16,3 +16,4 @@ serde_json = { workspace = true }
 quark_core = { workspace = true }
 hex = { workspace = true }
 reqwest = { workspace = true }
+bcs = { workspace = true }

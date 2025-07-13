@@ -1,11 +1,11 @@
 use std::env;
 
-use quark_core::helpers::dto::{PayUsersRequest, PayUsersVersion};
-use sled::Tree;
+use quark_core::helpers::dto::{PayUsersRequest, PayUsersVersion, TransactionResponse};
 use teloxide::types::Message;
 
 use crate::{
-    credentials::helpers::get_credentials, panora::handler::Panora, services::handler::Services,
+    credentials::handler::Auth, group::handler::Group, panora::handler::Panora,
+    services::handler::Services,
 };
 
 /// Execute trending pools fetch from GeckoTerminal
@@ -1148,28 +1148,12 @@ pub async fn execute_pay_users(
     arguments: &serde_json::Value,
     msg: Message,
     services: Services,
-    tree: Tree,
+    auth: Auth,
     panora: Panora,
+    group: Group,
+    group_id: Option<String>,
 ) -> String {
     let mut version = PayUsersVersion::V1;
-
-    let user = msg.from;
-
-    if user.is_none() {
-        log::error!("❌ User not found");
-        return "❌ User not found".to_string();
-    }
-
-    let user = user.unwrap();
-
-    let username = user.username;
-
-    if username.is_none() {
-        log::error!("❌ Username not found");
-        return "❌ Username not found".to_string();
-    }
-
-    let username = username.unwrap();
 
     let amount = arguments
         .get("amount")
@@ -1219,7 +1203,7 @@ pub async fn execute_pay_users(
     let user_addresses = users
         .iter()
         .map(|u| {
-            let user_data = get_credentials(u.as_str(), tree.clone());
+            let user_data = auth.get_credentials(u.as_str());
 
             if user_data.is_none() {
                 log::error!("❌ User not found");
@@ -1237,26 +1221,69 @@ pub async fn execute_pay_users(
         return "❌ No users found".to_string();
     }
 
-    let user_credentials = get_credentials(&username, tree.clone());
+    let result: Result<TransactionResponse, anyhow::Error>;
 
-    if user_credentials.is_none() {
-        log::error!("❌ User not found");
-        return "❌ User not found".to_string();
+    if group_id.is_some() {
+        let group_credentials = group.get_credentials(&msg.chat.id);
+
+        if group_credentials.is_none() {
+            log::error!("❌ Group not found");
+            return "❌ Group not found".to_string();
+        }
+
+        let group_credentials = group_credentials.unwrap();
+
+        result = services
+            .pay_members(
+                group_credentials.jwt,
+                PayUsersRequest {
+                    amount: blockchain_amount,
+                    users: user_addresses,
+                    coin_type: token_type,
+                    version: version,
+                },
+            )
+            .await;
+    } else {
+        let user = msg.from;
+
+        if user.is_none() {
+            log::error!("❌ User not found");
+            return "❌ User not found".to_string();
+        }
+
+        let user = user.unwrap();
+
+        let username = user.username;
+
+        if username.is_none() {
+            log::error!("❌ Username not found");
+            return "❌ Username not found".to_string();
+        }
+
+        let username = username.unwrap();
+
+        let user_credentials = auth.get_credentials(&username);
+
+        if user_credentials.is_none() {
+            log::error!("❌ User not found");
+            return "❌ User not found".to_string();
+        }
+
+        let user_credentials = user_credentials.unwrap();
+
+        result = services
+            .pay_users(
+                user_credentials.jwt,
+                PayUsersRequest {
+                    amount: blockchain_amount,
+                    users: user_addresses,
+                    coin_type: token_type,
+                    version,
+                },
+            )
+            .await;
     }
-
-    let user_credentials = user_credentials.unwrap();
-
-    let result = services
-        .pay_users(
-            user_credentials.jwt,
-            PayUsersRequest {
-                amount: blockchain_amount,
-                users: user_addresses,
-                coin_type: token_type,
-                version,
-            },
-        )
-        .await;
 
     if result.is_err() {
         log::error!(
@@ -1278,7 +1305,12 @@ pub async fn execute_pay_users(
     )
 }
 
-pub async fn execute_get_wallet_address(msg: Message, tree: Tree) -> String {
+pub async fn execute_get_wallet_address(
+    msg: Message,
+    auth: Auth,
+    group: Group,
+    group_id: Option<String>,
+) -> String {
     let user = msg.from;
 
     if user.is_none() {
@@ -1297,49 +1329,71 @@ pub async fn execute_get_wallet_address(msg: Message, tree: Tree) -> String {
 
     let username = username.unwrap();
 
-    let user_credentials = get_credentials(&username, tree.clone());
+    let resource_account_address = if group_id.is_some() {
+        let group_credentials = group.get_credentials(&msg.chat.id);
 
-    if user_credentials.is_none() {
-        log::error!("❌ User not found");
-        return "❌ User not found".to_string();
-    }
+        if group_credentials.is_none() {
+            log::error!("❌ Group not found");
+            return "❌ Group not found".to_string();
+        }
 
-    let user_credentials = user_credentials.unwrap();
+        let group_credentials = group_credentials.unwrap();
 
-    let wallet_address = user_credentials.resource_account_address;
+        group_credentials.resource_account_address
+    } else {
+        let user_credentials = auth.get_credentials(&username);
 
-    wallet_address
+        if user_credentials.is_none() {
+            log::error!("❌ User not found");
+            return "❌ User not found".to_string();
+        }
+
+        user_credentials.unwrap().resource_account_address
+    };
+
+    resource_account_address
 }
 
 pub async fn execute_get_balance(
     arguments: &serde_json::Value,
     msg: Message,
-    tree: Tree,
+    auth: Auth,
     panora: Panora,
+    group: Group,
+    group_id: Option<String>,
 ) -> String {
-    let user = msg.from;
+    let resource_account_address = if group_id.is_some() {
+        let group_credentials = group.get_credentials(&msg.chat.id);
 
-    if user.is_none() {
-        return "❌ User not found".to_string();
-    }
+        if group_credentials.is_none() {
+            log::error!("❌ Group not found");
+            return "❌ Group not found".to_string();
+        }
 
-    let user = user.unwrap();
+        group_credentials.unwrap().resource_account_address
+    } else {
+        let user = msg.from;
 
-    let username = user.username;
+        if user.is_none() {
+            log::error!("❌ User not found");
+            return "❌ User not found".to_string();
+        }
 
-    if username.is_none() {
-        log::error!("❌ Username not found");
-        return "❌ Username not found".to_string();
-    }
+        let user = user.unwrap();
 
-    let username = username.unwrap();
+        let username = user.username;
 
-    let user_credentials = get_credentials(&username, tree.clone());
+        if username.is_none() {
+            log::error!("❌ Username not found");
+            return "❌ Username not found".to_string();
+        }
 
-    if user_credentials.is_none() {
-        log::error!("❌ User not found");
-        return "❌ User not found".to_string();
-    }
+        let username = username.unwrap();
+
+        auth.get_credentials(&username)
+            .unwrap()
+            .resource_account_address
+    };
 
     let symbol = arguments
         .get("symbol")
@@ -1372,15 +1426,10 @@ pub async fn execute_get_balance(
             (token_type, token.decimals, token.symbol.clone())
         };
 
-    let user_credentials = user_credentials.unwrap();
-
     let balance = panora
         .aptos
         .node
-        .get_account_balance(
-            user_credentials.resource_account_address,
-            token_type.to_string(),
-        )
+        .get_account_balance(resource_account_address, token_type.to_string())
         .await;
 
     if balance.is_err() {
@@ -1416,7 +1465,7 @@ pub async fn execute_get_balance(
 pub async fn execute_withdraw_funds(
     arguments: &serde_json::Value,
     msg: Message,
-    tree: Tree,
+    auth: Auth,
     panora: Panora,
 ) -> String {
     let app_url = env::var("APP_URL");
@@ -1449,7 +1498,7 @@ pub async fn execute_withdraw_funds(
 
     let username = username.unwrap();
 
-    let user_credentials = get_credentials(&username, tree.clone());
+    let user_credentials = auth.get_credentials(&username);
 
     if user_credentials.is_none() {
         return "❌ User not found".to_string();
@@ -1526,7 +1575,7 @@ pub async fn execute_withdraw_funds(
 pub async fn execute_fund_account(
     arguments: &serde_json::Value,
     msg: Message,
-    tree: Tree,
+    auth: Auth,
     panora: Panora,
 ) -> String {
     let app_url = env::var("APP_URL");
@@ -1559,7 +1608,7 @@ pub async fn execute_fund_account(
 
     let username = username.unwrap();
 
-    let user_credentials = get_credentials(&username, tree.clone());
+    let user_credentials = auth.get_credentials(&username);
 
     if user_credentials.is_none() {
         return "❌ User not found".to_string();

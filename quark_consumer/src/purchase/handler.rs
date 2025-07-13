@@ -56,7 +56,11 @@ pub async fn purchase_ai(purchase: Purchase) -> ConsumerResult<TransactionRespon
             ModuleId::new(contract_address, "group_v5".to_string()),
             "pay_ai".to_string(),
             vec![token_type],
-            vec![group_id.into(), amount.to_le_bytes().to_vec()],
+            vec![
+                bcs::to_bytes(&group_id)
+                    .map_err(|e| ConsumerError::InvalidMessage(e.to_string()))?,
+                amount.to_le_bytes().to_vec(),
+            ],
         )),
     };
 

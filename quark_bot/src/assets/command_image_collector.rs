@@ -1,7 +1,9 @@
+use crate::credentials::handler::Auth;
+use crate::group::handler::Group;
 use crate::user_model_preferences::handler::UserModelPreferences;
 use crate::{ai::handler::AI, services::handler::Services};
 use dashmap::DashMap;
-use sled::{Db, Tree};
+use sled::Db;
 use std::sync::Arc;
 use std::time::Duration;
 use teloxide::prelude::*;
@@ -49,8 +51,9 @@ impl CommandImageCollector {
         self: Arc<Self>,
         ai: AI,
         msg: Message,
-        tree: Tree,
+        auth: Auth,
         group_id: Option<String>,
+        group: Group,
     ) {
         // Cancel any existing pending command for this user/chat
         let key = (
@@ -73,7 +76,7 @@ impl CommandImageCollector {
             },
         );
 
-        self.reset_timer(key, ai, msg, tree, group_id);
+        self.reset_timer(key, ai, msg, auth, group_id, group);
     }
 
     /// Entry point for photo-only messages that may belong to a pending command
@@ -81,8 +84,9 @@ impl CommandImageCollector {
         self: Arc<Self>,
         msg: Message,
         ai: AI,
-        tree: Tree,
+        auth: Auth,
         group_id: Option<String>,
+        group: Group,
     ) {
         let user_id = msg.from.as_ref().map(|u| u.id.0 as i64).unwrap_or(0);
         let key = (msg.chat.id, user_id);
@@ -90,7 +94,7 @@ impl CommandImageCollector {
             // Attach photo
             entry.extra_photos.push(msg.clone());
             // restart debounce
-            self.reset_timer(key, ai, msg, tree, group_id);
+            self.reset_timer(key, ai, msg, auth, group_id, group);
         }
     }
 
@@ -99,8 +103,9 @@ impl CommandImageCollector {
         key: (ChatId, i64),
         ai: AI,
         msg: Message,
-        tree: Tree,
+        auth: Auth,
         group_id: Option<String>,
+        group: Group,
     ) {
         // Abort any existing timer first
         if let Some(mut entry) = self.pendings.get_mut(&key) {
@@ -112,7 +117,9 @@ impl CommandImageCollector {
         let collector = Arc::clone(self);
         let handle = tokio::spawn(async move {
             sleep(Duration::from_millis(collector.debounce_ms)).await;
-            collector.finalize(key, ai, msg, tree, group_id).await;
+            collector
+                .finalize(key, ai, msg, auth, group_id, group)
+                .await;
         });
 
         if let Some(mut entry) = self.pendings.get_mut(&key) {
@@ -125,8 +132,9 @@ impl CommandImageCollector {
         key: (ChatId, i64),
         ai: AI,
         msg: Message,
-        tree: Tree,
+        auth: Auth,
         group_id: Option<String>,
+        group: Group,
     ) {
         if let Some((_k, pending)) = self.pendings.remove(&key) {
             let mut all_msgs = Vec::new();
@@ -154,9 +162,10 @@ impl CommandImageCollector {
                         self.service.clone(),
                         ai,
                         self.db.clone(),
-                        tree,
+                        auth,
                         self.user_model_prefs.clone(),
                         text.to_string(),
+                        group,
                     )
                     .await
                     {
@@ -170,10 +179,11 @@ impl CommandImageCollector {
                         self.service.clone(),
                         ai,
                         self.db.clone(),
-                        tree,
+                        auth,
                         self.user_model_prefs.clone(),
                         text.to_string(),
                         group_id,
+                        group,
                     )
                     .await
                     {

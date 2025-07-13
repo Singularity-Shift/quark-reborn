@@ -11,11 +11,13 @@ use utoipa::OpenApi;
 use utoipa_redoc::{Redoc, Servable};
 
 use crate::{
+    create_group::handler::create_group,
     docs::{dto::ApiDoc, handler::api_docs},
     info::handler::info,
-    middlewares::handler::auth,
+    middlewares::handler::{auth, auth_group},
+    pay_members::handler::pay_members,
     pay_users::handler::pay_users,
-    purchase::handler::purchase,
+    purchase::handler::{group_purchase, purchase},
     state::ServerState,
 };
 
@@ -72,9 +74,16 @@ pub async fn router() -> Router {
         .route("/purchase", post(purchase))
         .route_layer(middleware::from_fn(auth));
 
+    let auth_group_router = Router::new()
+        .route("/pay-members", post(pay_members))
+        .route("/group-purchase", post(group_purchase))
+        .route_layer(middleware::from_fn(auth_group));
+
     Router::new()
         .merge(Redoc::with_url("/redoc", doc))
         .merge(auth_router)
+        .route("/create-group", post(create_group))
+        .merge(auth_group_router)
         .route("/", get(info))
         .route("/docs", get(api_docs))
         .layer(TraceLayer::new_for_http())
