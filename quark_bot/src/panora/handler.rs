@@ -125,7 +125,7 @@ impl Panora {
 
         let token = list
             .iter()
-            .find(|t| t.panora_symbol.to_lowercase() == symbol.to_lowercase() && !t.is_banned);
+            .find(|t| t.symbol.to_lowercase() == symbol.to_lowercase() && !t.is_banned);
 
         if token.is_none() {
             return Err(anyhow::anyhow!("Token not found"));
