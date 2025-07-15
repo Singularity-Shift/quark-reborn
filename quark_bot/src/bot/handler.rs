@@ -44,7 +44,7 @@ use teloxide::{
     types::{ButtonRequest, KeyboardButton},
 };
 use tokio::fs::File;
-use tokio::time::{sleep, timeout};
+use tokio::time::sleep;
 
 const TELEGRAM_MESSAGE_LIMIT: usize = 4096;
 
@@ -271,19 +271,9 @@ pub async fn handle_login_group(
         payload = credentials.unwrap();
     }
 
-    let updated_credentials = match timeout(
-        Duration::from_secs(3),
-        check_group_resource_account_address(&bot, &group, payload, msg.clone(), panora.clone()),
-    )
-    .await
-    {
-        Ok(result) => result,
-        Err(_) => {
-            bot.send_message(msg.chat.id, "❌ Operation timed out. Please try again.")
-                .await?;
-            return Ok(());
-        }
-    };
+    let updated_credentials =
+        check_group_resource_account_address(&bot, &group, payload, msg.clone(), panora.clone())
+            .await;
 
     if updated_credentials.is_err() {
         bot.send_message(msg.chat.id, "❌ Unable to save credentials.")
@@ -1710,57 +1700,76 @@ async fn check_group_resource_account_address(
     let group_credentials = group_credentials;
 
     if group_credentials.resource_account_address.is_empty() {
-        let resource_account_address = panora
-            .aptos
-            .node
-            .view_function(ViewRequest {
-                function: format!(
-                    "{}::group::get_group_account",
-                    panora.aptos.contract_address
-                ),
-                type_arguments: vec![],
-                arguments: vec![value::Value::String(msg.chat.id.to_string())],
-            })
-            .await;
+        const MAX_RETRIES: u32 = 5;
+        const RETRY_DELAY_MS: u64 = 2000;
 
-        if resource_account_address.is_err() {
-            bot.send_message(msg.chat.id, "❌ Error getting resource account address")
-                .await?;
-            return Err(anyhow::anyhow!("Error getting resource account address"));
+        for attempt in 1..=MAX_RETRIES {
+            let resource_account_address = panora
+                .aptos
+                .node
+                .view_function(ViewRequest {
+                    function: format!(
+                        "{}::group::get_group_account",
+                        panora.aptos.contract_address
+                    ),
+                    type_arguments: vec![],
+                    arguments: vec![value::Value::String(msg.chat.id.to_string())],
+                })
+                .await;
+
+            if resource_account_address.is_ok() {
+                let resource_account_address = resource_account_address.unwrap().into_inner();
+
+                let resource_account_address =
+                    serde_json::from_value::<Vec<String>>(resource_account_address);
+
+                if resource_account_address.is_ok() {
+                    let resource_account_address = resource_account_address.unwrap();
+
+                    let new_credentials = GroupCredentials {
+                        jwt: group_credentials.jwt.clone(),
+                        group_id: group_credentials.group_id,
+                        resource_account_address: resource_account_address[0].clone(),
+                        users: group_credentials.users.clone(),
+                    };
+
+                    group
+                        .save_credentials(new_credentials)
+                        .map_err(|_| anyhow::anyhow!("Error saving group credentials"))?;
+
+                    let updated_credentials = GroupCredentials {
+                        jwt: group_credentials.jwt,
+                        group_id: group_credentials.group_id,
+                        resource_account_address: resource_account_address[0].clone(),
+                        users: group_credentials.users,
+                    };
+
+                    return Ok(updated_credentials);
+                }
+            }
+
+            // If this is not the last attempt, wait before retrying
+            if attempt < MAX_RETRIES {
+                log::warn!(
+                    "Failed to get resource account address (attempt {}/{}), retrying in {}ms...",
+                    attempt,
+                    MAX_RETRIES,
+                    RETRY_DELAY_MS
+                );
+                sleep(Duration::from_millis(RETRY_DELAY_MS)).await;
+            }
         }
 
-        let resource_account_address = resource_account_address.unwrap().into_inner();
-
-        let resource_account_address =
-            serde_json::from_value::<Vec<String>>(resource_account_address);
-
-        if resource_account_address.is_err() {
-            bot.send_message(msg.chat.id, "❌ Error getting resource account address")
-                .await?;
-            return Err(anyhow::anyhow!("Error getting resource account address"));
-        }
-
-        let resource_account_address = resource_account_address.unwrap();
-
-        let new_credentials = GroupCredentials {
-            jwt: group_credentials.jwt.clone(),
-            group_id: group_credentials.group_id,
-            resource_account_address: resource_account_address[0].clone(),
-            users: group_credentials.users.clone(),
-        };
-
-        group
-            .save_credentials(new_credentials)
-            .map_err(|_| anyhow::anyhow!("Error saving group credentials"))?;
-
-        let updated_credentials = GroupCredentials {
-            jwt: group_credentials.jwt,
-            group_id: group_credentials.group_id,
-            resource_account_address: resource_account_address[0].clone(),
-            users: group_credentials.users,
-        };
-
-        return Ok(updated_credentials);
+        // All retries failed
+        bot.send_message(
+            msg.chat.id,
+            "❌ Error getting resource account address after multiple attempts",
+        )
+        .await?;
+        return Err(anyhow::anyhow!(
+            "Error getting resource account address after {} attempts",
+            MAX_RETRIES
+        ));
     }
 
     Ok(group_credentials)
