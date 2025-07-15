@@ -39,7 +39,6 @@ impl Panora {
         let response = self
             .client
             .get(format!("{}/tokenlist", self.panora_url))
-            .query(&[("panoraUI", false)])
             .header("x-api-key", self.panora_api_key.clone())
             .send()
             .await?;
@@ -125,7 +124,7 @@ impl Panora {
 
         let token = list
             .iter()
-            .find(|t| t.symbol.to_lowercase() == symbol.to_lowercase() && !t.is_banned);
+            .find(|t| t.panora_symbol.to_lowercase() == symbol.to_lowercase() && !t.is_banned);
 
         if token.is_none() {
             return Err(anyhow::anyhow!("Token not found"));

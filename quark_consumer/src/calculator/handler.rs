@@ -62,7 +62,10 @@ pub async fn get_price(
     let token_address = if token_addresses[0].vec[0] == "0x1" {
         "0x1::aptos_coin::AptosCoin".to_string()
     } else {
-        token_addresses[0].vec[0].clone()
+        format!(
+            "{}::coin_factory::Emojicoin",
+            token_addresses[0].vec[0].clone()
+        )
     };
 
     let price_coins_response = client

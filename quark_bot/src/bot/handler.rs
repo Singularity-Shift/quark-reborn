@@ -1459,16 +1459,16 @@ pub async fn handle_balance(
                 "APT".to_string(),
             )
         } else {
-            let tokens = panora.get_token_by_symbol(symbol).await;
+            let token = panora.get_token_by_symbol(symbol).await;
 
-            if tokens.is_err() {
-                log::error!("❌ Error getting token: {}", tokens.as_ref().err().unwrap());
+            if token.is_err() {
+                log::error!("❌ Error getting token: {}", token.as_ref().err().unwrap());
                 bot.send_message(msg.chat.id, "❌ Error getting token")
                     .await?;
                 return Ok(());
             }
 
-            let token = tokens.unwrap();
+            let token = token.unwrap();
 
             let token_type = if token.token_address.as_ref().is_some() {
                 token.token_address.as_ref().unwrap().to_string()
