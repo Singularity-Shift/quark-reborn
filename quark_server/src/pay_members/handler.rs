@@ -80,7 +80,7 @@ pub async fn pay_members(
             })?;
 
             TransactionPayload::EntryFunction(EntryFunction::new(
-                ModuleId::new(contract_address, "group_v5".to_string()),
+                ModuleId::new(contract_address, "group".to_string()),
                 "pay_users_v1".to_string(),
                 vec![token_type],
                 vec![
@@ -97,7 +97,7 @@ pub async fn pay_members(
             ))
         }
         PayUsersVersion::V2 => TransactionPayload::EntryFunction(EntryFunction::new(
-            ModuleId::new(contract_address, "group_v5".to_string()),
+            ModuleId::new(contract_address, "group".to_string()),
             "pay_users_v1".to_string(),
             vec![],
             vec![

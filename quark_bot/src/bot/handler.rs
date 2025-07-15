@@ -44,7 +44,7 @@ use teloxide::{
     types::{ButtonRequest, KeyboardButton},
 };
 use tokio::fs::File;
-use tokio::time::sleep;
+use tokio::time::{sleep, timeout};
 
 const TELEGRAM_MESSAGE_LIMIT: usize = 4096;
 
@@ -271,9 +271,19 @@ pub async fn handle_login_group(
         payload = credentials.unwrap();
     }
 
-    let updated_credentials =
-        check_group_resource_account_address(&bot, &group, payload, msg.clone(), panora.clone())
-            .await;
+    let updated_credentials = match timeout(
+        Duration::from_secs(3),
+        check_group_resource_account_address(&bot, &group, payload, msg.clone(), panora.clone()),
+    )
+    .await
+    {
+        Ok(result) => result,
+        Err(_) => {
+            bot.send_message(msg.chat.id, "❌ Operation timed out. Please try again.")
+                .await?;
+            return Ok(());
+        }
+    };
 
     if updated_credentials.is_err() {
         bot.send_message(msg.chat.id, "❌ Unable to save credentials.")
