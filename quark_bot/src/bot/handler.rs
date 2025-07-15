@@ -424,8 +424,11 @@ pub async fn handle_reasoning_chat(
 
     if username.is_none() {
         typing_indicator_handle.abort();
-        bot.send_message(msg.chat.id, "❌ Unable to verify permissions.")
-            .await?;
+        bot.send_message(
+            msg.chat.id,
+            "❌ Unable to verify permissions. Please set username in your user account.",
+        )
+        .await?;
         return Ok(());
     }
 
@@ -435,8 +438,11 @@ pub async fn handle_reasoning_chat(
 
     if credentials.is_none() {
         typing_indicator_handle.abort();
-        bot.send_message(msg.chat.id, "❌ Unable to verify permissions.")
-            .await?;
+        bot.send_message(
+            msg.chat.id,
+            "❌ Unable to verify permissions, please try to login your user account.",
+        )
+        .await?;
         return Ok(());
     }
 
