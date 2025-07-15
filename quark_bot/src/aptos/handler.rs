@@ -53,7 +53,10 @@ impl Aptos {
 
         let coin_address = serde_json::from_value::<Vec<TokenAddress>>(coin_address_value)?;
 
-        Ok(coin_address[0].vec[0].clone())
+        Ok(format!(
+            "{}::coin_factory::Emojicoin",
+            coin_address[0].vec[0].clone()
+        ))
     }
 
     pub async fn get_account_balance(&self, address: &str, token_address: &str) -> Result<i64> {
