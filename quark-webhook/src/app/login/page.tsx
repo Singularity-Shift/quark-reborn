@@ -6,7 +6,6 @@ import { useWallet } from "@aptos-labs/wallet-adapter-react";
 import { sendData } from "@telegram-apps/sdk-react";
 import { useState } from "react";
 import { useWalletClient } from "@thalalabs/surf/hooks";
-import { ACCOUNT_SEED, EXPLORER_URL } from "@/config/env";
 import { AccountStatus } from "./components/AccountStatus";
 import { Message } from "@/components/Message/Message";
 import { useMessage } from "@/hooks/useMessage";
@@ -47,7 +46,6 @@ const LoginPage = () => {
         });
 
       if (!resourceAccount?.[0]) {
-        const seed = ACCOUNT_SEED;
         const tx = await client?.useABI(QuarkUserAbi).create_account({
           type_arguments: [],
           arguments: [userIdNum.toString()],
