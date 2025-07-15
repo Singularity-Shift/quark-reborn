@@ -246,6 +246,12 @@ impl AI {
         // Add custom function tools (get_balance, withdraw_funds, etc.)
         tools.extend(get_all_custom_tools());
 
+        let user = if group_id.is_some() {
+            format!("group-{}", group_id.clone().unwrap())
+        } else {
+            format!("user-{}", user_id)
+        };
+
         let mut request_builder = Request::builder()
             .model(model.clone())
             .instructions(self.system_prompt.clone())
@@ -253,7 +259,7 @@ impl AI {
             .tool_choice(ToolChoice::auto())
             .parallel_tool_calls(true) // Enable parallel execution for efficiency
             .max_output_tokens(max_tokens)
-            .user(&format!("user-{}", user_id))
+            .user(&user)
             .store(true);
 
         if let Some(temp) = temperature {
