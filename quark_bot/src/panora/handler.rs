@@ -63,23 +63,48 @@ impl Panora {
         let serialized_data = serde_json::to_vec(&body.data)?;
         self.tree.insert(b"panora_token_list", serialized_data)?;
 
+        let response_non_bonding_tokens = self
+            .client
+            .get(format!("{}/tokenlist", self.panora_url))
+            .header("x-api-key", self.panora_api_key.clone())
+            .query(&[("panoraUI", false)])
+            .send()
+            .await?;
+
+        if response_non_bonding_tokens.status() != 200 {
+            let status = response_non_bonding_tokens.status();
+            let error_text = response_non_bonding_tokens.text().await?;
+            log::error!(
+                "❌ Error getting non-bonding tokens: status: {}, text: {}",
+                status,
+                error_text
+            );
+            return Err(anyhow::anyhow!(
+                "❌ Error getting non-bonding tokens: status: {}, text: {}",
+                status,
+                error_text,
+            ));
+        }
+
+        let body_non_bonding_tokens = response_non_bonding_tokens.json::<PanoraResponse>().await?;
+
+        let serialized_data_non_bonding_tokens = serde_json::to_vec(&body_non_bonding_tokens.data)?;
+        self.tree.insert(
+            b"panora_token_list_non_bonding",
+            serialized_data_non_bonding_tokens,
+        )?;
+
         Ok(())
     }
 
     pub async fn set_token_ai_fees(&self, token_address: &str) -> Result<()> {
-        let token_address_param = if token_address == "0x1" {
-            "0x1::aptos_coin::AptosCoin"
-        } else {
-            token_address
-        };
-
         let price_coins_response = self
             .client
             .get(format!("{}/prices", self.panora_url))
             .header("x-api-key", self.panora_api_key.clone())
             .header("Accept", "application/json")
             .header("Content-Type", "application/json")
-            .query(&[("tokenAddress", &token_address_param)])
+            .query(&[("tokenAddress", &token_address)])
             .send()
             .await?;
 
@@ -87,7 +112,7 @@ impl Panora {
 
         let price_coin = price_coins
             .iter()
-            .find(|pc| pc.token_address == Some(token_address_param.to_string()));
+            .find(|pc| pc.token_address == Some(token_address.to_string()));
 
         if price_coin.is_none() {
             return Err(anyhow::anyhow!("Price coin not found"));
@@ -119,31 +144,53 @@ impl Panora {
         Ok(list.unwrap())
     }
 
+    pub async fn get_panora_token_list_non_bonding(&self) -> Result<Vec<Token>> {
+        let list = self.tree.get(b"panora_token_list_non_bonding")?;
+
+        if list.is_none() {
+            return Err(anyhow::anyhow!("Panora token list not found"));
+        }
+
+        let list = list.unwrap();
+
+        let list = serde_json::from_slice::<Vec<Token>>(&list);
+
+        if list.is_err() {
+            return Err(anyhow::anyhow!("Error parsing panora token list"));
+        }
+
+        Ok(list.unwrap())
+    }
+
     pub async fn get_token_by_symbol(&self, symbol: &str) -> Result<Token> {
         let list = self.get_panora_token_list().await?;
 
-        let token = list
+        let clean_symbol = symbol.replace('\u{fe0f}', "");
+
+        let mut token = list
             .iter()
-            .find(|t| t.panora_symbol.to_lowercase() == symbol.to_lowercase() && !t.is_banned);
+            .find(|t| {
+                t.panora_symbol.replace('\u{fe0f}', "").to_lowercase()
+                    == clean_symbol.to_lowercase()
+                    && !t.is_banned
+            })
+            .cloned();
 
         if token.is_none() {
-            return Err(anyhow::anyhow!("Token not found"));
-        }
+            let list_non_bonding = self.get_panora_token_list_non_bonding().await?;
 
-        let token = token.unwrap();
+            token = list_non_bonding
+                .iter()
+                .find(|t| {
+                    t.panora_symbol.replace('\u{fe0f}', "").to_lowercase()
+                        == clean_symbol.to_lowercase()
+                        && !t.is_banned
+                })
+                .cloned();
 
-        Ok(token.clone())
-    }
-
-    pub async fn get_token_v1(&self, address: &str) -> Result<Token> {
-        let response = self.get_panora_token_list().await?;
-
-        let token = response
-            .iter()
-            .find(|t| t.token_address.as_ref() == Some(&address.to_string()));
-
-        if token.is_none() {
-            return Err(anyhow::anyhow!("Token not found"));
+            if token.is_none() {
+                return Err(anyhow::anyhow!("Token not found"));
+            }
         }
 
         let token = token.unwrap();

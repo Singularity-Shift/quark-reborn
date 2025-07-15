@@ -53,6 +53,10 @@ impl Aptos {
 
         let coin_address = serde_json::from_value::<Vec<TokenAddress>>(coin_address_value)?;
 
+        if coin_address[0].vec[0].clone() == "0x1" {
+            return Ok(format!("0x1::aptos_coin::AptosCoin"));
+        }
+
         Ok(format!(
             "{}::coin_factory::Emojicoin",
             coin_address[0].vec[0].clone()
