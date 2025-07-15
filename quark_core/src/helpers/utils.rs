@@ -2,6 +2,7 @@ use regex::Regex;
 
 pub fn extract_url_from_markdown(text: &str) -> Option<String> {
     // First try to extract from markdown format [text](url)
+    println!("text: {}", text);
     let re_markdown = Regex::new(r"\[([^\]]+)\]\(([^)]+)\)").unwrap();
     if let Some(captures) = re_markdown.captures(text) {
         return Some(captures.get(2)?.as_str().to_string());
