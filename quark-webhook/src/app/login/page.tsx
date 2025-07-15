@@ -50,7 +50,7 @@ const LoginPage = () => {
         const seed = ACCOUNT_SEED;
         const tx = await client?.useABI(QuarkUserAbi).create_account({
           type_arguments: [],
-          arguments: [`${userIdNum.toString()}_${seed}`],
+          arguments: [userIdNum.toString()],
         });
 
         showMessage(

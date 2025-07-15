@@ -1,10 +1,10 @@
 [package]
-name = "quark"
+name = "quark_test_v5"
 version = "1.0.0"
 authors = []
 
 [addresses]
-quark="0x0eabd22210b1b985d0c5ec1e4902608f00b92461486d97c5bba29479c70534a4"
+quark_test="0x02033b72957c2f0b66cf5be479a2aa098d5bf18c36477907eba8be39435f2811"
 sshift_gpt="0x02033b72957c2f0b66cf5be479a2aa098d5bf18c36477907eba8be39435f2811"
 
 [dev-addresses]

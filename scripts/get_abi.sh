@@ -1,13 +1,13 @@
 #! /bin/bash
  
 # replace it with the network your contract lives on
-NETWORK_APTOS=testnet
+NETWORK_APTOS=mainnet
 # replace it with your contract address
-CONTRACT_ADDRESS="0x02033b72957c2f0b66cf5be479a2aa098d5bf18c36477907eba8be39435f2811"
+CONTRACT_ADDRESS="0x0eabd22210b1b985d0c5ec1e4902608f00b92461486d97c5bba29479c70534a4"
 # replace it with your module name, every .move file except move script has module_address::module_name {}
-MODULE_ADMIN=admin_v5
-MODULE_USER=user_v5
-MODULE_GROUP=group_v5
+MODULE_ADMIN=admin
+MODULE_USER=user
+MODULE_GROUP=group
 
  
 # save the ABI to a TypeScript file

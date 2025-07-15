@@ -54,7 +54,7 @@ pub async fn create_group(
     println!("Creating group: {}", group_id);
 
     let payload = TransactionPayload::EntryFunction(EntryFunction::new(
-        ModuleId::new(contract_address, "group_v5".to_string()),
+        ModuleId::new(contract_address, "group".to_string()),
         "create_group".to_string(),
         vec![],
         vec![bcs::to_bytes(&group_id).map_err(|e| ErrorServer {
