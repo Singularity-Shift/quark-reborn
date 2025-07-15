@@ -16,6 +16,7 @@ use super::handler::{
     handle_login_user, handle_mod, handle_moderation_rules, handle_new_chat, handle_reasoning_chat,
     handle_sentinel,
 };
+
 use crate::assets::command_image_collector::CommandImageCollector;
 use crate::bot::handler::{
     handle_aptos_connect, handle_balance, handle_group_balance, handle_group_wallet_address,
