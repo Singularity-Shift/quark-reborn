@@ -112,7 +112,7 @@ pub async fn answers(
             } else if prompt.trim().is_empty() {
                 bot.send_message(
                     msg.chat.id,
-                    "Please include a message after /c, e.g. /c What is the weather today?",
+                    "Please include a message after /g, e.g. /g What is the weather today?",
                 )
                 .await?;
             } else {
