@@ -1,4 +1,4 @@
-module quark::user {
+module quark_test::user_v5 {
     use std::signer;
     use std::option::{Self, Option};
     use std::account::{Self, SignerCapability};
@@ -13,7 +13,7 @@ module quark::user {
     use aptos_framework::fungible_asset::Metadata;
     use aptos_framework::primary_fungible_store;
     use sshift_gpt::fees;
-    use quark::admin;
+    use quark_test::admin_v5;
 
     const EONLY_ADMIN_CAN_CALL: u64 = 1;
     const EONLY_REVIEWER_CAN_CALL: u64 = 2;
@@ -90,9 +90,9 @@ module quark::user {
 
     public entry fun set_coin_address<CoinType>(sender: &signer) acquires Config {
         let admin_address = signer::address_of(sender);
-        assert!(admin::is_admin(admin_address), EONLY_ADMIN_CAN_CALL);
+        assert!(admin_v5::is_admin(admin_address), EONLY_ADMIN_CAN_CALL);
 
-        let config = borrow_global_mut<Config>(@quark);
+        let config = borrow_global_mut<Config>(@quark_test);
 
         let coin_type = type_info::type_of<CoinType>();
         let coin_type_addr = type_info::account_address(&coin_type);
@@ -160,10 +160,10 @@ module quark::user {
 
     public entry fun pay_ai<CoinType>(admin: &signer, reviewer: &signer, user: address, amount: u64) acquires Account, Config {
         let admin_address = signer::address_of(admin);
-        assert!(admin::is_admin(admin_address), EONLY_ADMIN_CAN_CALL);
+        assert!(admin_v5::is_admin(admin_address), EONLY_ADMIN_CAN_CALL);
 
         let reviewer_address = signer::address_of(reviewer);
-        assert!(admin::is_reviewer(reviewer_address), EONLY_REVIEWER_CAN_CALL);
+        assert!(admin_v5::is_reviewer(reviewer_address), EONLY_REVIEWER_CAN_CALL);
 
         pay_ai_fee<CoinType>(user, amount);
     }
@@ -171,10 +171,10 @@ module quark::user {
     public entry fun pay_to_users_v1<CoinType>(admin: &signer, reviewer: &signer, user: address, amount: u64, recipients: vector<address>) acquires Account {
         assert!(vector::length(&recipients) > 0, ENOT_USER_PASSED);
         let admin_address = signer::address_of(admin);
-        assert!(admin::is_admin(admin_address), EONLY_ADMIN_CAN_CALL);
+        assert!(admin_v5::is_admin(admin_address), EONLY_ADMIN_CAN_CALL);
 
         let reviewer_address = signer::address_of(reviewer);
-        assert!(admin::is_reviewer(reviewer_address), EONLY_REVIEWER_CAN_CALL);
+        assert!(admin_v5::is_reviewer(reviewer_address), EONLY_REVIEWER_CAN_CALL);
 
         let user_account = borrow_global<Account>(user);
         let resource_account = account::create_signer_with_capability(&user_account.signer_cap);
@@ -201,10 +201,10 @@ module quark::user {
         assert!(vector::length(&recipients) > 0, ENOT_USER_PASSED);
         
         let admin_address = signer::address_of(admin);
-        assert!(admin::is_admin(admin_address), EONLY_ADMIN_CAN_CALL);
+        assert!(admin_v5::is_admin(admin_address), EONLY_ADMIN_CAN_CALL);
 
         let reviewer_address = signer::address_of(reviewer);
-        assert!(admin::is_reviewer(reviewer_address), EONLY_REVIEWER_CAN_CALL);
+        assert!(admin_v5::is_reviewer(reviewer_address), EONLY_REVIEWER_CAN_CALL);
 
         let user_account = borrow_global<Account>(user);
         let resource_account = account::create_signer_with_capability(&user_account.signer_cap);
@@ -228,7 +228,7 @@ module quark::user {
     
 
     fun pay_ai_fee<CoinType>(user: address, amount: u64) acquires Account, Config {
-        let config = borrow_global<Config>(@quark);
+        let config = borrow_global<Config>(@quark_test);
         assert!(option::is_some(&config.coin_addr), ENOT_COIN_PAYMENT_SET);
         assert!(fees::resource_account_exists(), ERESOURCE_ACCOUNT_NOT_EXISTS);
         assert!(amount > 0, EAMOUNT_MUST_BE_GREATER_THAN_ZERO);
@@ -272,7 +272,7 @@ module quark::user {
 
     #[view]
     public fun get_token_address(): Option<address> acquires Config {
-        let config = borrow_global<Config>(@quark);
+        let config = borrow_global<Config>(@quark_test);
         config.coin_addr
     }
 

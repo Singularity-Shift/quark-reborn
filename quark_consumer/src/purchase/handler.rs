@@ -46,14 +46,14 @@ pub async fn purchase_ai(purchase: Purchase) -> ConsumerResult<TransactionRespon
             let user_address = AccountAddress::from_str(account_address.as_str())
                 .map_err(|e| ConsumerError::InvalidMessage(e.to_string()))?;
             TransactionPayload::EntryFunction(EntryFunction::new(
-                ModuleId::new(contract_address, "user_v5".to_string()),
+                ModuleId::new(contract_address, "user".to_string()),
                 "pay_ai".to_string(),
                 vec![token_type],
                 vec![user_address.to_vec(), amount.to_le_bytes().to_vec()],
             ))
         }
         PurchaseType::Group(group_id) => TransactionPayload::EntryFunction(EntryFunction::new(
-            ModuleId::new(contract_address, "group_v5".to_string()),
+            ModuleId::new(contract_address, "group".to_string()),
             "pay_ai".to_string(),
             vec![token_type],
             vec![

@@ -1,6 +1,6 @@
 export const QuarkUserAbi = {
-  address: "0x2033b72957c2f0b66cf5be479a2aa098d5bf18c36477907eba8be39435f2811",
-  name: "user_v5",
+  address: "0xeabd22210b1b985d0c5ec1e4902608f00b92461486d97c5bba29479c70534a4",
+  name: "user",
   friends: [],
   exposed_functions: [
     {

@@ -44,7 +44,7 @@ pub async fn get_price(
         .ok_or_else(|| ConsumerError::InvalidMessage(format!("Model not found: {}", model_name)))?;
 
     let view_request = ViewRequest {
-        function: format!("{contract_address}::user_v5::get_token_address"),
+        function: format!("{contract_address}::user::get_token_address"),
         type_arguments: vec![],
         arguments: vec![],
     };

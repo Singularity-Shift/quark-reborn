@@ -44,7 +44,7 @@ impl Aptos {
         let coin_address_value = self
             .node
             .view_function(ViewRequest {
-                function: format!("{}::user_v5::get_token_address", self.contract_address),
+                function: format!("{}::user::get_token_address", self.contract_address),
                 type_arguments: vec![],
                 arguments: vec![],
             })

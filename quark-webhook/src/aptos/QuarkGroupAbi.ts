@@ -1,6 +1,6 @@
 export const QuarkGroupAbi = {
-  address: "0x2033b72957c2f0b66cf5be479a2aa098d5bf18c36477907eba8be39435f2811",
-  name: "group_v5",
+  address: "0xeabd22210b1b985d0c5ec1e4902608f00b92461486d97c5bba29479c70534a4",
+  name: "group",
   friends: [],
   exposed_functions: [
     {
@@ -182,7 +182,7 @@ export const QuarkGroupAbi = {
       generic_type_params: [],
       params: ["0x1::string::String", "0x1::string::String"],
       return: [
-        "0x2033b72957c2f0b66cf5be479a2aa098d5bf18c36477907eba8be39435f2811::group_v5::GroupDaoV1View",
+        "0xeabd22210b1b985d0c5ec1e4902608f00b92461486d97c5bba29479c70534a4::group::GroupDaoV1View",
       ],
     },
     {
@@ -193,7 +193,7 @@ export const QuarkGroupAbi = {
       generic_type_params: [],
       params: ["0x1::string::String", "0x1::string::String"],
       return: [
-        "0x2033b72957c2f0b66cf5be479a2aa098d5bf18c36477907eba8be39435f2811::group_v5::GroupDaoV2View",
+        "0xeabd22210b1b985d0c5ec1e4902608f00b92461486d97c5bba29479c70534a4::group::GroupDaoV2View",
       ],
     },
     {
@@ -204,7 +204,7 @@ export const QuarkGroupAbi = {
       generic_type_params: [],
       params: ["0x1::string::String"],
       return: [
-        "0x2033b72957c2f0b66cf5be479a2aa098d5bf18c36477907eba8be39435f2811::group_v5::GroupDaosV1View",
+        "0xeabd22210b1b985d0c5ec1e4902608f00b92461486d97c5bba29479c70534a4::group::GroupDaosV1View",
       ],
     },
     {
@@ -215,7 +215,7 @@ export const QuarkGroupAbi = {
       generic_type_params: [],
       params: ["0x1::string::String"],
       return: [
-        "0x2033b72957c2f0b66cf5be479a2aa098d5bf18c36477907eba8be39435f2811::group_v5::GroupDaosV2View",
+        "0xeabd22210b1b985d0c5ec1e4902608f00b92461486d97c5bba29479c70534a4::group::GroupDaosV2View",
       ],
     },
     {
@@ -226,7 +226,7 @@ export const QuarkGroupAbi = {
       generic_type_params: [],
       params: ["0x1::string::String", "0x1::string::String", "address"],
       return: [
-        "0x2033b72957c2f0b66cf5be479a2aa098d5bf18c36477907eba8be39435f2811::group_v5::UserChoiceView",
+        "0xeabd22210b1b985d0c5ec1e4902608f00b92461486d97c5bba29479c70534a4::group::UserChoiceView",
       ],
     },
     {
@@ -237,7 +237,7 @@ export const QuarkGroupAbi = {
       generic_type_params: [],
       params: ["0x1::string::String", "0x1::string::String", "address"],
       return: [
-        "0x2033b72957c2f0b66cf5be479a2aa098d5bf18c36477907eba8be39435f2811::group_v5::UserChoiceView",
+        "0xeabd22210b1b985d0c5ec1e4902608f00b92461486d97c5bba29479c70534a4::group::UserChoiceView",
       ],
     },
     {
@@ -248,7 +248,7 @@ export const QuarkGroupAbi = {
       generic_type_params: [],
       params: ["0x1::string::String", "0x1::string::String"],
       return: [
-        "vector<0x2033b72957c2f0b66cf5be479a2aa098d5bf18c36477907eba8be39435f2811::group_v5::UserChoiceView>",
+        "vector<0xeabd22210b1b985d0c5ec1e4902608f00b92461486d97c5bba29479c70534a4::group::UserChoiceView>",
       ],
     },
     {
@@ -259,7 +259,7 @@ export const QuarkGroupAbi = {
       generic_type_params: [],
       params: ["0x1::string::String", "0x1::string::String"],
       return: [
-        "vector<0x2033b72957c2f0b66cf5be479a2aa098d5bf18c36477907eba8be39435f2811::group_v5::UserChoiceView>",
+        "vector<0xeabd22210b1b985d0c5ec1e4902608f00b92461486d97c5bba29479c70534a4::group::UserChoiceView>",
       ],
     },
     {
@@ -288,7 +288,7 @@ export const QuarkGroupAbi = {
       generic_type_params: [],
       params: ["0x1::string::String"],
       return: [
-        "0x2033b72957c2f0b66cf5be479a2aa098d5bf18c36477907eba8be39435f2811::group_v5::PoolsRewardsV1View",
+        "0xeabd22210b1b985d0c5ec1e4902608f00b92461486d97c5bba29479c70534a4::group::PoolsRewardsV1View",
       ],
     },
     {
@@ -299,7 +299,7 @@ export const QuarkGroupAbi = {
       generic_type_params: [],
       params: ["0x1::string::String"],
       return: [
-        "0x2033b72957c2f0b66cf5be479a2aa098d5bf18c36477907eba8be39435f2811::group_v5::PoolsRewardsV2View",
+        "0xeabd22210b1b985d0c5ec1e4902608f00b92461486d97c5bba29479c70534a4::group::PoolsRewardsV2View",
       ],
     },
     {
@@ -423,7 +423,7 @@ export const QuarkGroupAbi = {
         { name: "choices_weights", type: "vector<u64>" },
         {
           name: "user_choices",
-          type: "vector<0x2033b72957c2f0b66cf5be479a2aa098d5bf18c36477907eba8be39435f2811::group_v5::UserChoice>",
+          type: "vector<0xeabd22210b1b985d0c5ec1e4902608f00b92461486d97c5bba29479c70534a4::group::UserChoice>",
         },
         { name: "coin_type", type: "address" },
         { name: "from", type: "u64" },
@@ -443,7 +443,7 @@ export const QuarkGroupAbi = {
         { name: "choices_weights", type: "vector<u64>" },
         {
           name: "user_choices",
-          type: "vector<0x2033b72957c2f0b66cf5be479a2aa098d5bf18c36477907eba8be39435f2811::group_v5::UserChoiceView>",
+          type: "vector<0xeabd22210b1b985d0c5ec1e4902608f00b92461486d97c5bba29479c70534a4::group::UserChoiceView>",
         },
         { name: "coin_type", type: "address" },
         { name: "from", type: "u64" },
@@ -463,7 +463,7 @@ export const QuarkGroupAbi = {
         { name: "choices_weights", type: "vector<u64>" },
         {
           name: "user_choices",
-          type: "vector<0x2033b72957c2f0b66cf5be479a2aa098d5bf18c36477907eba8be39435f2811::group_v5::UserChoice>",
+          type: "vector<0xeabd22210b1b985d0c5ec1e4902608f00b92461486d97c5bba29479c70534a4::group::UserChoice>",
         },
         { name: "currency", type: "address" },
         { name: "from", type: "u64" },
@@ -483,7 +483,7 @@ export const QuarkGroupAbi = {
         { name: "choices_weights", type: "vector<u64>" },
         {
           name: "user_choices",
-          type: "vector<0x2033b72957c2f0b66cf5be479a2aa098d5bf18c36477907eba8be39435f2811::group_v5::UserChoiceView>",
+          type: "vector<0xeabd22210b1b985d0c5ec1e4902608f00b92461486d97c5bba29479c70534a4::group::UserChoiceView>",
         },
         { name: "currency", type: "address" },
         { name: "from", type: "u64" },
@@ -499,7 +499,7 @@ export const QuarkGroupAbi = {
       fields: [
         {
           name: "daos",
-          type: "vector<0x2033b72957c2f0b66cf5be479a2aa098d5bf18c36477907eba8be39435f2811::group_v5::GroupDaoV1>",
+          type: "vector<0xeabd22210b1b985d0c5ec1e4902608f00b92461486d97c5bba29479c70534a4::group::GroupDaoV1>",
         },
       ],
     },
@@ -512,7 +512,7 @@ export const QuarkGroupAbi = {
       fields: [
         {
           name: "daos",
-          type: "vector<0x2033b72957c2f0b66cf5be479a2aa098d5bf18c36477907eba8be39435f2811::group_v5::GroupDaoV1View>",
+          type: "vector<0xeabd22210b1b985d0c5ec1e4902608f00b92461486d97c5bba29479c70534a4::group::GroupDaoV1View>",
         },
       ],
     },
@@ -525,7 +525,7 @@ export const QuarkGroupAbi = {
       fields: [
         {
           name: "daos",
-          type: "vector<0x2033b72957c2f0b66cf5be479a2aa098d5bf18c36477907eba8be39435f2811::group_v5::GroupDaoV2>",
+          type: "vector<0xeabd22210b1b985d0c5ec1e4902608f00b92461486d97c5bba29479c70534a4::group::GroupDaoV2>",
         },
       ],
     },
@@ -538,7 +538,7 @@ export const QuarkGroupAbi = {
       fields: [
         {
           name: "daos",
-          type: "vector<0x2033b72957c2f0b66cf5be479a2aa098d5bf18c36477907eba8be39435f2811::group_v5::GroupDaoV2View>",
+          type: "vector<0xeabd22210b1b985d0c5ec1e4902608f00b92461486d97c5bba29479c70534a4::group::GroupDaoV2View>",
         },
       ],
     },
@@ -587,7 +587,7 @@ export const QuarkGroupAbi = {
       fields: [
         {
           name: "groups",
-          type: "vector<0x2033b72957c2f0b66cf5be479a2aa098d5bf18c36477907eba8be39435f2811::group_v5::Group>",
+          type: "vector<0xeabd22210b1b985d0c5ec1e4902608f00b92461486d97c5bba29479c70534a4::group::Group>",
         },
       ],
     },
@@ -670,7 +670,7 @@ export const QuarkGroupAbi = {
       fields: [
         {
           name: "pools",
-          type: "vector<0x2033b72957c2f0b66cf5be479a2aa098d5bf18c36477907eba8be39435f2811::group_v5::PoolRewardV1>",
+          type: "vector<0xeabd22210b1b985d0c5ec1e4902608f00b92461486d97c5bba29479c70534a4::group::PoolRewardV1>",
         },
       ],
     },
@@ -683,7 +683,7 @@ export const QuarkGroupAbi = {
       fields: [
         {
           name: "pools",
-          type: "vector<0x2033b72957c2f0b66cf5be479a2aa098d5bf18c36477907eba8be39435f2811::group_v5::PoolRewardV1View>",
+          type: "vector<0xeabd22210b1b985d0c5ec1e4902608f00b92461486d97c5bba29479c70534a4::group::PoolRewardV1View>",
         },
       ],
     },
@@ -696,7 +696,7 @@ export const QuarkGroupAbi = {
       fields: [
         {
           name: "pools",
-          type: "vector<0x2033b72957c2f0b66cf5be479a2aa098d5bf18c36477907eba8be39435f2811::group_v5::PoolRewardV2>",
+          type: "vector<0xeabd22210b1b985d0c5ec1e4902608f00b92461486d97c5bba29479c70534a4::group::PoolRewardV2>",
         },
       ],
     },
@@ -709,7 +709,7 @@ export const QuarkGroupAbi = {
       fields: [
         {
           name: "pools",
-          type: "vector<0x2033b72957c2f0b66cf5be479a2aa098d5bf18c36477907eba8be39435f2811::group_v5::PoolRewardV2View>",
+          type: "vector<0xeabd22210b1b985d0c5ec1e4902608f00b92461486d97c5bba29479c70534a4::group::PoolRewardV2View>",
         },
       ],
     },

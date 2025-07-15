@@ -1705,7 +1705,7 @@ async fn check_group_resource_account_address(
             .node
             .view_function(ViewRequest {
                 function: format!(
-                    "{}::group_v5::get_group_account",
+                    "{}::group::get_group_account",
                     panora.aptos.contract_address
                 ),
                 type_arguments: vec![],
