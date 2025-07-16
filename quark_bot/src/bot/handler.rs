@@ -968,6 +968,7 @@ pub async fn handle_message(
 ) -> AnyResult<()> {
     // Sentinel: moderate every message in group if sentinel is on
     if !msg.chat.is_private() {
+        log::info!("handle_message: Processing group message in chat {}", msg.chat.id);
         let sentinel_tree = db.open_tree("sentinel_state").unwrap();
         let chat_id = msg.chat.id.0.to_be_bytes();
         let user = msg.from.clone();
@@ -1013,22 +1014,28 @@ pub async fn handle_message(
         if sentinel_on {
             // Don't moderate admin or bot messages
             if let Some(user) = &msg.from {
+                log::info!("Sentinel: Processing message from user {} ({})", user.first_name, user.id);
                 if user.is_bot {
+                    log::info!("Sentinel: Skipping bot user {}", user.id);
                     return Ok(());
                 }
                 // Check admin status
                 let admins = bot.get_chat_administrators(msg.chat.id).await?;
                 let is_admin = admins.iter().any(|member| member.user.id == user.id);
                 if is_admin {
+                    log::info!("Sentinel: Skipping admin user {}", user.id);
                     return Ok(());
                 }
+                log::info!("Sentinel: User {} is not admin/bot, proceeding with moderation", user.id);
             } else {
+                log::info!("Sentinel: No user found in message");
                 return Ok(());
             }
             // Use the same moderation logic as /mod
             let moderation_service =
                 ModerationService::new(std::env::var("OPENAI_API_KEY").unwrap()).unwrap();
             let message_text = msg.text().or_else(|| msg.caption()).unwrap_or("");
+            log::info!("Sentinel: About to moderate message: '{}'", message_text);
             match moderation_service
                 .moderate_message(message_text, &bot, &msg, &msg)
                 .await
