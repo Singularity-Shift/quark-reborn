@@ -58,7 +58,12 @@ async fn main() {
 
     let aptos = Aptos::new(aptos_network, contract_address);
 
-    let panora = Panora::new(&db, aptos).expect("Failed to create Panora");
+    let min_deposit = env::var("MIN_DEPOSIT")
+        .expect("MIN_DEPOSIT not set")
+        .parse::<f64>()
+        .expect("MIN_DEPOSIT must be a number");
+
+    let panora = Panora::new(&db, aptos, min_deposit).expect("Failed to create Panora");
 
     // Create clone for dispatcher early to avoid move issues
     let panora_for_dispatcher = panora.clone();
@@ -127,12 +132,7 @@ async fn main() {
 
     log::info!("Panora token list cron job started (runs every hour)");
 
-    let min_deposit = env::var("MIN_DEPOSIT")
-        .expect("MIN_DEPOSIT not set")
-        .parse::<f64>()
-        .expect("MIN_DEPOSIT must be a number");
-
-    let ai = AI::new(openai_api_key.clone(), google_cloud, panora, min_deposit);
+    let ai = AI::new(openai_api_key.clone(), google_cloud, panora);
 
     let user_convos = UserConversations::new(&db).unwrap();
     let user_model_prefs = UserModelPreferences::new(&db).unwrap();

@@ -25,16 +25,10 @@ pub struct AI {
     cloud: GcsImageUploader,
     panora: Panora,
     service: Services,
-    min_deposit: f64,
 }
 
 impl AI {
-    pub fn new(
-        openai_api_key: String,
-        cloud: GcsImageUploader,
-        panora: Panora,
-        min_deposit: f64,
-    ) -> Self {
+    pub fn new(openai_api_key: String, cloud: GcsImageUploader, panora: Panora) -> Self {
         let system_prompt = get_prompt();
 
         // Use default recovery policy for API error handling
@@ -51,7 +45,6 @@ impl AI {
             cloud,
             panora,
             service,
-            min_deposit,
         }
     }
 
@@ -186,7 +179,7 @@ impl AI {
 
         let token_decimals = token_decimals.unwrap();
 
-        let min_deposit = self.min_deposit / token_price;
+        let min_deposit = self.panora.min_deposit / token_price;
 
         let min_deposit = (min_deposit as f64 * 10_f64.powi(token_decimals as i32)) as u64;
 
