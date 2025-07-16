@@ -16,10 +16,11 @@ pub struct Panora {
     panora_url: String,
     panora_api_key: String,
     pub aptos: Aptos,
+    pub min_deposit: f64,
 }
 
 impl Panora {
-    pub fn new(db: &Db, aptos: Aptos) -> sled::Result<Self> {
+    pub fn new(db: &Db, aptos: Aptos, min_deposit: f64) -> sled::Result<Self> {
         let client = Client::new();
         let tree = db.open_tree("panora")?;
 
@@ -32,6 +33,7 @@ impl Panora {
             panora_url,
             panora_api_key,
             aptos,
+            min_deposit,
         })
     }
 
