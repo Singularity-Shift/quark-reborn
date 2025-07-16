@@ -964,6 +964,7 @@ pub async fn handle_message(
     db: Db,
     auth: Auth,
     group: Group,
+    panora: Panora,
     services: Services,
 ) -> AnyResult<()> {
     // Sentinel: moderate every message in group if sentinel is on
@@ -1025,6 +1026,94 @@ pub async fn handle_message(
             } else {
                 return Ok(());
             }
+
+            let address = group_credentials.resource_account_address;
+
+            let coin_address = panora.aptos.get_token_address().await;
+
+            if coin_address.is_err() {
+                bot.send_message(
+                    msg.chat.id,
+                    "❌ Coin address not found, please contact support",
+                )
+                .await?;
+                return Ok(());
+            }
+
+            let coin_address = coin_address.unwrap();
+
+            let group_balance = panora
+                .aptos
+                .get_account_balance(&address, &coin_address)
+                .await?;
+
+            let token = panora.get_token_ai_fees().await?;
+
+            let token_price = token.usd_price;
+
+            if token_price.is_none() {
+                bot.send_message(
+                    msg.chat.id,
+                    "❌ Token price not found, please contact support",
+                )
+                .await?;
+                return Ok(());
+            }
+
+            let token_price = token_price.unwrap();
+
+            let token_price = token_price.parse::<f64>();
+
+            if token_price.is_err() {
+                bot.send_message(
+                    msg.chat.id,
+                    "❌ Token price not found, please contact support",
+                )
+                .await?;
+                return Ok(());
+            }
+
+            let token_price = token_price.unwrap();
+
+            let token_decimals = token.decimals;
+
+            if token_decimals.is_none() {
+                return Err(anyhow::anyhow!("Token decimals not found"));
+            }
+
+            let token_decimals = token_decimals.unwrap();
+
+            let min_deposit = (panora.min_deposit / 10_f64) / token_price;
+
+            let min_deposit = (min_deposit as f64 * 10_f64.powi(token_decimals as i32)) as u64;
+
+            if group_balance < min_deposit as i64 {
+                let min_deposit_formatted = format!(
+                    "{:.2}",
+                    min_deposit as f64 / 10_f64.powi(token_decimals as i32)
+                );
+
+                let group_balance_formatted = format!(
+                    "{:.2}",
+                    group_balance as f64 / 10_f64.powi(token_decimals as i32)
+                );
+
+                bot.send_message(
+                    msg.chat.id,
+                    format!(
+                        "User balance is less than the minimum deposit. Please fund your account transfering {} to {} address. Minimum deposit: {} {} (Your balance: {} {})",
+                        token.symbol.clone().unwrap_or("".to_string()),
+                        address,
+                        min_deposit_formatted,
+                        token.symbol.clone().unwrap_or("".to_string()),
+                        group_balance_formatted,
+                        token.symbol.unwrap_or("".to_string())
+                    )
+                )
+                .await?;
+                return Ok(());
+            }
+
             // Use the same moderation logic as /mod
             let moderation_service =
                 ModerationService::new(std::env::var("OPENAI_API_KEY").unwrap()).unwrap();
