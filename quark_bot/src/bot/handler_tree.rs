@@ -131,14 +131,20 @@ pub fn handler_tree() -> Handler<'static, Result<()>, DpHandlerDescription> {
                         })
                         .endpoint(answers),
                 )
-                // Fallback for any non-command message in PRIVATE CHATS.
-                // This ensures we still capture file uploads (documents, photos, etc.)
-                // sent via DM while ignoring non-command chatter in groups.
+                // Handle group messages for sentinel auto-moderation
                 .branch(
                     dptree::entry()
+                        .filter(|msg: Message| !msg.chat.is_private())
                         .endpoint(handle_message),
                 )
-                // Handle group messages for sentinel auto-moderation
+                // Fallback for any non-command message in PRIVATE CHATS.
+                // This ensures we still capture file uploads (documents, photos, etc.)
+                // sent via DM.
+                .branch(
+                    dptree::entry()
+                        .filter(|msg: Message| msg.chat.is_private())
+                        .endpoint(handle_message),
+                )
                 .branch(
                     // Handle DM-only commands when used in groups - direct to DMs
                     dptree::entry()
