@@ -6,8 +6,8 @@ members = [
     "quark_server", "quark_consumer"]
 
 [workspace.dependencies]
-teloxide = { version = "0.16.0", features = ["macros"] }
-tokio = { version = "1.46.0", features = ["rt-multi-thread", "macros"] }
+teloxide = { version = "0.17.0", features = ["macros"] }
+tokio = { version = "1.46.1", features = ["rt-multi-thread", "macros"] }
 log = "0.4"
 tracing-subscriber = "0.3"
 dotenvy = "0.15"
@@ -29,7 +29,7 @@ aptos-rust-sdk = {git = "https://github.com/Singularity-Shift/aptos-rust-sdk.git
 aptos-rust-sdk-types = {git = "https://github.com/Singularity-Shift/aptos-rust-sdk.git", branch = "feat/view-functions", package="aptos-rust-sdk-types"}
 aptos-crypto = {git = "https://github.com/Singularity-Shift/aptos-rust-sdk.git", branch="feat/view-functions",  package="aptos-crypto"}
 aptos-crypto-derive = {git = "https://github.com/Singularity-Shift/aptos-rust-sdk.git", branch="feat/view-functions", package="aptos-crypto-derive"}
-redis = {version = "0.32.3", features = ["tokio-comp"]}
+redis = {version = "0.32.4", features = ["tokio-comp"]}
 open-ai-rust-responses-by-sshift = "0.2.8"
 ron= {version = "0.10.1"}
 bincode = "2.0.1"
