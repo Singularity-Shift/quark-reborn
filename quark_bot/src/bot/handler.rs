@@ -1101,7 +1101,7 @@ pub async fn handle_message(
                                 format!(
                                     "🛡️ <b>Content Flagged & User Muted</b>\n\n📝 Message ID: <code>{}</code>\n\n❌ Status: <b>FLAGGED</b> 🔴\n🔇 User has been muted\n\n💬 <i>Flagged message:</i>\n<blockquote>{}</blockquote>",
                                     msg.id,
-                                    message_text
+                                    teloxide::utils::html::escape(message_text)
                                 )
                             )
                             .parse_mode(ParseMode::Html)
@@ -1374,7 +1374,7 @@ pub async fn handle_mod(
                             format!(
                                 "🛡️ <b>Content Flagged & User Muted</b>\n\n📝 Message ID: <code>{}</code>\n\n❌ Status: <b>FLAGGED</b> 🔴\n🔇 User has been muted\n\n💬 <i>Flagged message:</i>\n<blockquote>{}</blockquote>",
                                 reply_to_msg.id,
-                                message_text
+                                teloxide::utils::html::escape(message_text)
                             )
                         )
                         .parse_mode(ParseMode::Html)
@@ -1387,7 +1387,7 @@ pub async fn handle_mod(
                             format!(
                                 "🛡️ <b>Content Flagged</b>\n\n📝 Message ID: <code>{}</code>\n\n❌ Status: <b>FLAGGED</b> 🔴\n⚠️ Could not identify user to mute\n\n💬 <i>Flagged message:</i>\n<blockquote>{}</blockquote>",
                                 reply_to_msg.id,
-                                message_text
+                                teloxide::utils::html::escape(message_text)
                             )
                         )
                         .parse_mode(ParseMode::Html)
