@@ -99,9 +99,9 @@ pub async fn handle_select_model(
         )],
     ]);
 
-    bot.send_message(msg.chat.id, "🤖 **Select your chat model:**\n\nChoose which model to use for regular chat commands (/c):")
+    bot.send_message(msg.chat.id, "🤖 <b>Select your chat model:</b>\n\nChoose which model to use for regular chat commands (/c):")
         .reply_markup(keyboard)
-        .parse_mode(teloxide::types::ParseMode::Markdown)
+        .parse_mode(teloxide::types::ParseMode::Html)
         .await?;
 
     Ok(())
@@ -141,9 +141,9 @@ pub async fn handle_select_reasoning_model(
         )],
     ]);
 
-    bot.send_message(msg.chat.id, "🧠 **Select your reasoning model:**\n\nChoose which model to use for reasoning commands (/r):")
+    bot.send_message(msg.chat.id, "🧠 <b>Select your reasoning model:</b>\n\nChoose which model to use for reasoning commands (/r):")
         .reply_markup(keyboard)
-        .parse_mode(teloxide::types::ParseMode::Markdown)
+        .parse_mode(teloxide::types::ParseMode::Html)
         .await?;
 
     Ok(())
@@ -176,11 +176,11 @@ pub async fn handle_my_settings(
 
     // Format the settings message
     let settings_text = format!(
-        "⚙️ **Your Current Model Settings**\n\n\
-        💬 **Chat Model (for /c commands):**\n\
+        "⚙️ <b>Your Current Model Settings</b>\n\n\
+        💬 <b>Chat Model (for /c commands):</b>\n\
         🤖 Model: {}\n\
         🌡️ Temperature: {}\n\n\
-        🧠 **Reasoning Model (for /r commands):**\n\
+        🧠 <b>Reasoning Model (for /r commands):</b>\n\
         🤖 Model: {}\n\
         ⚡ Effort: {}\n\n\
         💡 Use /selectmodel or /selectreasoningmodel to change these settings.",
@@ -191,7 +191,7 @@ pub async fn handle_my_settings(
     );
 
     bot.send_message(msg.chat.id, settings_text)
-        .parse_mode(teloxide::types::ParseMode::MarkdownV2)
+        .parse_mode(teloxide::types::ParseMode::Html)
         .await?;
 
     Ok(())

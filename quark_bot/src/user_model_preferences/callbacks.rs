@@ -49,12 +49,12 @@ pub async fn handle_model_preferences_callback(
                     msg.chat.id,
                     msg.id,
                     format!(
-                        "🌡️ **Select temperature for {}:**\n\nChoose the creativity level for your chat responses:",
+                        "🌡️ <b>Select temperature for {}:</b>\n\nChoose the creativity level for your chat responses:",
                         model.to_display_string()
                     )
                 )
                 .reply_markup(keyboard)
-                .parse_mode(ParseMode::MarkdownV2)
+                .parse_mode(ParseMode::Html)
                 .await?;
             }
         }
@@ -88,12 +88,12 @@ pub async fn handle_model_preferences_callback(
                     msg.chat.id,
                     msg.id,
                     format!(
-                        "✅ **Chat model preferences saved!**\n\n🤖 Model: {}\n🌡️ Temperature: {}\n\nYour /c commands will now use these settings.",
+                        "✅ <b>Chat model preferences saved!</b>\n\n🤖 Model: {}\n🌡️ Temperature: {}\n\nYour /c commands will now use these settings.",
                         model.to_display_string(),
                         temperature
                     )
                 )
-                .parse_mode(ParseMode::MarkdownV2)
+                .parse_mode(ParseMode::Html)
                 .await?;
             }
         }
@@ -123,12 +123,12 @@ pub async fn handle_model_preferences_callback(
                     msg.chat.id,
                     msg.id,
                     format!(
-                        "⚡ **Select effort level for {}:**\n\nChoose how much reasoning effort to use:",
+                        "⚡ <b>Select effort level for {}:</b>\n\nChoose how much reasoning effort to use:",
                         model.to_display_string()
                     )
                 )
                 .reply_markup(keyboard)
-                .parse_mode(ParseMode::MarkdownV2)
+                .parse_mode(ParseMode::Html)
                 .await?;
             }
         }
@@ -161,12 +161,12 @@ pub async fn handle_model_preferences_callback(
                     msg.chat.id,
                     msg.id,
                     format!(
-                        "✅ **Reasoning model preferences saved!**\n\n🧠 Model: {}\n⚡ Effort: {}\n\nYour /r commands will now use these settings.",
+                        "✅ <b>Reasoning model preferences saved!</b>\n\n🧠 Model: {}\n⚡ Effort: {}\n\nYour /r commands will now use these settings.",
                         model.to_display_string(),
                         effort_to_display_string(&effort)
                     )
                 )
-                .parse_mode(ParseMode::MarkdownV2)
+                .parse_mode(ParseMode::Html)
                 .await?;
             }
         }
