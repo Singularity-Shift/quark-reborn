@@ -969,6 +969,7 @@ pub async fn handle_message(
 ) -> AnyResult<()> {
     // Sentinel: moderate every message in group if sentinel is on
     if !msg.chat.is_private() {
+        let profile = std::env::var("PROFILE").unwrap_or("prod".to_string());
         let sentinel_tree = db.open_tree("sentinel_state").unwrap();
         let chat_id = msg.chat.id.0.to_be_bytes();
         let user = msg.from.clone();
@@ -1129,30 +1130,33 @@ pub async fn handle_message(
                         message_text,
                         result.total_tokens
                     );
+
+                    if profile != "dev" {
+                        let purchase_result = services
+                            .group_purchase(
+                                group_credentials.jwt,
+                                PurchaseRequest {
+                                    model: Model::GPT41Nano,
+                                    tokens_used: result.total_tokens,
+                                    tools_used: vec![],
+                                    group_id: Some(msg.chat.id.0.to_string()),
+                                },
+                            )
+                            .await;
+
+                        if purchase_result.is_err() {
+                            log::error!(
+                                "Failed to purchase ai for flagged content: {}",
+                                purchase_result.err().unwrap()
+                            );
+                            return Ok(());
+                        }
+                    }
+
                     if result.verdict == "F" {
                         // Mute the user
                         if let Some(flagged_user) = &msg.from {
                             let restricted_permissions = teloxide::types::ChatPermissions::empty();
-
-                            let purchase_result = services
-                                .group_purchase(
-                                    group_credentials.jwt,
-                                    PurchaseRequest {
-                                        model: Model::GPT41Nano,
-                                        tokens_used: result.total_tokens,
-                                        tools_used: vec![],
-                                        group_id: Some(msg.chat.id.0.to_string()),
-                                    },
-                                )
-                                .await;
-
-                            if purchase_result.is_err() {
-                                log::error!(
-                                    "Failed to purchase ai for flagged content: {}",
-                                    purchase_result.err().unwrap()
-                                );
-                                return Ok(());
-                            }
 
                             // Check if the user is already muted
                             if let Err(mute_error) = bot
