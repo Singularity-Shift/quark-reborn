@@ -7,7 +7,8 @@ services:
     ports:
       - "3200:3200"
     depends_on:
-      - valkey
+      valkey:
+        condition: service_healthy
     environment:
       - SERVER_DOMAIN=${SERVER_DOMAIN}
       - APTOS_NETWORK=${APTOS_NETWORK}
@@ -77,6 +78,12 @@ services:
       - 'valkey_data:/app/valkey_data'
     networks:
       - quark-net
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "${VALKEY_PASSWORD}", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+      start_period: 10s
 
   quark-consumer-one:
     container_name: quark-consumer-one
@@ -84,8 +91,10 @@ services:
       context: .
       dockerfile: quark_consumer/Dockerfile
     depends_on:
-      - valkey
-      - quark-server
+      valkey:
+        condition: service_healthy
+      quark-server:
+        condition: service_started
     environment:
       - REDIS_URL=redis://:${VALKEY_PASSWORD}@valkey:6379
       - CONSUMER_ID=consumer-one
@@ -109,8 +118,10 @@ services:
       context: .
       dockerfile: quark_consumer/Dockerfile
     depends_on:
-      - valkey
-      - quark-server
+      valkey:
+        condition: service_healthy
+      quark-server:
+        condition: service_started
     environment:
       - REDIS_URL=redis://:${VALKEY_PASSWORD}@valkey:6379
       - CONSUMER_ID=consumer-two
