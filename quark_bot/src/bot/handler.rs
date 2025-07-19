@@ -974,22 +974,6 @@ pub async fn handle_message(
         let chat_id = msg.chat.id.0.to_be_bytes();
         let user = msg.from.clone();
 
-        if user.is_none() {
-            bot.send_message(msg.chat.id, "❌ User not found").await?;
-            return Ok(());
-        }
-
-        let user = user.unwrap();
-
-        let username = user.username;
-
-        if username.is_none() {
-            bot.send_message(msg.chat.id, "❌ Username not found")
-                .await?;
-            return Ok(());
-        }
-
-        let username = username.unwrap();
         let group_credentials = group.get_credentials(&msg.chat.id);
 
         if group_credentials.is_none() {
@@ -1002,8 +986,18 @@ pub async fn handle_message(
 
         let group_credentials = group_credentials.unwrap();
 
-        if !group_credentials.users.contains(&username) {
-            group.add_user_to_group(msg.chat.id, username).await?;
+        if user.is_some() {
+            let user = user.unwrap();
+
+            let username = user.username;
+
+            if username.is_some() {
+                let username = username.unwrap();
+
+                if !group_credentials.users.contains(&username) {
+                    group.add_user_to_group(msg.chat.id, username).await?;
+                }
+            }
         }
 
         // Check if sentinel is on for this group
