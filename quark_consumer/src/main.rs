@@ -20,6 +20,171 @@ use crate::calculator::handler::get_price;
 use crate::purchase::dto::{Purchase, PurchaseType};
 use crate::purchase::handler::purchase_ai;
 
+async fn connect_to_redis_with_retry(
+    redis_url: &str,
+    consumer_id: &str,
+) -> redis::aio::MultiplexedConnection {
+    let mut retry_count = 0;
+    let max_retries = 10;
+    let base_delay = Duration::from_secs(1);
+
+    loop {
+        println!(
+            "[{}] Attempting to connect to Redis (attempt {})...",
+            consumer_id,
+            retry_count + 1
+        );
+
+        match Client::open(redis_url) {
+            Ok(client) => match client.get_multiplexed_async_connection().await {
+                Ok(connection) => {
+                    println!(
+                        "[{}] Successfully connected to Redis after {} attempts",
+                        consumer_id,
+                        retry_count + 1
+                    );
+                    return connection;
+                }
+                Err(e) => {
+                    eprintln!(
+                        "[{}] Failed to get Redis connection (attempt {}): {}",
+                        consumer_id,
+                        retry_count + 1,
+                        e
+                    );
+                }
+            },
+            Err(e) => {
+                eprintln!(
+                    "[{}] Failed to create Redis client (attempt {}): {}",
+                    consumer_id,
+                    retry_count + 1,
+                    e
+                );
+            }
+        }
+
+        retry_count += 1;
+        if retry_count >= max_retries {
+            panic!(
+                "[{}] Failed to connect to Redis after {} attempts",
+                consumer_id, max_retries
+            );
+        }
+
+        let delay = base_delay * 2_u32.pow(retry_count as u32 - 1);
+        println!(
+            "[{}] Retrying Redis connection in {:?}...",
+            consumer_id, delay
+        );
+        tokio::time::sleep(delay).await;
+    }
+}
+
+async fn process_message_with_retry(
+    redis_connection: &mut redis::aio::MultiplexedConnection,
+    message: String,
+    consumer_id: &str,
+    contract_address: AccountAddress,
+    node: aptos_rust_sdk::client::rest_api::AptosFullnodeClient,
+    chain_id: ChainId,
+    path: &str,
+    panora_url: &str,
+    panora_api_key: &str,
+) -> ConsumerResult<()> {
+    let purchase: PurchaseMessage = serde_json::from_str(&message)
+        .map_err(|e| ConsumerError::InvalidMessage(format!("Failed to parse message: {}", e)))?;
+
+    let model_name = purchase.model.to_string();
+    let total_tokens = purchase.tokens_used;
+    let tool_usage = purchase.tools_used;
+    let client = ReqClient::builder()
+        .user_agent("quark-consumer/1.0")
+        .build()
+        .map_err(|e| {
+            ConsumerError::InvalidMessage(format!("Failed to create HTTP client: {}", e))
+        })?;
+
+    let node_price = node.clone();
+
+    let price = get_price(
+        &path,
+        &panora_url,
+        &panora_api_key,
+        &model_name,
+        total_tokens as u64,
+        tool_usage,
+        &client,
+        &contract_address,
+        &node_price,
+    )
+    .await;
+
+    if price.is_err() {
+        eprintln!("[{}] Error getting price: {:?}", consumer_id, price.err());
+
+        // Try to requeue the message
+        let _: () = redis_connection
+            .lpush("purchase", message)
+            .await
+            .map_err(|e| {
+                ConsumerError::InvalidMessage(format!("Failed to push message to Redis: {}", e))
+            })?;
+
+        return Err(ConsumerError::InvalidMessage(
+            "Failed to get price".to_string(),
+        ));
+    }
+
+    let purchase_type = if purchase.group_id.is_some() {
+        PurchaseType::Group(purchase.group_id.unwrap())
+    } else {
+        PurchaseType::User(purchase.account_address)
+    };
+
+    let (amount, token_address) = price.unwrap();
+
+    let purchase_query = Purchase::from((
+        purchase_type,
+        contract_address,
+        amount,
+        token_address,
+        node.clone(),
+        chain_id,
+    ));
+
+    let transaction_response = purchase_ai(purchase_query).await;
+
+    if transaction_response.is_err() {
+        eprintln!(
+            "[{}] Error purchasing: {:?}",
+            consumer_id,
+            transaction_response.err()
+        );
+
+        // Try to requeue the message
+        let _: () = redis_connection
+            .lpush("purchase", message)
+            .await
+            .map_err(|e| {
+                ConsumerError::InvalidMessage(format!("Failed to push message to Redis: {}", e))
+            })?;
+
+        return Err(ConsumerError::InvalidMessage(
+            "Failed to purchase".to_string(),
+        ));
+    }
+
+    let transaction_response = transaction_response.unwrap();
+
+    println!(
+        "[{}] Purchased successfully: {:?}",
+        consumer_id, transaction_response
+    );
+
+    Ok(())
+}
+
 #[tokio::main(flavor = "multi_thread", worker_threads = 4)]
 async fn main() -> ConsumerResult<()> {
     let consumer_id = env::var("CONSUMER_ID").unwrap_or_else(|_| "consumer".to_string());
@@ -61,137 +226,70 @@ async fn main() -> ConsumerResult<()> {
     println!("[{}] Starting Quark Consumer...", consumer_id);
     println!("[{}] Connecting to Redis", consumer_id);
 
-    let redis_client = Client::open(redis_url).map_err(|e| {
-        ConsumerError::ConnectionFailed(format!("Failed to create Redis client: {}", e))
-    })?;
-
-    let mut redis_connection = redis_client
-        .get_multiplexed_async_connection()
-        .await
-        .map_err(|e| {
-            ConsumerError::ConnectionFailed(format!("Failed to get Redis connection: {}", e))
-        })?;
+    // Initial connection with retry
+    let mut redis_connection = connect_to_redis_with_retry(&redis_url, &consumer_id).await;
 
     println!("[{}] Connected to Redis successfully", consumer_id);
     println!("[{}] Starting consumer loop...", consumer_id);
+
+    let mut consecutive_errors = 0;
+    let max_consecutive_errors = 5;
 
     loop {
         match redis_connection
             .rpop::<_, Option<String>>("purchase", None)
             .await
         {
-            Ok(outcome) => match outcome {
-                Some(message) => {
-                    let purchase: PurchaseMessage =
-                        serde_json::from_str(&message).map_err(|e| {
-                            ConsumerError::InvalidMessage(format!("Failed to parse message: {}", e))
-                        })?;
+            Ok(outcome) => {
+                consecutive_errors = 0; // Reset error counter on successful operation
 
-                    let model_name = purchase.model.to_string();
-                    let total_tokens = purchase.tokens_used;
-                    let tool_usage = purchase.tools_used;
-                    let client = ReqClient::builder()
-                        .user_agent("quark-consumer/1.0")
-                        .build()
-                        .map_err(|e| {
-                            ConsumerError::InvalidMessage(format!(
-                                "Failed to create HTTP client: {}",
-                                e
-                            ))
-                        })?;
-
-                    let node_price = node.clone();
-
-                    let price = get_price(
-                        &path,
-                        &panora_url,
-                        &panora_api_key,
-                        &model_name,
-                        total_tokens as u64,
-                        tool_usage,
-                        &client,
-                        &contract_address,
-                        &node_price,
-                    )
-                    .await;
-
-                    if price.is_err() {
-                        eprintln!("[{}] Error getting price: {:?}", consumer_id, price.err());
-
-                        let _: () =
-                            redis_connection
-                                .lpush("purchase", message)
-                                .await
-                                .map_err(|e| {
-                                    ConsumerError::InvalidMessage(format!(
-                                        "Failed to push message to Redis: {}",
-                                        e
-                                    ))
-                                })?;
-
-                        return Err(ConsumerError::InvalidMessage(
-                            "Failed to get price".to_string(),
-                        ));
+                match outcome {
+                    Some(message) => {
+                        // Process the message with retry logic
+                        match process_message_with_retry(
+                            &mut redis_connection,
+                            message,
+                            &consumer_id,
+                            contract_address,
+                            node.clone(),
+                            chain_id,
+                            &path,
+                            &panora_url,
+                            &panora_api_key,
+                        )
+                        .await
+                        {
+                            Ok(_) => {
+                                // Message processed successfully
+                            }
+                            Err(e) => {
+                                eprintln!("[{}] Failed to process message: {}", consumer_id, e);
+                                // Don't return here, continue the loop
+                            }
+                        }
                     }
-
-                    let purchase_type = if purchase.group_id.is_some() {
-                        PurchaseType::Group(purchase.group_id.unwrap())
-                    } else {
-                        PurchaseType::User(purchase.account_address)
-                    };
-
-                    let (amount, token_address) = price.unwrap();
-
-                    let purchase_query = Purchase::from((
-                        purchase_type,
-                        contract_address,
-                        amount,
-                        token_address,
-                        node.clone(),
-                        chain_id,
-                    ));
-
-                    let transaction_response = purchase_ai(purchase_query).await;
-
-                    if transaction_response.is_err() {
-                        eprintln!(
-                            "[{}] Error purchasing: {:?}",
-                            consumer_id,
-                            transaction_response.err()
-                        );
-
-                        let _: () =
-                            redis_connection
-                                .lpush("purchase", message)
-                                .await
-                                .map_err(|e| {
-                                    ConsumerError::InvalidMessage(format!(
-                                        "Failed to push message to Redis: {}",
-                                        e
-                                    ))
-                                })?;
-
-                        return Err(ConsumerError::InvalidMessage(
-                            "Failed to purchase".to_string(),
-                        ));
+                    None => {
+                        tokio::time::sleep(Duration::from_secs(5)).await;
                     }
-
-                    let transaction_response = transaction_response.unwrap();
-
-                    println!(
-                        "[{}] Purchased successfully: {:?}",
-                        consumer_id, transaction_response
-                    );
                 }
-                None => {
-                    tokio::time::sleep(Duration::from_secs(5)).await;
-                }
-            },
+            }
             Err(e) => {
+                consecutive_errors += 1;
                 eprintln!(
-                    "[{}] Redis error: {}. Retrying in 5 seconds...",
-                    consumer_id, e
+                    "[{}] Redis error: {}. Retrying in 5 seconds... (consecutive errors: {})",
+                    consumer_id, e, consecutive_errors
                 );
+
+                // If we have too many consecutive errors, try to reconnect
+                if consecutive_errors >= max_consecutive_errors {
+                    eprintln!(
+                        "[{}] Too many consecutive Redis errors. Attempting to reconnect...",
+                        consumer_id
+                    );
+                    redis_connection = connect_to_redis_with_retry(&redis_url, &consumer_id).await;
+                    consecutive_errors = 0; // Reset counter after reconnection
+                }
+
                 tokio::time::sleep(Duration::from_secs(5)).await;
             }
         }

@@ -1,4 +1,4 @@
-use std::{env, str::FromStr, sync::Arc};
+use std::{env, str::FromStr, sync::Arc, time::Duration};
 
 use aptos_rust_sdk::client::{builder::AptosClientBuilder, config::AptosNetwork};
 use aptos_rust_sdk_types::api_types::{address::AccountAddress, chain_id::ChainId};
@@ -23,18 +23,57 @@ use crate::{
 
 use redis::Client;
 
+async fn connect_to_redis_with_retry(redis_url: &str) -> redis::aio::MultiplexedConnection {
+    let mut retry_count = 0;
+    let max_retries = 10;
+    let base_delay = Duration::from_secs(1);
+
+    loop {
+        match Client::open(redis_url) {
+            Ok(client) => match client.get_multiplexed_async_connection().await {
+                Ok(connection) => {
+                    println!(
+                        "Successfully connected to Redis after {} attempts",
+                        retry_count + 1
+                    );
+                    return connection;
+                }
+                Err(e) => {
+                    println!(
+                        "Failed to get Redis connection (attempt {}): {}",
+                        retry_count + 1,
+                        e
+                    );
+                }
+            },
+            Err(e) => {
+                println!(
+                    "Failed to create Redis client (attempt {}): {}",
+                    retry_count + 1,
+                    e
+                );
+            }
+        }
+
+        retry_count += 1;
+        if retry_count >= max_retries {
+            panic!("Failed to connect to Redis after {} attempts", max_retries);
+        }
+
+        let delay = base_delay * 2_u32.pow(retry_count as u32 - 1);
+        println!("Retrying Redis connection in {:?}...", delay);
+        tokio::time::sleep(delay).await;
+    }
+}
+
 pub async fn router() -> Router {
     let network = env::var("APTOS_NETWORK").expect("APTOS_NETWORK environment variable not set");
     let contract_address =
         env::var("CONTRACT_ADDRESS").expect("CONTRACT_ADDRESS environment variable not set");
     let redis_url = env::var("REDIS_URL").expect("REDIS_URL environment variable not set");
 
-    let redis_client = Client::open(redis_url).expect("Failed to connect to Redis");
-
-    let redis_connection = redis_client
-        .get_multiplexed_async_connection()
-        .await
-        .expect("Failed to get Redis connection");
+    println!("Attempting to connect to Redis at: {}", redis_url);
+    let redis_connection = connect_to_redis_with_retry(&redis_url).await;
 
     let (builder, chain_id) = match network.as_str() {
         "mainnet" => (
