@@ -458,7 +458,50 @@ pub async fn handle_reasoning_chat(
 
     // --- Vision Support: Check for replied-to images ---
     let mut image_url_from_reply: Option<String> = None;
+    // --- Context Support: Check for replied-to message text ---
+    let mut replied_message_context: Option<String> = None;
+    // --- Image Support: Process replied message images ---
+    let mut replied_message_image_paths: Vec<(String, String)> = Vec::new();
     if let Some(reply) = msg.reply_to_message() {
+        // Extract text content from replied message (following /mod pattern)
+        let reply_text_content = reply
+            .text()
+            .or_else(|| reply.caption())
+            .unwrap_or_default();
+        
+        if !reply_text_content.is_empty() {
+            if let Some(from) = reply.from.as_ref() {
+                let username = from.username.as_ref()
+                    .map(|u| format!("@{}", u))
+                    .unwrap_or_else(|| from.first_name.clone());
+                replied_message_context = Some(format!("User {} said: {}", username, reply_text_content));
+            } else {
+                replied_message_context = Some(format!("Previous message: {}", reply_text_content));
+            }
+        }
+
+        // Process images from replied message
+        if let Some(photos) = reply.photo() {
+            for photo in photos {
+                let file_id = &photo.file.id;
+                let file_info = bot.get_file(file_id.clone()).await?;
+                let extension = file_info
+                    .path
+                    .split('.')
+                    .last()
+                    .unwrap_or("jpg")
+                    .to_string();
+                let temp_path = format!("/tmp/reply_{}_{}.{}", user_id, photo.file.unique_id, extension);
+                let mut file = File::create(&temp_path)
+                    .await
+                    .map_err(|e| teloxide::RequestError::from(std::sync::Arc::new(e)))?;
+                bot.download_file(&file_info.path, &mut file)
+                    .await
+                    .map_err(|e| teloxide::RequestError::from(e))?;
+                replied_message_image_paths.push((temp_path, extension));
+            }
+        }
+        
         if let Some(from) = reply.from.as_ref() {
             if from.is_bot {
                 let reply_text = reply.text().or_else(|| reply.caption());
@@ -500,6 +543,19 @@ pub async fn handle_reasoning_chat(
         }
     }
 
+    // --- Upload replied message images to GCS ---
+    let replied_message_image_urls = if !replied_message_image_paths.is_empty() {
+        match ai.upload_user_images(replied_message_image_paths).await {
+            Ok(urls) => urls,
+            Err(e) => {
+                log::error!("Failed to upload replied message images: {}", e);
+                Vec::new()
+            }
+        }
+    } else {
+        Vec::new()
+    };
+
     // --- Upload user images to GCS ---
     let user_uploaded_image_urls = match ai.upload_user_images(user_uploaded_image_paths).await {
         Ok(urls) => urls,
@@ -516,15 +572,26 @@ pub async fn handle_reasoning_chat(
         }
     };
 
+    // --- Combine all image URLs ---
+    let mut all_image_urls = user_uploaded_image_urls;
+    all_image_urls.extend(replied_message_image_urls);
+
+    // Prepare the final prompt with context if available
+    let final_prompt = if let Some(context) = replied_message_context {
+        format!("{}\n\nUser asks: {}", context, prompt)
+    } else {
+        prompt
+    };
+
     // Asynchronously generate the response
     let response_result = ai
         .generate_response(
             msg.clone(),
-            &prompt,
+            &final_prompt,
             &db,
             auth,
             image_url_from_reply,
-            user_uploaded_image_urls,
+            all_image_urls,
             reasoning_model,
             20000,
             None,
@@ -690,7 +757,50 @@ pub async fn handle_chat(
 
     // --- Vision Support: Check for replied-to images ---
     let mut image_url_from_reply: Option<String> = None;
+    // --- Context Support: Check for replied-to message text ---
+    let mut replied_message_context: Option<String> = None;
+    // --- Image Support: Process replied message images ---
+    let mut replied_message_image_paths: Vec<(String, String)> = Vec::new();
     if let Some(reply) = msg.reply_to_message() {
+        // Extract text content from replied message (following /mod pattern)
+        let reply_text_content = reply
+            .text()
+            .or_else(|| reply.caption())
+            .unwrap_or_default();
+        
+        if !reply_text_content.is_empty() {
+            if let Some(from) = reply.from.as_ref() {
+                let username = from.username.as_ref()
+                    .map(|u| format!("@{}", u))
+                    .unwrap_or_else(|| from.first_name.clone());
+                replied_message_context = Some(format!("User {} said: {}", username, reply_text_content));
+            } else {
+                replied_message_context = Some(format!("Previous message: {}", reply_text_content));
+            }
+        }
+
+        // Process images from replied message
+        if let Some(photos) = reply.photo() {
+            for photo in photos {
+                let file_id = &photo.file.id;
+                let file_info = bot.get_file(file_id.clone()).await?;
+                let extension = file_info
+                    .path
+                    .split('.')
+                    .last()
+                    .unwrap_or("jpg")
+                    .to_string();
+                let temp_path = format!("/tmp/reply_{}_{}.{}", user_id, photo.file.unique_id, extension);
+                let mut file = File::create(&temp_path)
+                    .await
+                    .map_err(|e| teloxide::RequestError::from(std::sync::Arc::new(e)))?;
+                bot.download_file(&file_info.path, &mut file)
+                    .await
+                    .map_err(|e| teloxide::RequestError::from(e))?;
+                replied_message_image_paths.push((temp_path, extension));
+            }
+        }
+        
         if let Some(from) = reply.from.as_ref() {
             if from.is_bot {
                 let reply_text = reply.text().or_else(|| reply.caption());
@@ -732,6 +842,19 @@ pub async fn handle_chat(
         }
     }
 
+    // --- Upload replied message images to GCS ---
+    let replied_message_image_urls = if !replied_message_image_paths.is_empty() {
+        match ai.upload_user_images(replied_message_image_paths).await {
+            Ok(urls) => urls,
+            Err(e) => {
+                log::error!("Failed to upload replied message images: {}", e);
+                Vec::new()
+            }
+        }
+    } else {
+        Vec::new()
+    };
+
     // --- Upload user images to GCS ---
     let user_uploaded_image_urls = match ai.upload_user_images(user_uploaded_image_paths).await {
         Ok(urls) => urls,
@@ -748,15 +871,26 @@ pub async fn handle_chat(
         }
     };
 
+    // --- Combine all image URLs ---
+    let mut all_image_urls = user_uploaded_image_urls;
+    all_image_urls.extend(replied_message_image_urls);
+
+    // Prepare the final prompt with context if available
+    let final_prompt = if let Some(context) = replied_message_context {
+        format!("{}\n\nUser asks: {}", context, prompt)
+    } else {
+        prompt
+    };
+
     // Asynchronously generate the response
     let response_result = ai
         .generate_response(
             msg.clone(),
-            &prompt,
+            &final_prompt,
             &db,
             auth,
             image_url_from_reply,
-            user_uploaded_image_urls,
+            all_image_urls,
             chat_model,
             8192,
             temperature,
