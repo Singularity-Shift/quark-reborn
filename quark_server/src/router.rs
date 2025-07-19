@@ -72,7 +72,7 @@ pub async fn router() -> Router {
         env::var("CONTRACT_ADDRESS").expect("CONTRACT_ADDRESS environment variable not set");
     let redis_url = env::var("REDIS_URL").expect("REDIS_URL environment variable not set");
 
-    println!("Attempting to connect to Redis at: {}", redis_url);
+    println!("Attempting to connect to Redis");
     let redis_connection = connect_to_redis_with_retry(&redis_url).await;
 
     let (builder, chain_id) = match network.as_str() {
