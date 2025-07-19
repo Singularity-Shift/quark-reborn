@@ -7,6 +7,9 @@ services:
       dockerfile: quark_server/Dockerfile
     ports:
       - "3200:3200"
+    depends_on:
+      valkey:
+        condition: service_healthy
     environment:
       - SERVER_DOMAIN=${SERVER_DOMAIN}
       - APTOS_NETWORK=${APTOS_NETWORK}
@@ -27,7 +30,8 @@ services:
       context: .
       dockerfile: quark_bot/Dockerfile.lldb
     depends_on:
-      - quark-server
+      quark-server:
+        condition: service_started
     ports:
       - "1235:1234"  # LLDB debug port
     environment:
@@ -73,13 +77,22 @@ services:
       - 'valkey_data:/app/valkey_data'
     networks:
       - quark-net
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "${VALKEY_PASSWORD}", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+      start_period: 10s
 
   quark-consumer-one:
     build:
       context: .
       dockerfile: quark_consumer/Dockerfile
     depends_on:
-      - quark-server
+      valkey:
+        condition: service_healthy
+      quark-server:
+        condition: service_started
     environment:
       - REDIS_URL=redis://:${VALKEY_PASSWORD}@valkey:6379
       - CONSUMER_ID=consumer-one
@@ -105,10 +118,13 @@ services:
       context: .
       dockerfile: quark_consumer/Dockerfile
     depends_on:
-      - quark-server
+      valkey:
+        condition: service_healthy
+      quark-server:
+        condition: service_started
     environment:
       - REDIS_URL=redis://:${VALKEY_PASSWORD}@valkey:6379
-      - CONSUMER_ID=consumer-one
+      - CONSUMER_ID=consumer-two
       - PROFILE=${PROFILE}
       - PANORA_URL=${PANORA_URL}
       - PANORA_API_KEY=${PANORA_API_KEY}
