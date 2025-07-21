@@ -10,7 +10,7 @@ pub enum Command {
     AptosConnect,
     #[command(description = "Log in as a user (DM only).", parse_with = "split")]
     LoginUser,
-    #[command(description = "Group login (under development).", parse_with = "split")]
+    #[command(description = "Login as a group admin.", parse_with = "split")]
     LoginGroup,
     #[command(description = "Display this text.")]
     Help,
@@ -24,7 +24,7 @@ pub enum Command {
     C(String),
     #[command(description = "Send a prompt to the bot in a group.")]
     G(String),
-    #[command(description = "Send a prompt to the O3 reasoning model.")]
+    #[command(description = "Send a prompt to the your selected reasoning model.")]
     R(String),
     #[command(description = "Show example prompts.")]
     PromptExamples,
