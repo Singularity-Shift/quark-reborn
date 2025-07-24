@@ -4,8 +4,10 @@ mod assets;
 mod bot;
 mod callbacks;
 mod credentials;
+mod dao;
 mod db;
 mod group;
+mod job;
 mod panora;
 mod services;
 mod user_conversation;
@@ -16,7 +18,9 @@ use crate::{
     ai::{gcs::GcsImageUploader, handler::AI},
     aptos::handler::Aptos,
     credentials::handler::Auth,
+    dao::dao::Dao,
     group::handler::Group,
+    job::job_scheduler::schedule_jobs,
     panora::handler::Panora,
     services::handler::Services,
     user_conversation::handler::UserConversations,
@@ -28,7 +32,6 @@ use std::sync::Arc;
 use teloxide::dispatching::dialogue::InMemStorage;
 use teloxide::prelude::*;
 use teloxide::types::BotCommand;
-use tokio_cron_scheduler::{Job, JobScheduler};
 
 use crate::assets::command_image_collector;
 use crate::assets::media_aggregator;
@@ -87,50 +90,12 @@ async fn main() {
         Err(e) => log::error!("Failed to update Panora token AI fees on startup: {}", e),
     }
 
-    // Set up cron job for Panora token list updates (runs every hour)
-    let panora_clone1 = panora.clone();
-    let panora_clone2 = panora.clone();
-    let scheduler = JobScheduler::new()
+    let dao_db = db.open_tree("dao").expect("Failed to open dao tree");
+    let dao = Dao::new(dao_db);
+
+    schedule_jobs(panora.clone(), bot.clone(), dao)
         .await
-        .expect("Failed to create job scheduler");
-
-    let job_token_list = Job::new_async("0 0 * * * *", move |_uuid, _l| {
-        let panora_inner = panora_clone1.clone();
-        Box::pin(async move {
-            match panora_inner.set_panora_token_list().await {
-                Ok(_) => log::info!("Successfully updated Panora token list"),
-                Err(e) => log::error!("Failed to update Panora token list: {}", e),
-            }
-        })
-    })
-    .expect("Failed to create cron job");
-
-    let job_token_ai_fees = Job::new_async("0 * * * * *", move |_uuid, _l| {
-        let panora_inner = panora_clone2.clone();
-
-        Box::pin(async move {
-            let token_address = panora_inner.aptos.get_token_address().await.unwrap();
-            match panora_inner.set_token_ai_fees(&token_address).await {
-                Ok(_) => log::info!("Successfully updated Panora token AI fees"),
-                Err(e) => log::error!("Failed to update Panora token AI fees: {}", e),
-            }
-        })
-    })
-    .expect("Failed to create cron job");
-
-    scheduler
-        .add(job_token_list)
-        .await
-        .expect("Failed to add job to scheduler");
-
-    scheduler
-        .add(job_token_ai_fees)
-        .await
-        .expect("Failed to add job to scheduler");
-
-    scheduler.start().await.expect("Failed to start scheduler");
-
-    log::info!("Panora token list cron job started (runs every hour)");
+        .expect("Failed to schedule jobs");
 
     let ai = AI::new(openai_api_key.clone(), google_cloud, panora);
 

@@ -16,6 +16,7 @@ use open_ai_rust_responses_by_sshift::{
 };
 use serde_json;
 use sled::Db;
+use teloxide::Bot;
 use teloxide::types::Message;
 
 #[derive(Clone)]
@@ -81,6 +82,7 @@ impl AI {
 
     pub async fn generate_response(
         &self,
+        bot: Bot,
         msg: Message,
         input: &str,
         db: &Db,
@@ -421,6 +423,7 @@ impl AI {
                     let result = execute_custom_tool(
                         &tool_call.name,
                         &args_value,
+                        bot.clone(),
                         msg.clone(),
                         self.service.clone(),
                         auth.clone(),

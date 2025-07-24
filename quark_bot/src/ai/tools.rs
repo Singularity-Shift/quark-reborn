@@ -5,13 +5,14 @@ use super::actions::{
 use crate::{
     ai::actions::{execute_fund_account, execute_get_balance, execute_withdraw_funds},
     credentials::handler::Auth,
+    dao::handler::execute_create_dao,
     group::handler::Group,
     panora::handler::Panora,
     services::handler::Services,
 };
 use open_ai_rust_responses_by_sshift::types::Tool;
 use serde_json::json;
-use teloxide::types::Message;
+use teloxide::{Bot, types::Message};
 
 /// Get account balance tool - returns a Tool for checking user balance
 pub fn get_balance_tool() -> Tool {
@@ -262,10 +263,51 @@ pub fn get_pay_users_tool() -> Tool {
     )
 }
 
+pub fn create_dao() -> Tool {
+    Tool::function(
+        "create_dao",
+        "Create a new DAO with the given name,description, start date, end date, currency and options to vote for, if some of theses dates are not provided, ask the user to provide them",
+        json!({
+            "type": "object",
+            "properties": {
+                "name": {
+                    "type": "string",
+                    "description": "The name of the DAO"
+                },
+                "description": {
+                    "type": "string",
+                    "description": "The description of the DAO"
+                },
+                "start_date": {
+                    "type": "string",
+                    "description": "The start date of the DAO in seconds since epoch"
+                },
+                "end_date": {
+                    "type": "string",
+                    "description": "The end date of the DAO in seconds since epoch"
+                },
+                "options": {
+                    "type": "array",
+                    "description": "The options to vote for",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "currency": {
+                    "type": "string",
+                    "description": "The currency of the DAO"
+                }
+            },
+            "required": ["name", "description", "start_date", "end_date", "options", "currency"]
+        }),
+    )
+}
+
 /// Execute a custom tool and return the result
 pub async fn execute_custom_tool(
     tool_name: &str,
     arguments: &serde_json::Value,
+    bot: Bot,
     msg: Message,
     service: Services,
     auth: Auth,
@@ -291,6 +333,9 @@ pub async fn execute_custom_tool(
         "get_fear_and_greed_index" => execute_fear_and_greed_index(arguments).await,
         "get_pay_users" => {
             execute_pay_users(arguments, msg, service, auth, panora, group, group_id).await
+        }
+        "create_dao" => {
+            execute_create_dao(arguments, bot, msg, service, group_id, group, panora).await
         }
         _ => {
             format!("Error: Unknown custom tool '{}'", tool_name)
@@ -327,5 +372,6 @@ pub fn get_all_custom_tools() -> Vec<Tool> {
         get_time_tool(),
         get_fear_and_greed_index_tool(),
         get_pay_users_tool(),
+        create_dao(),
     ]
 }
