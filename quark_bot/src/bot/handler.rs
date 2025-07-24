@@ -249,27 +249,25 @@ pub async fn handle_login_group(
                 .await?;
             return Ok(());
         }
-
-        let jwt = group.generate_new_jwt(group_id);
-
-        if !jwt {
-            bot.send_message(group_id, "❌ Unable to generate JWT.")
-                .await?;
-            return Ok(());
-        }
-
-        let payload_response = group.get_credentials(&group_id);
-
-        if payload_response.is_none() {
-            bot.send_message(group_id, "❌ Unable to get credentials.")
-                .await?;
-            return Ok(());
-        }
-
-        payload = payload_response.unwrap();
-    } else {
-        payload = credentials.unwrap();
     }
+
+    let jwt = group.generate_new_jwt(group_id);
+
+    if !jwt {
+        bot.send_message(group_id, "❌ Unable to generate JWT.")
+            .await?;
+        return Ok(());
+    }
+
+    let payload_response = group.get_credentials(&group_id);
+
+    if payload_response.is_none() {
+        bot.send_message(group_id, "❌ Unable to get credentials.")
+            .await?;
+        return Ok(());
+    }
+
+    payload = payload_response.unwrap();
 
     let updated_credentials =
         check_group_resource_account_address(&bot, &group, payload, msg.clone(), panora.clone())
@@ -472,17 +470,17 @@ pub async fn handle_reasoning_chat(
     let mut replied_message_image_paths: Vec<(String, String)> = Vec::new();
     if let Some(reply) = msg.reply_to_message() {
         // Extract text content from replied message (following /mod pattern)
-        let reply_text_content = reply
-            .text()
-            .or_else(|| reply.caption())
-            .unwrap_or_default();
-        
+        let reply_text_content = reply.text().or_else(|| reply.caption()).unwrap_or_default();
+
         if !reply_text_content.is_empty() {
             if let Some(from) = reply.from.as_ref() {
-                let username = from.username.as_ref()
+                let username = from
+                    .username
+                    .as_ref()
                     .map(|u| format!("@{}", u))
                     .unwrap_or_else(|| from.first_name.clone());
-                replied_message_context = Some(format!("User {} said: {}", username, reply_text_content));
+                replied_message_context =
+                    Some(format!("User {} said: {}", username, reply_text_content));
             } else {
                 replied_message_context = Some(format!("Previous message: {}", reply_text_content));
             }
@@ -499,7 +497,10 @@ pub async fn handle_reasoning_chat(
                     .last()
                     .unwrap_or("jpg")
                     .to_string();
-                let temp_path = format!("/tmp/reply_{}_{}.{}", user_id, photo.file.unique_id, extension);
+                let temp_path = format!(
+                    "/tmp/reply_{}_{}.{}",
+                    user_id, photo.file.unique_id, extension
+                );
                 let mut file = File::create(&temp_path)
                     .await
                     .map_err(|e| teloxide::RequestError::from(std::sync::Arc::new(e)))?;
@@ -509,7 +510,7 @@ pub async fn handle_reasoning_chat(
                 replied_message_image_paths.push((temp_path, extension));
             }
         }
-        
+
         if let Some(from) = reply.from.as_ref() {
             if from.is_bot {
                 let reply_text = reply.text().or_else(|| reply.caption());
@@ -771,17 +772,17 @@ pub async fn handle_chat(
     let mut replied_message_image_paths: Vec<(String, String)> = Vec::new();
     if let Some(reply) = msg.reply_to_message() {
         // Extract text content from replied message (following /mod pattern)
-        let reply_text_content = reply
-            .text()
-            .or_else(|| reply.caption())
-            .unwrap_or_default();
-        
+        let reply_text_content = reply.text().or_else(|| reply.caption()).unwrap_or_default();
+
         if !reply_text_content.is_empty() {
             if let Some(from) = reply.from.as_ref() {
-                let username = from.username.as_ref()
+                let username = from
+                    .username
+                    .as_ref()
                     .map(|u| format!("@{}", u))
                     .unwrap_or_else(|| from.first_name.clone());
-                replied_message_context = Some(format!("User {} said: {}", username, reply_text_content));
+                replied_message_context =
+                    Some(format!("User {} said: {}", username, reply_text_content));
             } else {
                 replied_message_context = Some(format!("Previous message: {}", reply_text_content));
             }
@@ -798,7 +799,10 @@ pub async fn handle_chat(
                     .last()
                     .unwrap_or("jpg")
                     .to_string();
-                let temp_path = format!("/tmp/reply_{}_{}.{}", user_id, photo.file.unique_id, extension);
+                let temp_path = format!(
+                    "/tmp/reply_{}_{}.{}",
+                    user_id, photo.file.unique_id, extension
+                );
                 let mut file = File::create(&temp_path)
                     .await
                     .map_err(|e| teloxide::RequestError::from(std::sync::Arc::new(e)))?;
@@ -808,7 +812,7 @@ pub async fn handle_chat(
                 replied_message_image_paths.push((temp_path, extension));
             }
         }
-        
+
         if let Some(from) = reply.from.as_ref() {
             if from.is_bot {
                 let reply_text = reply.text().or_else(|| reply.caption());
