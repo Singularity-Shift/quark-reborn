@@ -1,7 +1,7 @@
 //! Callback query handlers for quark_bot.
 
-use crate::utils;
 use crate::user_model_preferences::callbacks::handle_model_preferences_callback;
+use crate::utils;
 use crate::{
     ai::{
         handler::AI,
@@ -116,7 +116,7 @@ pub async fn handle_callback_query(
                     Err(e) => {
                         log::error!("File deletion failed: {}", e);
                         let error_msg = e.to_string();
-                        
+
                         // Check if it's a vector store not found error
                         if error_msg.contains("document library is no longer available") {
                             bot.answer_callback_query(query.id)
@@ -158,41 +158,48 @@ pub async fn handle_callback_query(
             // Handle unmute callback - admin only
             let user_id_str = data.strip_prefix("unmute:").unwrap();
             let target_user_id: i64 = user_id_str.parse().unwrap_or(0);
-            
-            if let Some(teloxide::types::MaybeInaccessibleMessage::Regular(message)) = &query.message {
+
+            if let Some(teloxide::types::MaybeInaccessibleMessage::Regular(message)) =
+                &query.message
+            {
                 // Check if the user clicking the button is an admin
                 let admins = bot.get_chat_administrators(message.chat.id).await?;
                 let requester_id = query.from.id;
                 let is_admin = admins.iter().any(|member| member.user.id == requester_id);
-                
+
                 if !is_admin {
                     bot.answer_callback_query(query.id)
                         .text("❌ Only administrators can use this action")
                         .await?;
                     return Ok(());
                 }
-                
+
                 // Create full permissions to unmute the user
                 let full_permissions = teloxide::types::ChatPermissions::all();
-                
-                match bot.restrict_chat_member(
-                    message.chat.id, 
-                    teloxide::types::UserId(target_user_id as u64), 
-                    full_permissions
-                ).await {
+
+                match bot
+                    .restrict_chat_member(
+                        message.chat.id,
+                        teloxide::types::UserId(target_user_id as u64),
+                        full_permissions,
+                    )
+                    .await
+                {
                     Ok(_) => {
                         // Update the message to show user was unmuted
-                        let updated_text = message.text().unwrap_or("")
+                        let updated_text = message
+                            .text()
+                            .unwrap_or("")
                             .replace("🔇 User has been muted", "🔊 User has been unmuted");
-                        
+
                         bot.edit_message_text(message.chat.id, message.id, updated_text)
                             .parse_mode(teloxide::types::ParseMode::Html)
                             .await?;
-                            
+
                         bot.answer_callback_query(query.id)
                             .text("✅ User unmuted successfully")
                             .await?;
-                            
+
                         log::info!("Admin {} unmuted user {}", requester_id, target_user_id);
                     }
                     Err(e) => {
@@ -207,39 +214,48 @@ pub async fn handle_callback_query(
             // Handle ban callback - admin only
             let user_id_str = data.strip_prefix("ban:").unwrap();
             let target_user_id: i64 = user_id_str.parse().unwrap_or(0);
-            
-            if let Some(teloxide::types::MaybeInaccessibleMessage::Regular(message)) = &query.message {
+
+            if let Some(teloxide::types::MaybeInaccessibleMessage::Regular(message)) =
+                &query.message
+            {
                 // Check if the user clicking the button is an admin
                 let admins = bot.get_chat_administrators(message.chat.id).await?;
                 let requester_id = query.from.id;
                 let is_admin = admins.iter().any(|member| member.user.id == requester_id);
-                
+
                 if !is_admin {
                     bot.answer_callback_query(query.id)
                         .text("❌ Only administrators can use this action")
                         .await?;
                     return Ok(());
                 }
-                
-                match bot.ban_chat_member(
-                    message.chat.id, 
-                    teloxide::types::UserId(target_user_id as u64)
-                ).await {
+
+                match bot
+                    .ban_chat_member(
+                        message.chat.id,
+                        teloxide::types::UserId(target_user_id as u64),
+                    )
+                    .await
+                {
                     Ok(_) => {
                         // Update the message to show user was banned
-                        let updated_text = message.text().unwrap_or("")
+                        let updated_text = message
+                            .text()
+                            .unwrap_or("")
                             .replace("🔇 User has been muted", "🚫 User has been banned");
-                        
+
                         // Remove the buttons since actions are complete
                         bot.edit_message_text(message.chat.id, message.id, updated_text)
                             .parse_mode(teloxide::types::ParseMode::Html)
-                            .reply_markup(InlineKeyboardMarkup::new(vec![] as Vec<Vec<InlineKeyboardButton>>))
+                            .reply_markup(InlineKeyboardMarkup::new(
+                                vec![] as Vec<Vec<InlineKeyboardButton>>
+                            ))
                             .await?;
-                            
+
                         bot.answer_callback_query(query.id)
                             .text("✅ User banned successfully")
                             .await?;
-                            
+
                         log::info!("Admin {} banned user {}", requester_id, target_user_id);
                     }
                     Err(e) => {
@@ -250,12 +266,19 @@ pub async fn handle_callback_query(
                     }
                 }
             }
-        } else if data.starts_with("select_chat_model:") 
-            || data.starts_with("set_temperature:") 
-            || data.starts_with("select_reasoning_model:") 
-            || data.starts_with("set_effort:") {
+        } else if data.starts_with("select_chat_model:")
+            || data.starts_with("set_temperature:")
+            || data.starts_with("select_reasoning_model:")
+            || data.starts_with("set_effort:")
+        {
             // Handle model preference callbacks
             handle_model_preferences_callback(bot, query, user_model_prefs).await?;
+        } else if data == "voting_help" {
+            // Handle voting help callback
+            bot.answer_callback_query(query.id)
+                .text("📱 Mini App: Opens voting interface inside Telegram\n🌐 Browser: Opens voting page in external browser\n\nBoth options work the same way!")
+                .show_alert(true)
+                .await?;
         } else {
             bot.answer_callback_query(query.id)
                 .text("❌ Unknown action")

@@ -1,6 +1,6 @@
 use std::env;
 
-use quark_core::helpers::dto::{PayUsersRequest, PayUsersVersion, TransactionResponse};
+use quark_core::helpers::dto::{CoinVersion, PayUsersRequest, TransactionResponse};
 use teloxide::types::Message;
 
 use crate::{
@@ -1153,7 +1153,7 @@ pub async fn execute_pay_users(
     group: Group,
     group_id: Option<String>,
 ) -> String {
-    let mut version = PayUsersVersion::V1;
+    let mut version = CoinVersion::V1;
 
     let amount = arguments
         .get("amount")
@@ -1176,7 +1176,7 @@ pub async fn execute_pay_users(
 
     let (token_type, decimals) =
         if symbol.to_lowercase() == "apt" || symbol.to_lowercase() == "aptos" {
-            version = PayUsersVersion::V1;
+            version = CoinVersion::V1;
             ("0x1::aptos_coin::AptosCoin".to_string(), 8u8)
         } else {
             let token = panora.get_token_by_symbol(symbol).await;

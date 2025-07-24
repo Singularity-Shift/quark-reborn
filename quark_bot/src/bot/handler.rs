@@ -464,17 +464,17 @@ pub async fn handle_reasoning_chat(
     let mut replied_message_image_paths: Vec<(String, String)> = Vec::new();
     if let Some(reply) = msg.reply_to_message() {
         // Extract text content from replied message (following /mod pattern)
-        let reply_text_content = reply
-            .text()
-            .or_else(|| reply.caption())
-            .unwrap_or_default();
-        
+        let reply_text_content = reply.text().or_else(|| reply.caption()).unwrap_or_default();
+
         if !reply_text_content.is_empty() {
             if let Some(from) = reply.from.as_ref() {
-                let username = from.username.as_ref()
+                let username = from
+                    .username
+                    .as_ref()
                     .map(|u| format!("@{}", u))
                     .unwrap_or_else(|| from.first_name.clone());
-                replied_message_context = Some(format!("User {} said: {}", username, reply_text_content));
+                replied_message_context =
+                    Some(format!("User {} said: {}", username, reply_text_content));
             } else {
                 replied_message_context = Some(format!("Previous message: {}", reply_text_content));
             }
@@ -491,7 +491,10 @@ pub async fn handle_reasoning_chat(
                     .last()
                     .unwrap_or("jpg")
                     .to_string();
-                let temp_path = format!("/tmp/reply_{}_{}.{}", user_id, photo.file.unique_id, extension);
+                let temp_path = format!(
+                    "/tmp/reply_{}_{}.{}",
+                    user_id, photo.file.unique_id, extension
+                );
                 let mut file = File::create(&temp_path)
                     .await
                     .map_err(|e| teloxide::RequestError::from(std::sync::Arc::new(e)))?;
@@ -501,7 +504,7 @@ pub async fn handle_reasoning_chat(
                 replied_message_image_paths.push((temp_path, extension));
             }
         }
-        
+
         if let Some(from) = reply.from.as_ref() {
             if from.is_bot {
                 let reply_text = reply.text().or_else(|| reply.caption());
@@ -586,6 +589,7 @@ pub async fn handle_reasoning_chat(
     // Asynchronously generate the response
     let response_result = ai
         .generate_response(
+            bot.clone(),
             msg.clone(),
             &final_prompt,
             &db,
@@ -763,17 +767,17 @@ pub async fn handle_chat(
     let mut replied_message_image_paths: Vec<(String, String)> = Vec::new();
     if let Some(reply) = msg.reply_to_message() {
         // Extract text content from replied message (following /mod pattern)
-        let reply_text_content = reply
-            .text()
-            .or_else(|| reply.caption())
-            .unwrap_or_default();
-        
+        let reply_text_content = reply.text().or_else(|| reply.caption()).unwrap_or_default();
+
         if !reply_text_content.is_empty() {
             if let Some(from) = reply.from.as_ref() {
-                let username = from.username.as_ref()
+                let username = from
+                    .username
+                    .as_ref()
                     .map(|u| format!("@{}", u))
                     .unwrap_or_else(|| from.first_name.clone());
-                replied_message_context = Some(format!("User {} said: {}", username, reply_text_content));
+                replied_message_context =
+                    Some(format!("User {} said: {}", username, reply_text_content));
             } else {
                 replied_message_context = Some(format!("Previous message: {}", reply_text_content));
             }
@@ -790,7 +794,10 @@ pub async fn handle_chat(
                     .last()
                     .unwrap_or("jpg")
                     .to_string();
-                let temp_path = format!("/tmp/reply_{}_{}.{}", user_id, photo.file.unique_id, extension);
+                let temp_path = format!(
+                    "/tmp/reply_{}_{}.{}",
+                    user_id, photo.file.unique_id, extension
+                );
                 let mut file = File::create(&temp_path)
                     .await
                     .map_err(|e| teloxide::RequestError::from(std::sync::Arc::new(e)))?;
@@ -800,7 +807,7 @@ pub async fn handle_chat(
                 replied_message_image_paths.push((temp_path, extension));
             }
         }
-        
+
         if let Some(from) = reply.from.as_ref() {
             if from.is_bot {
                 let reply_text = reply.text().or_else(|| reply.caption());
@@ -885,6 +892,7 @@ pub async fn handle_chat(
     // Asynchronously generate the response
     let response_result = ai
         .generate_response(
+            bot.clone(),
             msg.clone(),
             &final_prompt,
             &db,
