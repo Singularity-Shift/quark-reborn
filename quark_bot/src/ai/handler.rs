@@ -245,9 +245,11 @@ impl AI {
             format!("user-{}", user_id)
         };
 
+        let system_prompt = format!("Entity {}: {}", user, self.system_prompt);
+
         let mut request_builder = Request::builder()
             .model(model.clone())
-            .instructions(self.system_prompt.clone())
+            .instructions(system_prompt)
             .tools(tools.clone())
             .tool_choice(ToolChoice::auto())
             .parallel_tool_calls(true) // Enable parallel execution for efficiency
