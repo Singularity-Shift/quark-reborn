@@ -1682,29 +1682,22 @@ pub async fn execute_fund_account(
 
 /// Execute prices command to display model pricing information
 pub async fn execute_prices(_arguments: &serde_json::Value) -> String {
-    let mut result = String::new();
-    
-    result.push_str("💰 <b>Model Prices</b> <i>(per 1000 tokens)</i>\n\n");
-    
-    // AI Model Prices
-    result.push_str("🤖 <b>AI Models:</b>\n");
-    result.push_str("• <code>o3</code> - <b>$0.0136</b>\n");
-    result.push_str("• <code>o4-mini</code> - <b>$0.00748</b>\n");
-    result.push_str("• <code>GPT-4o</code> - <b>$0.034</b>\n");
-    result.push_str("• <code>GPT-4.1</code> - <b>$0.0136</b>\n");
-    result.push_str("• <code>GPT-4.1-mini</code> - <b>$0.00272</b>\n");
-    result.push_str("• <code>sentinel</code> - <b>$0.00068</b>\n\n");
-    
-    // Other Services
-    result.push_str("🛠️ <b>Other Services:</b>\n");
-    result.push_str("• <code>GPT-image-1</code> - <b>$0.25</b>\n");
-    result.push_str("• <code>File search (storage)</code> - <b>FREE</b> 🎉\n");
-    result.push_str("• <code>File search</code> - <b>$0.00425</b>\n\n");
-    
-    // Payment Information
-    result.push_str("💳 <b>Payment Information:</b>\n");
-    result.push_str("💰 Payment is made in <b>📒</b> at the <u>dollar market rate</u>\n");
-    result.push_str("⚠️ <i>All prices are subject to change based on provider rates</i>");
-    
-    result
+    "💰 <b>Model Prices</b> <i>(per 1000 tokens)</i>
+
+🤖 <b>AI Models:</b>
+• <code>o3</code> - <b>$0.0136</b>
+• <code>o4-mini</code> - <b>$0.00748</b>
+• <code>GPT-4o</code> - <b>$0.034</b>
+• <code>GPT-4.1</code> - <b>$0.0136</b>
+• <code>GPT-4.1-mini</code> - <b>$0.00272</b>
+• <code>sentinel</code> - <b>$0.00068</b>
+
+🛠️ <b>Other Services:</b>
+• <code>GPT-image-1</code> - <b>$0.25</b>
+• <code>File search (storage)</code> - <b>FREE</b> 🎉
+• <code>File search</code> - <b>$0.00425</b>
+
+💳 <b>Payment Information:</b>
+💰 Payment is made in <b>📒</b> at the <u>dollar market rate</u>
+⚠️ <i>All prices are subject to change based on provider rates</i>".to_string()
 }
