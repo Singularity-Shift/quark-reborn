@@ -20,6 +20,7 @@ impl Group {
 
     pub fn save_credentials(&self, credentials: GroupCredentials) -> Result<()> {
         let bytes = serde_json::to_vec(&credentials).unwrap();
+
         self.db
             .fetch_and_update(credentials.group_id.to_string(), |existing| {
                 if let Some(existing) = existing {
