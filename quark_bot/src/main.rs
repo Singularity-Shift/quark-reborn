@@ -180,6 +180,7 @@ async fn main() {
         BotCommand::new("balance", "Get your balance of a token."),
         BotCommand::new("groupwalletaddress", "Get the group's wallet address."),
         BotCommand::new("groupbalance", "Get the group's balance of a token."),
+        BotCommand::new("prices", "Display model pricing information."),
     ];
 
     bot.set_my_commands(commands).await.unwrap();

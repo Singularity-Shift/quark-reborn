@@ -293,6 +293,14 @@ pub async fn handle_help(bot: Bot, msg: Message) -> AnyResult<()> {
     Ok(())
 }
 
+pub async fn handle_prices(bot: Bot, msg: Message) -> AnyResult<()> {
+    let pricing_info = crate::ai::actions::execute_prices(&serde_json::json!({})).await;
+    bot.send_message(msg.chat.id, pricing_info)
+        .parse_mode(ParseMode::Html)
+        .await?;
+    Ok(())
+}
+
 pub async fn handle_add_files(bot: Bot, msg: Message) -> AnyResult<()> {
     if !msg.chat.is_private() {
         bot.send_message(msg.chat.id, "❌ Please DM the bot to upload files.")

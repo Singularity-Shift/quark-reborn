@@ -13,8 +13,8 @@ use teloxide::{Bot, prelude::*, types::Message};
 
 use super::handler::{
     handle_add_files, handle_chat, handle_help, handle_list_files, handle_login_group,
-    handle_login_user, handle_mod, handle_moderation_rules, handle_new_chat, handle_reasoning_chat,
-    handle_sentinel,
+    handle_login_user, handle_mod, handle_moderation_rules, handle_new_chat, handle_prices,
+    handle_reasoning_chat, handle_sentinel,
 };
 
 use crate::assets::command_image_collector::CommandImageCollector;
@@ -43,6 +43,7 @@ pub async fn answers(
     match cmd {
         Command::AptosConnect => handle_aptos_connect(bot, msg).await?,
         Command::Help => handle_help(bot, msg).await?,
+        Command::Prices => handle_prices(bot, msg).await?,
         Command::WalletAddress => handle_wallet_address(bot, msg, auth).await?,
         Command::Balance(symbol) => handle_balance(bot, msg, &symbol, auth, panora).await?,
         Command::LoginUser => handle_login_user(bot, msg).await?,
