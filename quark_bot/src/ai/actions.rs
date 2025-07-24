@@ -1679,3 +1679,25 @@ pub async fn execute_fund_account(
 
     url
 }
+
+/// Execute prices command to display model pricing information
+pub async fn execute_prices(_arguments: &serde_json::Value) -> String {
+    "💰 <b>Model Prices</b> <i>(per 1000 tokens)</i>
+
+🤖 <b>AI Models:</b>
+• <code>o3</code> - <b>$0.0136</b>
+• <code>o4-mini</code> - <b>$0.00748</b>
+• <code>GPT-4o</code> - <b>$0.034</b>
+• <code>GPT-4.1</code> - <b>$0.0136</b>
+• <code>GPT-4.1-mini</code> - <b>$0.00272</b>
+• <code>sentinel</code> - <b>$0.00068</b>
+
+🛠️ <b>Other Services:</b>
+• <code>GPT-image-1</code> - <b>$0.25</b>
+• <code>File search (storage)</code> - <b>FREE</b> 🎉
+• <code>File search</code> - <b>$0.00425</b>
+
+💳 <b>Payment Information:</b>
+💰 Payment is made in <b>📒</b> at the <u>dollar market rate</u>
+⚠️ <i>All prices are subject to change based on provider rates</i>".to_string()
+}
