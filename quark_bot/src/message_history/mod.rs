@@ -40,23 +40,10 @@ pub async fn log(msg: &Message, storage: HistoryStorage) -> anyhow::Result<()> {
 
     // Fetch, mutate, save.
     let mut state = storage.clone().get_dialogue(msg.chat.id).await?.unwrap_or_default();
-    log::info!(
-        "[history] before push chat_id={} size={}",
-        msg.chat.id,
-        state.0.len()
-    );
-    
     state.push(MessageEntry {
         sender,
         text: msg.text().unwrap().to_owned(),
     });
-    
-    log::info!(
-        "[history] after  push chat_id={} size={}",
-        msg.chat.id,
-        state.0.len()
-    );
-    
     storage.clone().update_dialogue(msg.chat.id, state).await?;
     Ok(())
 }
@@ -64,17 +51,10 @@ pub async fn log(msg: &Message, storage: HistoryStorage) -> anyhow::Result<()> {
 /// Fetch the buffer (may be empty).
 #[allow(dead_code)]
 pub async fn fetch(chat_id: ChatId, storage: HistoryStorage) -> Vec<MessageEntry> {
-    let result = storage
+    storage
         .get_dialogue(chat_id)
         .await
         .unwrap_or_default()
-        .unwrap_or_default();
-    
-    log::info!(
-        "[history] fetch chat_id={} size={}",
-        chat_id,
-        result.0.len()
-    );
-    
-    result.0
+        .unwrap_or_default()
+        .0
 } 
