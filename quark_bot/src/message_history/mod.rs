@@ -40,17 +40,9 @@ pub async fn log(msg: &Message, storage: HistoryStorage) -> anyhow::Result<()> {
 
     // Fetch, mutate, save.
     let mut state = storage.clone().get_dialogue(msg.chat.id).await?.unwrap_or_default();
-
-    let mut text = msg.text().unwrap().to_owned();
-    const MAX_CHARS: usize = 500;
-    if text.chars().count() > MAX_CHARS {
-        text = text.chars().take(MAX_CHARS).collect();
-        text.push('…');
-    }
-
     state.push(MessageEntry {
         sender,
-        text,
+        text: msg.text().unwrap().to_owned(),
     });
     storage.clone().update_dialogue(msg.chat.id, state).await?;
     Ok(())

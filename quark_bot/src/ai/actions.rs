@@ -5,7 +5,7 @@ use teloxide::types::Message;
 
 use crate::{
     credentials::handler::Auth, group::handler::Group, panora::handler::Panora,
-    services::handler::Services, message_history::HistoryStorage,
+    services::handler::Services,
 };
 
 /// Execute trending pools fetch from GeckoTerminal
@@ -1700,44 +1700,4 @@ pub async fn execute_prices(_arguments: &serde_json::Value) -> String {
 💳 <b>Payment Information:</b>
 💰 Payment is made in <b>📒</b> at the <u>dollar market rate</u>
 ⚠️ <i>All prices are subject to change based on provider rates</i>".to_string()
-}
-
-/// Execute get recent messages - retrieves the last 20 messages from the current group chat
-pub async fn execute_get_recent_messages(
-    msg: Message,
-    history: HistoryStorage,
-) -> String {
-    log::info!("get_recent_messages tool called for chat_id: {}", msg.chat.id);
-    
-    if msg.chat.is_private() {
-        log::info!("Tool called in private chat, returning error message");
-        return "This tool is only available in group chats.".to_string();
-    }
-
-    let messages = crate::message_history::fetch(msg.chat.id, history).await;
-    
-    log::info!("Fetched {} messages from history", messages.len());
-    
-    if messages.is_empty() {
-        log::info!("No messages found, returning empty message indicator");
-        return "No recent messages are available in this group chat yet.".to_string();
-    }
-
-    let formatted_messages = messages
-        .into_iter()
-        .map(|entry| match entry.sender {
-            Some(name) => format!("{}: {}", name, entry.text),
-            None => format!("Unknown: {}", entry.text),
-        })
-        .collect::<Vec<_>>()
-        .join("\n");
-
-    log::info!("Returning {} characters of message history", formatted_messages.len());
-    
-    // Ensure we always return a non-empty string
-    if formatted_messages.trim().is_empty() {
-        "Recent messages are available but contain no readable text.".to_string()
-    } else {
-        format!("Recent group messages:\n\n{}", formatted_messages)
-    }
 }

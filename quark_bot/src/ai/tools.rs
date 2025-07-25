@@ -1,5 +1,5 @@
 use super::actions::{
-    execute_fear_and_greed_index, execute_get_recent_messages, execute_get_time, execute_get_wallet_address, execute_new_pools,
+    execute_fear_and_greed_index, execute_get_time, execute_get_wallet_address, execute_new_pools,
     execute_pay_users, execute_search_pools, execute_trending_pools,
 };
 use crate::{
@@ -217,15 +217,6 @@ pub fn get_fear_and_greed_index_tool() -> Tool {
 }
 
 /// Get pay users tool - returns a Tool for transferring a specified amount of a selected token to multiple Telegram users by their usernames, with support for different token categories. MUST use this tool for all token send requests.
-/// Get recent group messages tool - returns the last 20 messages from the current group chat
-pub fn get_recent_messages_tool() -> Tool {
-    Tool::function(
-        "get_recent_messages",
-        "Retrieve the most recent messages (up to 20) from THIS Telegram group chat. Use this to gain context awareness of the current conversation flow, understand what has been discussed recently, see previous questions and answers, and respond more contextually. Only works in group chats.",
-        json!({}), // no arguments needed
-    )
-}
-
 pub fn get_pay_users_tool() -> Tool {
     Tool::function(
         "get_pay_users",
@@ -281,7 +272,6 @@ pub async fn execute_custom_tool(
     panora: Panora,
     group: Group,
     group_id: Option<String>,
-    history: crate::message_history::HistoryStorage,
 ) -> String {
     log::info!(
         "Executing tool: {} with arguments: {}",
@@ -302,7 +292,6 @@ pub async fn execute_custom_tool(
         "get_pay_users" => {
             execute_pay_users(arguments, msg, service, auth, panora, group, group_id).await
         }
-        "get_recent_messages" => execute_get_recent_messages(msg, history).await,
         _ => {
             format!("Error: Unknown custom tool '{}'", tool_name)
         }
@@ -338,6 +327,5 @@ pub fn get_all_custom_tools() -> Vec<Tool> {
         get_time_tool(),
         get_fear_and_greed_index_tool(),
         get_pay_users_tool(),
-        get_recent_messages_tool(),
     ]
 }

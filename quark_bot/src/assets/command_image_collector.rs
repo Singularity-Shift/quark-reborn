@@ -184,7 +184,6 @@ impl CommandImageCollector {
                         text.to_string(),
                         group_id,
                         group,
-                        None, // history not available from command image collector
                     )
                     .await
                     {
