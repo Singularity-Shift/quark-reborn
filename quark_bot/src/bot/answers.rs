@@ -72,7 +72,6 @@ pub async fn answers(
                     prompt,
                     None,
                     group,
-                    None, // history not available from command context
                 )
                 .await?;
             }
@@ -130,7 +129,6 @@ pub async fn answers(
                     prompt,
                     Some(group_id),
                     group,
-                    None, // history not available from command context
                 )
                 .await?;
             }
