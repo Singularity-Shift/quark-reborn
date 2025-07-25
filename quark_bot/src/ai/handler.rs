@@ -385,7 +385,7 @@ impl AI {
                 log::info!("Tool call found: {} with call_id: {}", tc.name, tc.call_id);
             }
 
-            // Filter for custom function calls (get_balance, get_wallet_address, withdraw_funds, fund_account, get_trending_pools, search_pools, get_current_time, get_fear_and_greed_index, get_pay_users)
+            // Filter for custom function calls (get_balance, get_wallet_address, withdraw_funds, fund_account, get_trending_pools, search_pools, get_current_time, get_fear_and_greed_index, get_pay_users, get_recent_messages)
             let custom_tool_calls: Vec<_> = tool_calls
                 .iter()
                 .filter(|tc| {
@@ -399,6 +399,7 @@ impl AI {
                         || tc.name == "get_current_time"
                         || tc.name == "get_fear_and_greed_index"
                         || tc.name == "get_pay_users"
+                        || tc.name == "get_recent_messages"
                 })
                 .collect();
 
