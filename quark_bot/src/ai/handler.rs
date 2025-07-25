@@ -25,10 +25,16 @@ pub struct AI {
     cloud: GcsImageUploader,
     panora: Panora,
     service: Services,
+    history: crate::message_history::HistoryStorage,
 }
 
 impl AI {
-    pub fn new(openai_api_key: String, cloud: GcsImageUploader, panora: Panora) -> Self {
+    pub fn new(
+        openai_api_key: String,
+        cloud: GcsImageUploader,
+        panora: Panora,
+        history: crate::message_history::HistoryStorage,
+    ) -> Self {
         let system_prompt = get_prompt();
 
         // Use default recovery policy for API error handling
@@ -45,6 +51,7 @@ impl AI {
             cloud,
             panora,
             service,
+            history,
         }
     }
 
@@ -429,6 +436,7 @@ impl AI {
                         self.panora.clone(),
                         group.clone(),
                         group_id.clone(),
+                        self.history.clone(),
                     )
                     .await;
 

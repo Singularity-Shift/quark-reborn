@@ -6,6 +6,7 @@ use teloxide::types::Message;
 use crate::{
     credentials::handler::Auth, group::handler::Group, panora::handler::Panora,
     services::handler::Services,
+    message_history::HistoryStorage,
 };
 
 /// Execute trending pools fetch from GeckoTerminal
@@ -1700,4 +1701,28 @@ pub async fn execute_prices(_arguments: &serde_json::Value) -> String {
 💳 <b>Payment Information:</b>
 💰 Payment is made in <b>📒</b> at the <u>dollar market rate</u>
 ⚠️ <i>All prices are subject to change based on provider rates</i>".to_string()
+}
+
+/// Fetch the recent messages from the rolling buffer (up to 20 lines)
+pub async fn execute_get_recent_messages(
+    msg: Message,
+    history: HistoryStorage,
+) -> String {
+    if msg.chat.is_private() {
+        return "This tool is only available in group chats.".into();
+    }
+
+    let lines = crate::message_history::fetch(msg.chat.id, history).await;
+    if lines.is_empty() {
+        return "(No recent messages stored.)".into();
+    }
+
+    lines
+        .into_iter()
+        .map(|e| match e.sender {
+            Some(name) => format!("{name}: {}", e.text),
+            None => e.text,
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
 }
