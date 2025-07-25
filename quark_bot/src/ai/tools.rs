@@ -1,6 +1,6 @@
 use super::actions::{
     execute_fear_and_greed_index, execute_get_time, execute_get_wallet_address, execute_new_pools,
-    execute_pay_users, execute_search_pools, execute_trending_pools,
+    execute_pay_users, execute_search_pools, execute_trending_pools, execute_get_recent_messages,
 };
 use crate::{
     ai::actions::{execute_fund_account, execute_get_balance, execute_withdraw_funds},
@@ -12,6 +12,7 @@ use crate::{
 use open_ai_rust_responses_by_sshift::types::Tool;
 use serde_json::json;
 use teloxide::types::Message;
+use crate::message_history::HistoryStorage;
 
 /// Get account balance tool - returns a Tool for checking user balance
 pub fn get_balance_tool() -> Tool {
@@ -262,6 +263,15 @@ pub fn get_pay_users_tool() -> Tool {
     )
 }
 
+/// Get recent group messages – returns last ≈20 lines
+pub fn get_recent_messages_tool() -> Tool {
+    Tool::function(
+        "get_recent_messages",
+        "Retrieve the most recent messages (up to 20) from THIS Telegram group chat for situational awareness. Use this tool automatically when: responding to vague references ('that', 'it', 'what we discussed'), when context would improve your response, when asked about recent activity/mood/topics, or when a more contextual response would be helpful. This provides conversation flow awareness.",
+        serde_json::json!({}),
+    )
+}
+
 /// Execute a custom tool and return the result
 pub async fn execute_custom_tool(
     tool_name: &str,
@@ -272,6 +282,7 @@ pub async fn execute_custom_tool(
     panora: Panora,
     group: Group,
     group_id: Option<String>,
+    history: HistoryStorage,
 ) -> String {
     log::info!(
         "Executing tool: {} with arguments: {}",
@@ -292,6 +303,7 @@ pub async fn execute_custom_tool(
         "get_pay_users" => {
             execute_pay_users(arguments, msg, service, auth, panora, group, group_id).await
         }
+        "get_recent_messages" => execute_get_recent_messages(msg, history).await,
         _ => {
             format!("Error: Unknown custom tool '{}'", tool_name)
         }
@@ -327,5 +339,6 @@ pub fn get_all_custom_tools() -> Vec<Tool> {
         get_time_tool(),
         get_fear_and_greed_index_tool(),
         get_pay_users_tool(),
+        get_recent_messages_tool(),
     ]
 }
