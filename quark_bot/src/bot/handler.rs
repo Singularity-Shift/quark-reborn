@@ -1112,7 +1112,11 @@ pub async fn handle_message(
     group: Group,
     panora: Panora,
     services: Services,
+    history: std::sync::Arc<teloxide::dispatching::dialogue::InMemStorage<crate::message_history::MessageHistory>>,
 ) -> AnyResult<()> {
+    // ── 0. Remember this line for context ───────────────
+    crate::message_history::log(&msg, history.clone()).await?;
+
     // Sentinel: moderate every message in group if sentinel is on
     if !msg.chat.is_private() {
         let profile = std::env::var("PROFILE").unwrap_or("prod".to_string());

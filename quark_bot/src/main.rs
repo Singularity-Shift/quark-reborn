@@ -6,6 +6,7 @@ mod callbacks;
 mod credentials;
 mod db;
 mod group;
+mod message_history;
 mod panora;
 mod services;
 mod user_conversation;
@@ -188,6 +189,7 @@ async fn main() {
     Dispatcher::builder(bot.clone(), handler_tree())
         .dependencies(dptree::deps![
             InMemStorage::<QuarkState>::new(),
+            InMemStorage::<crate::message_history::MessageHistory>::new(),
             auth,
             group,
             db,
