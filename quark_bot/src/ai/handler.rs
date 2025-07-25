@@ -93,6 +93,7 @@ impl AI {
         reasoning: Option<ReasoningParams>,
         group: Group,
         group_id: Option<String>,
+        history: Option<crate::message_history::HistoryStorage>,
     ) -> Result<AIResponse, anyhow::Error> {
         let user = msg.from.clone();
 
@@ -392,6 +393,7 @@ impl AI {
                         || tc.name == "get_current_time"
                         || tc.name == "get_fear_and_greed_index"
                         || tc.name == "get_pay_users"
+                        || tc.name == "get_recent_messages"
                 })
                 .collect();
 
@@ -429,6 +431,7 @@ impl AI {
                         self.panora.clone(),
                         group.clone(),
                         group_id.clone(),
+                        history.clone().unwrap_or_else(|| teloxide::dispatching::dialogue::InMemStorage::<crate::message_history::MessageHistory>::new()),
                     )
                     .await;
 

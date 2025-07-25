@@ -611,6 +611,7 @@ pub async fn handle_reasoning_chat(
             ),
             group,
             None,
+            None, // history not available in reasoning chat
         )
         .await;
 
@@ -706,6 +707,7 @@ pub async fn handle_chat(
     prompt: String,
     group_id: Option<String>,
     group: Group,
+    history: Option<crate::message_history::HistoryStorage>,
 ) -> AnyResult<()> {
     // --- Start Typing Indicator Immediately ---
     let bot_clone = bot.clone();
@@ -909,6 +911,7 @@ pub async fn handle_chat(
             None,
             group,
             group_id.clone(),
+            history,
         )
         .await;
 
