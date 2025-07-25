@@ -267,7 +267,7 @@ pub fn get_pay_users_tool() -> Tool {
 pub fn get_recent_messages_tool() -> Tool {
     Tool::function(
         "get_recent_messages",
-        "Retrieve the most recent messages (up to 20) from THIS Telegram group chat.",
+        "Retrieve the most recent messages (up to 20) from THIS Telegram group chat for situational awareness. Use this tool automatically when: responding to vague references ('that', 'it', 'what we discussed'), when context would improve your response, when asked about recent activity/mood/topics, or when a more contextual response would be helpful. This provides conversation flow awareness.",
         serde_json::json!({}),
     )
 }
