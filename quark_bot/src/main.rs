@@ -133,7 +133,9 @@ async fn main() {
 
     log::info!("Panora token list cron job started (runs every hour)");
 
-    let ai = AI::new(openai_api_key.clone(), google_cloud, panora);
+    let history_storage = teloxide::dispatching::dialogue::InMemStorage::<crate::message_history::MessageHistory>::new();
+
+    let ai = AI::new(openai_api_key.clone(), google_cloud, panora.clone(), history_storage.clone());
 
     let user_convos = UserConversations::new(&db).unwrap();
     let user_model_prefs = UserModelPreferences::new(&db).unwrap();
@@ -189,7 +191,7 @@ async fn main() {
     Dispatcher::builder(bot.clone(), handler_tree())
         .dependencies(dptree::deps![
             InMemStorage::<QuarkState>::new(),
-            InMemStorage::<crate::message_history::MessageHistory>::new(),
+            history_storage.clone(),
             auth,
             group,
             db,
