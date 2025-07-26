@@ -2,11 +2,12 @@ use dashmap::DashMap;
 use std::sync::Arc;
 use std::time::Duration;
 use teloxide::prelude::*;
-use crate::bot::handler::{handle_chat, handle_reasoning_chat};
+use teloxide::types::ChatAction;
+use teloxide::net::Download;
+use open_ai_rust_responses_by_sshift::types::ReasoningParams;
 use crate::ai::handler::AI;
 use crate::credentials::handler::Auth;
 use crate::group::handler::Group;
-use crate::services::handler::Services;
 use crate::user_model_preferences::handler::UserModelPreferences;
 use sled::Db;
 
@@ -18,7 +19,6 @@ pub struct MediaGroupAggregator {
     ai: AI,
     auth: Auth,
     group: Group,
-    services: Services,
     user_model_prefs: UserModelPreferences,
     db: Db,
 }
@@ -29,7 +29,6 @@ impl MediaGroupAggregator {
         ai: AI,
         auth: Auth,
         group: Group,
-        services: Services,
         user_model_prefs: UserModelPreferences,
         db: Db,
     ) -> Self {
@@ -39,7 +38,6 @@ impl MediaGroupAggregator {
             ai,
             auth,
             group,
-            services,
             user_model_prefs,
             db,
         }
@@ -90,52 +88,122 @@ impl MediaGroupAggregator {
         let command_msg = messages.iter().find(|msg| msg.caption().is_some());
         
         if let Some(cmd_msg) = command_msg {
+            // Determine prompt & command type
             let text = cmd_msg.caption().unwrap_or("");
-            
-            // Check if it's a reasoning command
             let is_reasoning_command = text.trim_start().starts_with("/r ") || text.trim() == "/r";
-            
-            // Check if it's a group admin command
             let is_group_command = text.trim_start().starts_with("/g ");
-            
-            // Only set group_id for /g commands (admin group commands)
-            // Regular /c and /r commands should use None even in groups
             let group_id = if is_group_command && !cmd_msg.chat.is_private() {
                 Some(cmd_msg.chat.id.to_string())
             } else {
                 None
             };
 
-            if is_reasoning_command {
-                // Use reasoning handler for /r commands
-                if let Err(e) = handle_reasoning_chat(
-                    self.bot.clone(),
-                    cmd_msg.clone(),
-                    self.services.clone(),
-                    self.ai.clone(),
-                    self.db.clone(),
-                    self.auth.clone(),
-                    self.user_model_prefs.clone(),
-                    text.to_string(),
-                    self.group.clone(),
-                ).await {
-                    log::error!("Error handling reasoning chat with media group: {}", e);
+            // --- Start typing indicator ---
+            let bot_clone = self.bot.clone();
+            let chat_id = cmd_msg.chat.id;
+            let typing_indicator_handle = tokio::spawn(async move {
+                loop {
+                    if let Err(e) = bot_clone.send_chat_action(chat_id, ChatAction::Typing).await {
+                        log::warn!("Failed to send typing action: {}", e);
+                        break;
+                    }
+                    tokio::time::sleep(Duration::from_secs(5)).await;
                 }
+            });
+
+            // --- Auth & prefs ---
+            let user = if let Some(u) = cmd_msg.from.as_ref() { u } else {
+                typing_indicator_handle.abort();
+                return;
+            };
+
+            let username = if let Some(u) = &user.username { u } else {
+                typing_indicator_handle.abort();
+                let _ = self.bot.send_message(chat_id, "❌ Unable to verify permissions.").await;
+                return;
+            };
+
+            if self.auth.get_credentials(username).is_none() {
+                typing_indicator_handle.abort();
+                let _ = self.bot.send_message(chat_id, "❌ Please login first.").await;
+                return;
+            }
+
+            // Load model prefs
+            let prefs = self.user_model_prefs.get_preferences(username);
+            let (model, temperature, reasoning_params) = if is_reasoning_command {
+                (prefs.reasoning_model.to_openai_model(), None, Some(ReasoningParams::new().with_effort(prefs.effort)))
             } else {
-                // Use regular chat handler for /c commands
-                if let Err(e) = handle_chat(
-                    self.bot.clone(),
-                    cmd_msg.clone(),
-                    self.services.clone(),
-                    self.ai.clone(),
-                    self.db.clone(),
-                    self.auth.clone(),
-                    self.user_model_prefs.clone(),
-                    text.to_string(),
-                    group_id,
-                    self.group.clone(),
-                ).await {
-                    log::error!("Error handling chat with media group: {}", e);
+                (prefs.chat_model.to_openai_model(), Some(prefs.temperature), None)
+            };
+
+            // --- Gather photos: take largest variant from each message ---
+            let mut image_paths: Vec<(String, String)> = Vec::new();
+            for m in &messages {
+                if let Some(photos) = m.photo() {
+                    if let Some(photo) = photos.last() {
+                        let file_id = &photo.file.id;
+                        match self.bot.get_file(file_id.clone()).await {
+                            Ok(file_info) => {
+                                let extension = file_info.path.split('.').last().unwrap_or("jpg").to_string();
+                                let tmp_path = format!("/tmp/{}_{}.{}", user.id.0, photo.file.unique_id, extension);
+                                if let Ok(mut f) = tokio::fs::File::create(&tmp_path).await {
+                                    if self.bot.download_file(&file_info.path, &mut f).await.is_ok() {
+                                        image_paths.push((tmp_path, extension));
+                                    }
+                                }
+                            }
+                            Err(e) => log::error!("Failed to fetch file info: {}", e),
+                        }
+                    }
+                }
+            }
+
+            // Upload images to GCS
+            let uploaded_urls = match self.ai.upload_user_images(image_paths).await {
+                Ok(urls) => urls,
+                Err(e) => {
+                    typing_indicator_handle.abort();
+                    let _ = self.bot.send_message(chat_id, "Failed to upload images.").await;
+                    log::error!("upload_user_images failed: {}", e);
+                    return;
+                }
+            };
+
+            // Generate response
+            let response_result = self.ai.generate_response(
+                cmd_msg.clone(),
+                text,
+                &self.db,
+                self.auth.clone(),
+                None,
+                uploaded_urls,
+                model,
+                8192,
+                temperature,
+                reasoning_params,
+                self.group.clone(),
+                group_id.clone(),
+            ).await;
+
+            typing_indicator_handle.abort();
+
+            match response_result {
+                Ok(ai_response) => {
+                    if let Some(image_data) = ai_response.image_data {
+                        let photo = teloxide::types::InputFile::memory(image_data);
+                        let caption = if ai_response.text.len() > 1024 { &ai_response.text[..1024] } else { &ai_response.text };
+                        let _ = self.bot.send_photo(chat_id, photo).caption(caption).await;
+                        if ai_response.text.len() > 1024 {
+                            let _ = self.bot.send_message(chat_id, &ai_response.text[1024..]).await;
+                        }
+                    } else {
+                        let _ = self.bot.send_message(chat_id, ai_response.text).await;
+                    }
+                }
+                Err(e) => {
+                    log::error!("AI generate_response failed: {}", e);
+                    let _ = self.bot.send_message(chat_id, "Sorry, I couldn't process your request.").await;
                 }
             }
         } else {
