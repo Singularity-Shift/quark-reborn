@@ -51,8 +51,6 @@ async fn main() {
     let aptos_network = env::var("APTOS_NETWORK").expect("APTOS_NETWORK not set");
     let contract_address = env::var("CONTRACT_ADDRESS").expect("CONTRACT_ADDRESS not set");
 
-    let media_aggregator = Arc::new(media_aggregator::MediaGroupAggregator::new());
-
     let google_cloud = GcsImageUploader::new(&gcs_creds, bucket_name)
         .await
         .expect("Failed to create GCS image uploader");
@@ -145,6 +143,15 @@ async fn main() {
         db.clone(),
         service.clone(),
         user_model_prefs.clone(),
+    ));
+
+    let media_aggregator = Arc::new(media_aggregator::MediaGroupAggregator::new(
+        bot.clone(),
+        ai.clone(),
+        auth.clone(),
+        group.clone(),
+        user_model_prefs.clone(),
+        db.clone(),
     ));
 
     let commands = vec![
