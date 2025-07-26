@@ -150,7 +150,6 @@ async fn main() {
         ai.clone(),
         auth.clone(),
         group.clone(),
-        service.clone(),
         user_model_prefs.clone(),
         db.clone(),
     ));
