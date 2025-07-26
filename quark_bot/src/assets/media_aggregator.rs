@@ -2,17 +2,44 @@ use dashmap::DashMap;
 use std::sync::Arc;
 use std::time::Duration;
 use teloxide::prelude::*;
+use teloxide::types::ChatAction;
+use teloxide::net::Download;
+use open_ai_rust_responses_by_sshift::types::ReasoningParams;
+use crate::ai::handler::AI;
+use crate::credentials::handler::Auth;
+use crate::group::handler::Group;
+use crate::user_model_preferences::handler::UserModelPreferences;
+use sled::Db;
 
 pub struct MediaGroupAggregator {
     // Key: media_group_id
     // Value: (Vec of messages in the group, debounce task handle)
     groups: DashMap<String, (Vec<Message>, tokio::task::JoinHandle<()>)>,
+    bot: Bot,
+    ai: AI,
+    auth: Auth,
+    group: Group,
+    user_model_prefs: UserModelPreferences,
+    db: Db,
 }
 
 impl MediaGroupAggregator {
-    pub fn new() -> Self {
+    pub fn new(
+        bot: Bot,
+        ai: AI,
+        auth: Auth,
+        group: Group,
+        user_model_prefs: UserModelPreferences,
+        db: Db,
+    ) -> Self {
         Self {
             groups: DashMap::new(),
+            bot,
+            ai,
+            auth,
+            group,
+            user_model_prefs,
+            db,
         }
     }
 
@@ -44,15 +71,143 @@ impl MediaGroupAggregator {
 
             // The timer has elapsed, so we can now process the group.
             if let Some((_, (messages, _))) = aggregator_clone.groups.remove(&media_group_id) {
-                log::error!(
-                    "Error handling grouped chat for {}, {:?}",
-                    media_group_id,
-                    messages
-                );
+                aggregator_clone.process_media_group(messages).await;
             }
         });
 
         // Store the new task's handle.
         entry.value_mut().1 = handle;
+    }
+
+    async fn process_media_group(&self, messages: Vec<Message>) {
+        if messages.is_empty() {
+            return;
+        }
+
+        // Find the message with caption (the command)
+        let command_msg = messages.iter().find(|msg| msg.caption().is_some());
+        
+        if let Some(cmd_msg) = command_msg {
+            // Determine prompt & command type
+            let text = cmd_msg.caption().unwrap_or("");
+            let is_reasoning_command = text.trim_start().starts_with("/r ") || text.trim() == "/r";
+            let is_group_command = text.trim_start().starts_with("/g ");
+            let group_id = if is_group_command && !cmd_msg.chat.is_private() {
+                Some(cmd_msg.chat.id.to_string())
+            } else {
+                None
+            };
+
+            // --- Start typing indicator ---
+            let bot_clone = self.bot.clone();
+            let chat_id = cmd_msg.chat.id;
+            let typing_indicator_handle = tokio::spawn(async move {
+                loop {
+                    if let Err(e) = bot_clone.send_chat_action(chat_id, ChatAction::Typing).await {
+                        log::warn!("Failed to send typing action: {}", e);
+                        break;
+                    }
+                    tokio::time::sleep(Duration::from_secs(5)).await;
+                }
+            });
+
+            // --- Auth & prefs ---
+            let user = if let Some(u) = cmd_msg.from.as_ref() { u } else {
+                typing_indicator_handle.abort();
+                return;
+            };
+
+            let username = if let Some(u) = &user.username { u } else {
+                typing_indicator_handle.abort();
+                let _ = self.bot.send_message(chat_id, "❌ Unable to verify permissions.").await;
+                return;
+            };
+
+            if self.auth.get_credentials(username).is_none() {
+                typing_indicator_handle.abort();
+                let _ = self.bot.send_message(chat_id, "❌ Please login first.").await;
+                return;
+            }
+
+            // Load model prefs
+            let prefs = self.user_model_prefs.get_preferences(username);
+            let (model, temperature, reasoning_params) = if is_reasoning_command {
+                (prefs.reasoning_model.to_openai_model(), None, Some(ReasoningParams::new().with_effort(prefs.effort)))
+            } else {
+                (prefs.chat_model.to_openai_model(), Some(prefs.temperature), None)
+            };
+
+            // --- Gather photos: take largest variant from each message ---
+            let mut image_paths: Vec<(String, String)> = Vec::new();
+            for m in &messages {
+                if let Some(photos) = m.photo() {
+                    if let Some(photo) = photos.last() {
+                        let file_id = &photo.file.id;
+                        match self.bot.get_file(file_id.clone()).await {
+                            Ok(file_info) => {
+                                let extension = file_info.path.split('.').last().unwrap_or("jpg").to_string();
+                                let tmp_path = format!("/tmp/{}_{}.{}", user.id.0, photo.file.unique_id, extension);
+                                if let Ok(mut f) = tokio::fs::File::create(&tmp_path).await {
+                                    if self.bot.download_file(&file_info.path, &mut f).await.is_ok() {
+                                        image_paths.push((tmp_path, extension));
+                                    }
+                                }
+                            }
+                            Err(e) => log::error!("Failed to fetch file info: {}", e),
+                        }
+                    }
+                }
+            }
+
+            // Upload images to GCS
+            let uploaded_urls = match self.ai.upload_user_images(image_paths).await {
+                Ok(urls) => urls,
+                Err(e) => {
+                    typing_indicator_handle.abort();
+                    let _ = self.bot.send_message(chat_id, "Failed to upload images.").await;
+                    log::error!("upload_user_images failed: {}", e);
+                    return;
+                }
+            };
+
+            // Generate response
+            let response_result = self.ai.generate_response(
+                cmd_msg.clone(),
+                text,
+                &self.db,
+                self.auth.clone(),
+                None,
+                uploaded_urls,
+                model,
+                8192,
+                temperature,
+                reasoning_params,
+                self.group.clone(),
+                group_id.clone(),
+            ).await;
+
+            typing_indicator_handle.abort();
+
+            match response_result {
+                Ok(ai_response) => {
+                    if let Some(image_data) = ai_response.image_data {
+                        let photo = teloxide::types::InputFile::memory(image_data);
+                        let caption = if ai_response.text.len() > 1024 { &ai_response.text[..1024] } else { &ai_response.text };
+                        let _ = self.bot.send_photo(chat_id, photo).caption(caption).await;
+                        if ai_response.text.len() > 1024 {
+                            let _ = self.bot.send_message(chat_id, &ai_response.text[1024..]).await;
+                        }
+                    } else {
+                        let _ = self.bot.send_message(chat_id, ai_response.text).await;
+                    }
+                }
+                Err(e) => {
+                    log::error!("AI generate_response failed: {}", e);
+                    let _ = self.bot.send_message(chat_id, "Sorry, I couldn't process your request.").await;
+                }
+            }
+        } else {
+            log::warn!("Media group processed but no caption found with command");
+        }
     }
 }

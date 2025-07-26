@@ -486,9 +486,9 @@ pub async fn handle_reasoning_chat(
             }
         }
 
-        // Process images from replied message
+        // Process images from replied message – only keep the largest resolution
         if let Some(photos) = reply.photo() {
-            for photo in photos {
+            if let Some(photo) = photos.last() {
                 let file_id = &photo.file.id;
                 let file_info = bot.get_file(file_id.clone()).await?;
                 let extension = file_info
@@ -531,8 +531,8 @@ pub async fn handle_reasoning_chat(
     // --- Download user-attached images ---
     let mut user_uploaded_image_paths: Vec<(String, String)> = Vec::new();
     if let Some(photos) = msg.photo() {
-        // Process all photos, not just the last one
-        for photo in photos {
+        // Only keep the largest PhotoSize (last element)
+        if let Some(photo) = photos.last() {
             let file_id = &photo.file.id;
             let file_info = bot.get_file(file_id.clone()).await?;
             let extension = file_info
@@ -788,9 +788,9 @@ pub async fn handle_chat(
             }
         }
 
-        // Process images from replied message
+        // Process images from replied message – only take the largest resolution (last PhotoSize)
         if let Some(photos) = reply.photo() {
-            for photo in photos {
+            if let Some(photo) = photos.last() {
                 let file_id = &photo.file.id;
                 let file_info = bot.get_file(file_id.clone()).await?;
                 let extension = file_info
@@ -833,8 +833,8 @@ pub async fn handle_chat(
     // --- Download user-attached images ---
     let mut user_uploaded_image_paths: Vec<(String, String)> = Vec::new();
     if let Some(photos) = msg.photo() {
-        // Process all photos, not just the last one
-        for photo in photos {
+        // Telegram orders PhotoSize from smallest to largest; take the last (largest)
+        if let Some(photo) = photos.last() {
             let file_id = &photo.file.id;
             let file_info = bot.get_file(file_id.clone()).await?;
             let extension = file_info
