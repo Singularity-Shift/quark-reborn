@@ -19,8 +19,7 @@ impl Dao {
         group_id: String,
         preferences: DaoAdminPreferences,
     ) -> Result<()> {
-        let admin_preferences = self
-            .db
+        self.db
             .fetch_and_update("dao_admin_preferences", |entries| {
                 if let Some(admin_preferences) = entries {
                     let admin_preferences_result: Result<
@@ -60,7 +59,11 @@ impl Dao {
         let admin_preferences = self.db.get("dao_admin_preferences")?;
 
         if admin_preferences.is_none() {
-            return Err(anyhow::anyhow!("No admin preferences found"));
+            return Ok(DaoAdminPreferences {
+                group_id,
+                expiration_time: Utc::now().timestamp() as u64 + 7 * 24 * 60 * 60,
+                interval_active_dao_notifications: 3600,
+            });
         }
 
         let admin_preferences_result: Result<Vec<DaoAdminPreferences>, serde_json::Error> =
@@ -184,8 +187,10 @@ impl Dao {
             .collect())
     }
 
-    pub fn remove_expired_daos(&self, expired_time: u64) -> Result<()> {
+    pub fn remove_expired_daos(&self) -> Result<()> {
         let now = Utc::now().timestamp() as u64;
+
+        let admin_preferences = self.get_all_dao_admin_preferences()?;
 
         self.db.fetch_and_update("daos", |entries| {
             if let Some(daos) = entries {
@@ -198,7 +203,15 @@ impl Dao {
 
                 let mut daos = daos_result.unwrap();
 
-                daos.retain(|dao| dao.end_date + expired_time > now);
+                let admin_preference = admin_preferences
+                    .iter()
+                    .find(|preference| daos.iter().any(|dao| dao.group_id == preference.group_id));
+
+                if let Some(admin_preference) = admin_preference {
+                    daos.retain(|dao| dao.end_date + admin_preference.expiration_time > now);
+                } else {
+                    daos.retain(|dao| dao.end_date + 7 * 24 * 60 * 60 > now);
+                }
 
                 Some(serde_json::to_vec(&daos).unwrap())
             } else {
@@ -289,8 +302,6 @@ impl Dao {
     }
 
     pub fn update_result_notified(&self, dao_id: String) -> Result<()> {
-        let now = Utc::now().timestamp() as u64;
-
         self.db.fetch_and_update("daos", |entries| {
             if let Some(daos) = entries {
                 let daos_result: Result<Vec<DaoEntry>, serde_json::Error> =

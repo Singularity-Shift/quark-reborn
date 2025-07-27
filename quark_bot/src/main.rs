@@ -14,11 +14,14 @@ mod user_conversation;
 mod user_model_preferences;
 mod utils;
 
+mod dependencies;
+
 use crate::{
     ai::{gcs::GcsImageUploader, handler::AI},
     aptos::handler::Aptos,
     credentials::handler::Auth,
     dao::dao::Dao,
+    dependencies::BotDependencies,
     group::handler::Group,
     job::job_scheduler::schedule_jobs,
     panora::handler::Panora,
@@ -52,6 +55,7 @@ async fn main() {
     let bucket_name = env::var("GCS_BUCKET_NAME").expect("GCS_BUCKET_NAME not set");
     let aptos_network = env::var("APTOS_NETWORK").expect("APTOS_NETWORK not set");
     let contract_address = env::var("CONTRACT_ADDRESS").expect("CONTRACT_ADDRESS not set");
+    let aptos_api_key = env::var("APTOS_API_KEY").unwrap_or_default();
 
     let media_aggregator = Arc::new(media_aggregator::MediaGroupAggregator::new());
 
@@ -59,7 +63,7 @@ async fn main() {
         .await
         .expect("Failed to create GCS image uploader");
 
-    let aptos = Aptos::new(aptos_network, contract_address);
+    let aptos = Aptos::new(aptos_network, contract_address, aptos_api_key);
 
     let min_deposit = env::var("MIN_DEPOSIT")
         .expect("MIN_DEPOSIT not set")
@@ -84,29 +88,30 @@ async fn main() {
 
     // Execute token AI fees update immediately on startup
     let panora_startup2 = panora.clone();
-    let token_address = panora_startup2.aptos.get_token_address().await.unwrap();
-    match panora_startup2.set_token_ai_fees(&token_address).await {
-        Ok(_) => log::info!("Successfully updated Panora token AI fees on startup"),
-        Err(e) => log::error!("Failed to update Panora token AI fees on startup: {}", e),
+    let token_address = panora_startup2.aptos.get_token_address().await;
+    match token_address {
+        Ok(token_address) => match panora_startup2.set_token_ai_fees(&token_address).await {
+            Ok(_) => log::info!("Successfully updated Panora token AI fees on startup"),
+            Err(e) => log::error!("Failed to update Panora token AI fees on startup: {}", e),
+        },
+        Err(e) => log::error!("Failed to get token address: {}", e),
     }
 
     let dao_db = db.open_tree("dao").expect("Failed to open dao tree");
     let dao = Dao::new(dao_db);
 
-    schedule_jobs(panora.clone(), bot.clone(), dao)
+    schedule_jobs(panora.clone(), bot.clone(), dao.clone())
         .await
         .expect("Failed to schedule jobs");
 
-    let ai = AI::new(openai_api_key.clone(), google_cloud, panora);
+    let ai = AI::new(openai_api_key.clone(), google_cloud);
 
     let user_convos = UserConversations::new(&db).unwrap();
     let user_model_prefs = UserModelPreferences::new(&db).unwrap();
     let service = Services::new();
+
     let cmd_collector = Arc::new(command_image_collector::CommandImageCollector::new(
         bot.clone(),
-        db.clone(),
-        service.clone(),
-        user_model_prefs.clone(),
     ));
 
     let commands = vec![
@@ -145,24 +150,27 @@ async fn main() {
         BotCommand::new("balance", "Get your balance of a token."),
         BotCommand::new("groupwalletaddress", "Get the group's wallet address."),
         BotCommand::new("groupbalance", "Get the group's balance of a token."),
+        BotCommand::new("daopreferences", "Set dao preferences."),
     ];
 
     bot.set_my_commands(commands).await.unwrap();
 
+    let bot_deps = BotDependencies {
+        db: db.clone(),
+        auth: auth.clone(),
+        service: service.clone(),
+        user_convos: user_convos.clone(),
+        user_model_prefs: user_model_prefs.clone(),
+        ai: ai.clone(),
+        cmd_collector: cmd_collector.clone(),
+        panora: panora_for_dispatcher.clone(),
+        group: group.clone(),
+        dao: dao.clone(),
+        media_aggregator: media_aggregator.clone(),
+    };
+
     Dispatcher::builder(bot.clone(), handler_tree())
-        .dependencies(dptree::deps![
-            InMemStorage::<QuarkState>::new(),
-            auth,
-            group,
-            db,
-            service,
-            user_convos,
-            user_model_prefs,
-            ai,
-            media_aggregator,
-            cmd_collector,
-            panora_for_dispatcher
-        ])
+        .dependencies(dptree::deps![InMemStorage::<QuarkState>::new(), bot_deps])
         .enable_ctrlc_handler()
         .build()
         .dispatch()

@@ -3,10 +3,7 @@ use std::env;
 use quark_core::helpers::dto::{CoinVersion, PayUsersRequest, TransactionResponse};
 use teloxide::types::Message;
 
-use crate::{
-    credentials::handler::Auth, group::handler::Group, panora::handler::Panora,
-    services::handler::Services,
-};
+use crate::dependencies::BotDependencies;
 
 /// Execute trending pools fetch from GeckoTerminal
 pub async fn execute_trending_pools(arguments: &serde_json::Value) -> String {
@@ -1147,10 +1144,7 @@ fn format_fear_and_greed_response(data: &serde_json::Value) -> String {
 pub async fn execute_pay_users(
     arguments: &serde_json::Value,
     msg: Message,
-    services: Services,
-    auth: Auth,
-    panora: Panora,
-    group: Group,
+    bot_deps: BotDependencies,
     group_id: Option<String>,
 ) -> String {
     let mut version = CoinVersion::V1;
@@ -1179,7 +1173,7 @@ pub async fn execute_pay_users(
             version = CoinVersion::V1;
             ("0x1::aptos_coin::AptosCoin".to_string(), 8u8)
         } else {
-            let token = panora.get_token_by_symbol(symbol).await;
+            let token = bot_deps.panora.get_token_by_symbol(symbol).await;
 
             if token.is_err() {
                 log::error!("❌ Error getting token: {}", token.as_ref().err().unwrap());
@@ -1203,7 +1197,7 @@ pub async fn execute_pay_users(
     let user_addresses = users
         .iter()
         .map(|u| {
-            let user_data = auth.get_credentials(u.as_str());
+            let user_data = bot_deps.auth.get_credentials(u.as_str());
 
             if user_data.is_none() {
                 log::error!("❌ User not found");
@@ -1224,7 +1218,7 @@ pub async fn execute_pay_users(
     let result: Result<TransactionResponse, anyhow::Error>;
 
     if group_id.is_some() {
-        let group_credentials = group.get_credentials(&msg.chat.id);
+        let group_credentials = bot_deps.group.get_credentials(&msg.chat.id);
 
         if group_credentials.is_none() {
             log::error!("❌ Group not found");
@@ -1233,7 +1227,8 @@ pub async fn execute_pay_users(
 
         let group_credentials = group_credentials.unwrap();
 
-        result = services
+        result = bot_deps
+            .service
             .pay_members(
                 group_credentials.jwt,
                 PayUsersRequest {
@@ -1263,7 +1258,7 @@ pub async fn execute_pay_users(
 
         let username = username.unwrap();
 
-        let user_credentials = auth.get_credentials(&username);
+        let user_credentials = bot_deps.auth.get_credentials(&username);
 
         if user_credentials.is_none() {
             log::error!("❌ User not found");
@@ -1272,7 +1267,8 @@ pub async fn execute_pay_users(
 
         let user_credentials = user_credentials.unwrap();
 
-        result = services
+        result = bot_deps
+            .service
             .pay_users(
                 user_credentials.jwt,
                 PayUsersRequest {
@@ -1307,8 +1303,7 @@ pub async fn execute_pay_users(
 
 pub async fn execute_get_wallet_address(
     msg: Message,
-    auth: Auth,
-    group: Group,
+    bot_deps: BotDependencies,
     group_id: Option<String>,
 ) -> String {
     let user = msg.from;
@@ -1330,7 +1325,7 @@ pub async fn execute_get_wallet_address(
     let username = username.unwrap();
 
     let resource_account_address = if group_id.is_some() {
-        let group_credentials = group.get_credentials(&msg.chat.id);
+        let group_credentials = bot_deps.group.get_credentials(&msg.chat.id);
 
         if group_credentials.is_none() {
             log::error!("❌ Group not found");
@@ -1341,7 +1336,7 @@ pub async fn execute_get_wallet_address(
 
         group_credentials.resource_account_address
     } else {
-        let user_credentials = auth.get_credentials(&username);
+        let user_credentials = bot_deps.auth.get_credentials(&username);
 
         if user_credentials.is_none() {
             log::error!("❌ User not found");
@@ -1357,13 +1352,11 @@ pub async fn execute_get_wallet_address(
 pub async fn execute_get_balance(
     arguments: &serde_json::Value,
     msg: Message,
-    auth: Auth,
-    panora: Panora,
-    group: Group,
     group_id: Option<String>,
+    bot_deps: BotDependencies,
 ) -> String {
     let resource_account_address = if group_id.is_some() {
-        let group_credentials = group.get_credentials(&msg.chat.id);
+        let group_credentials = bot_deps.group.get_credentials(&msg.chat.id);
 
         if group_credentials.is_none() {
             log::error!("❌ Group not found");
@@ -1390,7 +1383,9 @@ pub async fn execute_get_balance(
 
         let username = username.unwrap();
 
-        auth.get_credentials(&username)
+        bot_deps
+            .auth
+            .get_credentials(&username)
             .unwrap()
             .resource_account_address
     };
@@ -1408,7 +1403,7 @@ pub async fn execute_get_balance(
                 "APT".to_string(),
             )
         } else {
-            let tokens = panora.get_token_by_symbol(symbol).await;
+            let tokens = bot_deps.panora.get_token_by_symbol(symbol).await;
 
             if tokens.is_err() {
                 log::error!("❌ Error getting token: {}", tokens.as_ref().err().unwrap());
@@ -1426,7 +1421,8 @@ pub async fn execute_get_balance(
             (token_type, token.decimals, token.symbol.clone())
         };
 
-    let balance = panora
+    let balance = bot_deps
+        .panora
         .aptos
         .node
         .get_account_balance(resource_account_address, token_type.to_string())
@@ -1465,8 +1461,7 @@ pub async fn execute_get_balance(
 pub async fn execute_withdraw_funds(
     arguments: &serde_json::Value,
     msg: Message,
-    auth: Auth,
-    panora: Panora,
+    bot_deps: BotDependencies,
 ) -> String {
     let app_url = env::var("APP_URL");
 
@@ -1498,7 +1493,7 @@ pub async fn execute_withdraw_funds(
 
     let username = username.unwrap();
 
-    let user_credentials = auth.get_credentials(&username);
+    let user_credentials = bot_deps.auth.get_credentials(&username);
 
     if user_credentials.is_none() {
         return "❌ User not found".to_string();
@@ -1516,10 +1511,21 @@ pub async fn execute_withdraw_funds(
         .and_then(|v| v.as_f64())
         .unwrap_or(0.0);
 
-    let tokens = panora.get_panora_token_list().await;
+    let tokens = bot_deps.panora.get_panora_token_list().await;
 
     if tokens.is_err() {
-        return "❌ Error getting token type".to_string();
+        let error_msg = tokens.as_ref().err().unwrap().to_string();
+        log::error!("❌ Error getting token list: {}", error_msg);
+
+        // Handle rate limiting specifically
+        if error_msg.contains("429")
+            || error_msg.contains("rate limit")
+            || error_msg.contains("Too Many Requests")
+        {
+            return "⚠️ Panora API is currently experiencing high demand. Please wait a moment and try again.".to_string();
+        }
+
+        return format!("❌ Error getting token list: {}", error_msg);
     }
 
     let tokens = tokens.unwrap();
@@ -1540,7 +1546,8 @@ pub async fn execute_withdraw_funds(
         token.fa_address.clone()
     };
 
-    let balance = panora
+    let balance = bot_deps
+        .panora
         .aptos
         .node
         .get_account_balance(
@@ -1575,8 +1582,7 @@ pub async fn execute_withdraw_funds(
 pub async fn execute_fund_account(
     arguments: &serde_json::Value,
     msg: Message,
-    auth: Auth,
-    panora: Panora,
+    bot_deps: BotDependencies,
 ) -> String {
     let app_url = env::var("APP_URL");
 
@@ -1608,7 +1614,7 @@ pub async fn execute_fund_account(
 
     let username = username.unwrap();
 
-    let user_credentials = auth.get_credentials(&username);
+    let user_credentials = bot_deps.auth.get_credentials(&username);
 
     if user_credentials.is_none() {
         return "❌ User not found".to_string();
@@ -1626,10 +1632,10 @@ pub async fn execute_fund_account(
         .and_then(|v| v.as_f64())
         .unwrap_or(0.0);
 
-    let tokens = panora.get_panora_token_list().await;
+    let tokens = bot_deps.panora.get_panora_token_list().await;
 
     if tokens.is_err() {
-        return "❌ Error getting token type".to_string();
+        return "❌ Error getting token list".to_string();
     }
 
     let tokens = tokens.unwrap();
@@ -1651,7 +1657,8 @@ pub async fn execute_fund_account(
     };
 
     // Get balance from user's main wallet (not resource account)
-    let balance = panora
+    let balance = bot_deps
+        .panora
         .aptos
         .node
         .get_account_balance(user_credentials.account_address, token_type.to_string())

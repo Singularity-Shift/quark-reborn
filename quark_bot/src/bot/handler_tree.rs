@@ -1,6 +1,4 @@
-use crate::group::handler::Group;
-use crate::user_conversation::handler::UserConversations;
-use crate::{ai::handler::AI, credentials::handler::Auth};
+use crate::dependencies::BotDependencies;
 use anyhow::Result;
 use quark_core::helpers::bot_commands::{Command, QuarkState};
 use teloxide::{
@@ -40,8 +38,8 @@ pub fn handler_tree() -> Handler<'static, Result<()>, DpHandlerDescription> {
                             msg.web_app_data().is_some() && msg.chat.is_private()
                         })
                         .endpoint(
-                            |bot: Bot, msg: Message, db: sled::Db, auth: Auth, user_model_prefs: crate::user_model_preferences::handler::UserModelPreferences| async move {
-                                handle_web_app_data(bot, msg, auth, db, user_model_prefs).await
+                            |bot: Bot, msg: Message, bot_deps: BotDependencies| async move {
+                                handle_web_app_data(bot, msg, bot_deps).await
                             }
                         ),
                 )
@@ -54,11 +52,9 @@ pub fn handler_tree() -> Handler<'static, Result<()>, DpHandlerDescription> {
                             msg.media_group_id().is_some() && msg.photo().is_some()
                         })
                         .endpoint(
-                            |media_aggregator: std::sync::Arc<
-                                crate::assets::media_aggregator::MediaGroupAggregator,
-                            >,
+                            |bot_deps: BotDependencies,
                              msg: Message,| async move {
-                                media_aggregator.add_message(msg).await;
+                                bot_deps.media_aggregator.add_message(msg).await;
                                 Ok(())
                             },
                         ),
@@ -95,8 +91,8 @@ pub fn handler_tree() -> Handler<'static, Result<()>, DpHandlerDescription> {
                                     | Command::PromptExamples
                             )
                         })
-                        .filter_async(|msg: Message, auth: Auth| async move {
-                            auth.verify(msg).await
+                        .filter_async(|msg: Message, bot_deps: BotDependencies| async move {
+                            bot_deps.auth.verify(msg).await
                         })
                         .endpoint(answers),
                 )
@@ -110,8 +106,8 @@ pub fn handler_tree() -> Handler<'static, Result<()>, DpHandlerDescription> {
                                     | Command::Mod | Command::Sentinel(_) | Command::GroupBalance(_) | Command::GroupWalletAddress | Command::ModerationRules
                             )
                         })
-                        .filter_async(|msg: Message, group: Group| async move {
-                            group.verify(msg).await
+                        .filter_async(|msg: Message, bot_deps: BotDependencies| async move {
+                            bot_deps.group.verify(msg).await
                         })
                         .endpoint(answers),
                 )
@@ -126,8 +122,8 @@ pub fn handler_tree() -> Handler<'static, Result<()>, DpHandlerDescription> {
                             )
                         })
                         .filter(|msg: Message| msg.chat.is_private())
-                        .filter_async(|msg: Message, auth: Auth| async move {
-                            auth.verify(msg).await
+                        .filter_async(|msg: Message, bot_deps: BotDependencies| async move {
+                            bot_deps.auth.verify(msg).await
                         })
                         .endpoint(answers),
                 )
@@ -166,11 +162,8 @@ pub fn handler_tree() -> Handler<'static, Result<()>, DpHandlerDescription> {
         .branch(Update::filter_callback_query().endpoint(
             |bot: Bot,
              query: teloxide::types::CallbackQuery,
-             db: sled::Db,
-             user_convos: UserConversations,
-             user_model_prefs: crate::user_model_preferences::handler::UserModelPreferences,
-             ai: AI| async move {
-                handle_callback_query(bot, query, db, user_convos, user_model_prefs, ai).await
+             bot_deps: BotDependencies| async move {
+                handle_callback_query(bot, query, bot_deps).await
             },
         ))
 }

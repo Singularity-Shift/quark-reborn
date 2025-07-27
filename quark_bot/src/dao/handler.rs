@@ -1,20 +1,24 @@
 use chrono::Utc;
 use quark_core::helpers::dto::{CoinVersion, CreateDaoRequest};
-use teloxide::{prelude::*, types::Message};
+use teloxide::{
+    prelude::*,
+    types::{InlineKeyboardButton, InlineKeyboardButtonKind, InlineKeyboardMarkup, Message},
+};
 use uuid::Uuid;
 
-use crate::{group::handler::Group, panora::handler::Panora, services::handler::Services};
+use crate::{dao::dto::DaoEntry, dependencies::BotDependencies};
 
 pub async fn execute_create_dao(
     arguments: &serde_json::Value,
     bot: Bot,
     msg: Message,
-    service: Services,
     group_id: Option<String>,
-    group: Group,
-    panora: Panora,
+    bot_deps: BotDependencies,
 ) -> String {
+    log::info!("execute_create_dao called with arguments: {}", arguments);
+
     if group_id.is_none() {
+        log::error!("Group ID is missing");
         return "❌ Group ID is required".to_string();
     }
 
@@ -22,7 +26,7 @@ pub async fn execute_create_dao(
 
     let group_id_parsed = ChatId(group_id.parse::<i64>().unwrap());
 
-    let auth = group.get_credentials(&group_id_parsed);
+    let auth = bot_deps.group.get_credentials(&group_id_parsed);
 
     if auth.is_none() {
         return "❌ Error getting credentials, maybe the group is not logged in".to_string();
@@ -86,18 +90,6 @@ pub async fn execute_create_dao(
         .map(|option| option.as_str().unwrap().to_string())
         .collect::<Vec<String>>();
 
-    let start_date = arguments["start_date"].as_str();
-
-    if start_date.is_none() {
-        return "❌ Start date is required".to_string();
-    }
-
-    let end_date = arguments["end_date"].as_str();
-
-    if end_date.is_none() {
-        return "❌ End date is required".to_string();
-    }
-
     let symbol = arguments["symbol"].as_str();
 
     if symbol.is_none() {
@@ -106,8 +98,16 @@ pub async fn execute_create_dao(
 
     let symbol = symbol.unwrap();
 
+    let start_date = arguments["start_date"].as_str();
+
+    let end_date = arguments["end_date"].as_str();
+
     if start_date.is_none() {
         return "❌ Start date is required".to_string();
+    }
+
+    if end_date.is_none() {
+        return "❌ End date is required".to_string();
     }
 
     let start_date = start_date.unwrap();
@@ -136,13 +136,27 @@ pub async fn execute_create_dao(
         return "❌ Start date must be before end date".to_string();
     }
 
+    // Log the date values for debugging
+    log::info!(
+        "DAO creation - Start date: {}, End date: {}, Current time: {}",
+        start_date,
+        end_date,
+        Utc::now().timestamp()
+    );
+
     let now = Utc::now().timestamp();
 
-    if start_date < now as u64 {
-        return "❌ Start date must be in the future".to_string();
+    // Allow DAO to start immediately or within a reasonable time window
+    // The start date should not be more than 30 days in the future
+    let max_future_start = now + (30 * 24 * 60 * 60); // 30 days from now
+
+    // Allow immediate start (start_date can be now or in the past)
+    // But ensure it's not too far in the future
+    if start_date > max_future_start as u64 {
+        return "❌ Start date cannot be more than 30 days in the future".to_string();
     }
 
-    let token = panora.get_token_by_symbol(symbol).await;
+    let token = bot_deps.panora.get_token_by_symbol(symbol).await;
 
     if token.is_err() {
         return "❌ Error getting token address".to_string();
@@ -174,11 +188,398 @@ pub async fn execute_create_dao(
         },
     };
 
-    let response = service.create_dao(auth.jwt, request).await;
+    log::info!("Creating DAO with request: {:?}", request);
+
+    let dao_entry = DaoEntry::from(&request);
+
+    let response = bot_deps.service.create_dao(auth.jwt, request).await;
 
     if response.is_err() {
         return "❌ Error creating DAO".to_string();
     }
 
+    let dao_result = bot_deps.dao.create_dao(dao_entry);
+
+    if dao_result.is_err() {
+        return "❌ Error creating DAO".to_string();
+    }
+
     return format!("DAO created successfully: {}", response.unwrap().hash);
+}
+
+pub async fn handle_dao_preferences(
+    bot: Bot,
+    msg: Message,
+    bot_deps: BotDependencies,
+) -> anyhow::Result<()> {
+    // Check if user is admin
+    let user = msg.from.as_ref();
+    if user.is_none() {
+        bot.send_message(msg.chat.id, "❌ User information not available.")
+            .await?;
+        return Ok(());
+    }
+
+    let user = user.unwrap();
+    let admins = bot.get_chat_administrators(msg.chat.id).await?;
+    let is_admin = admins.iter().any(|admin| admin.user.id == user.id);
+
+    if !is_admin {
+        bot.send_message(
+            msg.chat.id,
+            "❌ Only group admins can manage DAO preferences.",
+        )
+        .await?;
+        return Ok(());
+    }
+
+    let group_id = msg.chat.id.to_string();
+
+    // Get current DAO admin preferences
+    let dao_admin_preferences = bot_deps.dao.get_dao_admin_preferences(group_id.clone());
+
+    let current_prefs = match dao_admin_preferences {
+        Ok(prefs) => prefs,
+        Err(_) => {
+            // Create default preferences if none exist
+            use crate::dao::dto::DaoAdminPreferences;
+            let default_prefs = DaoAdminPreferences {
+                group_id: group_id.clone(),
+                expiration_time: 24 * 60 * 60, // 24 hours in seconds
+                interval_active_dao_notifications: 60 * 60, // 1 hour in seconds
+            };
+
+            // Save default preferences
+            if let Err(_e) = bot_deps
+                .dao
+                .set_dao_admin_preferences(group_id.clone(), default_prefs.clone())
+            {
+                bot.send_message(msg.chat.id, "❌ Error creating default DAO preferences.")
+                    .await?;
+                return Ok(());
+            }
+            default_prefs
+        }
+    };
+
+    // Create keyboard with current values
+    let keyboard = InlineKeyboardMarkup::new(vec![
+        vec![InlineKeyboardButton::new(
+            format!(
+                "⏰ Expiration Time: {}h",
+                current_prefs.expiration_time / 3600
+            ),
+            InlineKeyboardButtonKind::CallbackData(format!("dao_set_expiration_{}", group_id)),
+        )],
+        vec![InlineKeyboardButton::new(
+            format!(
+                "🔔 Notification Interval: {}h",
+                current_prefs.interval_active_dao_notifications / 3600
+            ),
+            InlineKeyboardButtonKind::CallbackData(format!("dao_set_notifications_{}", group_id)),
+        )],
+        vec![InlineKeyboardButton::new(
+            "✅ Done",
+            InlineKeyboardButtonKind::CallbackData("dao_preferences_done".to_string()),
+        )],
+    ]);
+
+    let message_text = format!(
+        "🏛️ <b>DAO Admin Preferences</b>\n\n\
+        📊 <b>Current Settings:</b>\n\
+        ⏰ <b>Expiration Time:</b> {} hours\n\
+        🔔 <b>Notification Interval:</b> {} hours\n\n\
+        💡 <i>Click the buttons below to modify these settings</i>",
+        current_prefs.expiration_time / 3600,
+        current_prefs.interval_active_dao_notifications / 3600
+    );
+
+    bot.send_message(msg.chat.id, message_text)
+        .parse_mode(teloxide::types::ParseMode::Html)
+        .reply_markup(keyboard)
+        .await?;
+
+    Ok(())
+}
+
+pub async fn handle_dao_preference_callback(
+    bot: Bot,
+    query: teloxide::types::CallbackQuery,
+    bot_deps: BotDependencies,
+) -> anyhow::Result<()> {
+    let data = query.data.as_ref().unwrap();
+    let msg = match &query.message {
+        Some(teloxide::types::MaybeInaccessibleMessage::Regular(message)) => message,
+        _ => return Ok(()),
+    };
+
+    if data == "dao_preferences_done" {
+        bot.edit_message_text(
+            msg.chat.id,
+            msg.id,
+            "✅ <b>DAO preferences saved successfully!</b>",
+        )
+        .parse_mode(teloxide::types::ParseMode::Html)
+        .await?;
+
+        bot.answer_callback_query(query.id).await?;
+        return Ok(());
+    }
+
+    if data.starts_with("dao_set_expiration_") {
+        let group_id = data.strip_prefix("dao_set_expiration_").unwrap();
+
+        // Show options for expiration time
+        let keyboard = InlineKeyboardMarkup::new(vec![
+            vec![
+                InlineKeyboardButton::new(
+                    "6h",
+                    InlineKeyboardButtonKind::CallbackData(format!(
+                        "dao_exp_{}_{}",
+                        group_id,
+                        6 * 3600
+                    )),
+                ),
+                InlineKeyboardButton::new(
+                    "12h",
+                    InlineKeyboardButtonKind::CallbackData(format!(
+                        "dao_exp_{}_{}",
+                        group_id,
+                        12 * 3600
+                    )),
+                ),
+                InlineKeyboardButton::new(
+                    "24h",
+                    InlineKeyboardButtonKind::CallbackData(format!(
+                        "dao_exp_{}_{}",
+                        group_id,
+                        24 * 3600
+                    )),
+                ),
+            ],
+            vec![
+                InlineKeyboardButton::new(
+                    "48h",
+                    InlineKeyboardButtonKind::CallbackData(format!(
+                        "dao_exp_{}_{}",
+                        group_id,
+                        48 * 3600
+                    )),
+                ),
+                InlineKeyboardButton::new(
+                    "72h",
+                    InlineKeyboardButtonKind::CallbackData(format!(
+                        "dao_exp_{}_{}",
+                        group_id,
+                        72 * 3600
+                    )),
+                ),
+                InlineKeyboardButton::new(
+                    "1 week",
+                    InlineKeyboardButtonKind::CallbackData(format!(
+                        "dao_exp_{}_{}",
+                        group_id,
+                        7 * 24 * 3600
+                    )),
+                ),
+            ],
+            vec![InlineKeyboardButton::new(
+                "🔙 Back",
+                InlineKeyboardButtonKind::CallbackData("dao_preferences_back".to_string()),
+            )],
+        ]);
+
+        bot.edit_message_text(
+            msg.chat.id,
+            msg.id,
+            "⏰ <b>Select Expiration Time</b>\n\n\
+            Choose how long DAOs should remain active before expiring:",
+        )
+        .parse_mode(teloxide::types::ParseMode::Html)
+        .reply_markup(keyboard)
+        .await?;
+    } else if data.starts_with("dao_set_notifications_") {
+        let group_id = data.strip_prefix("dao_set_notifications_").unwrap();
+
+        // Show options for notification interval
+        let keyboard = InlineKeyboardMarkup::new(vec![
+            vec![
+                InlineKeyboardButton::new(
+                    "30min",
+                    InlineKeyboardButtonKind::CallbackData(format!(
+                        "dao_notif_{}_{}",
+                        group_id,
+                        30 * 60
+                    )),
+                ),
+                InlineKeyboardButton::new(
+                    "1h",
+                    InlineKeyboardButtonKind::CallbackData(format!(
+                        "dao_notif_{}_{}",
+                        group_id,
+                        60 * 60
+                    )),
+                ),
+                InlineKeyboardButton::new(
+                    "2h",
+                    InlineKeyboardButtonKind::CallbackData(format!(
+                        "dao_notif_{}_{}",
+                        group_id,
+                        2 * 60 * 60
+                    )),
+                ),
+            ],
+            vec![
+                InlineKeyboardButton::new(
+                    "6h",
+                    InlineKeyboardButtonKind::CallbackData(format!(
+                        "dao_notif_{}_{}",
+                        group_id,
+                        6 * 60 * 60
+                    )),
+                ),
+                InlineKeyboardButton::new(
+                    "12h",
+                    InlineKeyboardButtonKind::CallbackData(format!(
+                        "dao_notif_{}_{}",
+                        group_id,
+                        12 * 60 * 60
+                    )),
+                ),
+                InlineKeyboardButton::new(
+                    "24h",
+                    InlineKeyboardButtonKind::CallbackData(format!(
+                        "dao_notif_{}_{}",
+                        group_id,
+                        24 * 60 * 60
+                    )),
+                ),
+            ],
+            vec![InlineKeyboardButton::new(
+                "🔙 Back",
+                InlineKeyboardButtonKind::CallbackData("dao_preferences_back".to_string()),
+            )],
+        ]);
+
+        bot.edit_message_text(
+            msg.chat.id,
+            msg.id,
+            "🔔 <b>Select Notification Interval</b>\n\n\
+            Choose how often to send notifications for active DAOs:",
+        )
+        .parse_mode(teloxide::types::ParseMode::Html)
+        .reply_markup(keyboard)
+        .await?;
+    } else if data.starts_with("dao_exp_") {
+        let parts: Vec<&str> = data.split('_').collect();
+        if parts.len() >= 4 {
+            let group_id = parts[2];
+            let expiration_time: u64 = parts[3].parse().unwrap_or(24 * 3600);
+
+            // Update expiration time
+            if let Ok(mut prefs) = bot_deps.dao.get_dao_admin_preferences(group_id.to_string()) {
+                prefs.expiration_time = expiration_time;
+                if let Err(_) = bot_deps
+                    .dao
+                    .set_dao_admin_preferences(group_id.to_string(), prefs)
+                {
+                    bot.answer_callback_query(query.id)
+                        .text("❌ Error updating preferences")
+                        .await?;
+                    return Ok(());
+                }
+            }
+
+            bot.edit_message_text(
+                msg.chat.id,
+                msg.id,
+                format!(
+                    "✅ <b>Expiration time updated to {} hours</b>",
+                    expiration_time / 3600
+                ),
+            )
+            .parse_mode(teloxide::types::ParseMode::Html)
+            .await?;
+        }
+    } else if data.starts_with("dao_notif_") {
+        let parts: Vec<&str> = data.split('_').collect();
+        if parts.len() >= 4 {
+            let group_id = parts[2];
+            let notification_interval: u64 = parts[3].parse().unwrap_or(60 * 60);
+
+            // Update notification interval
+            if let Ok(mut prefs) = bot_deps.dao.get_dao_admin_preferences(group_id.to_string()) {
+                prefs.interval_active_dao_notifications = notification_interval;
+                if let Err(_) = bot_deps
+                    .dao
+                    .set_dao_admin_preferences(group_id.to_string(), prefs)
+                {
+                    bot.answer_callback_query(query.id)
+                        .text("❌ Error updating preferences")
+                        .await?;
+                    return Ok(());
+                }
+            }
+
+            bot.edit_message_text(
+                msg.chat.id,
+                msg.id,
+                format!(
+                    "✅ <b>Notification interval updated to {} hours</b>",
+                    notification_interval / 3600
+                ),
+            )
+            .parse_mode(teloxide::types::ParseMode::Html)
+            .await?;
+        }
+    } else if data == "dao_preferences_back" {
+        // Go back to main preferences menu - just edit the message back to the main menu
+        let group_id = msg.chat.id.to_string();
+        let current_prefs = match bot_deps.dao.get_dao_admin_preferences(group_id.clone()) {
+            Ok(prefs) => prefs,
+            Err(_) => return Ok(()),
+        };
+
+        let keyboard = InlineKeyboardMarkup::new(vec![
+            vec![InlineKeyboardButton::new(
+                format!(
+                    "⏰ Expiration Time: {}h",
+                    current_prefs.expiration_time / 3600
+                ),
+                InlineKeyboardButtonKind::CallbackData(format!("dao_set_expiration_{}", group_id)),
+            )],
+            vec![InlineKeyboardButton::new(
+                format!(
+                    "🔔 Notification Interval: {}h",
+                    current_prefs.interval_active_dao_notifications / 3600
+                ),
+                InlineKeyboardButtonKind::CallbackData(format!(
+                    "dao_set_notifications_{}",
+                    group_id
+                )),
+            )],
+            vec![InlineKeyboardButton::new(
+                "✅ Done",
+                InlineKeyboardButtonKind::CallbackData("dao_preferences_done".to_string()),
+            )],
+        ]);
+
+        let message_text = format!(
+            "🏛️ <b>DAO Admin Preferences</b>\n\n\
+            📊 <b>Current Settings:</b>\n\
+            ⏰ <b>Expiration Time:</b> {} hours\n\
+            🔔 <b>Notification Interval:</b> {} hours\n\n\
+            💡 <i>Click the buttons below to modify these settings</i>",
+            current_prefs.expiration_time / 3600,
+            current_prefs.interval_active_dao_notifications / 3600
+        );
+
+        bot.edit_message_text(msg.chat.id, msg.id, message_text)
+            .parse_mode(teloxide::types::ParseMode::Html)
+            .reply_markup(keyboard)
+            .await?;
+    }
+
+    bot.answer_callback_query(query.id).await?;
+    Ok(())
 }

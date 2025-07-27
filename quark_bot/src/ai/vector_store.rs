@@ -1,18 +1,16 @@
-use crate::ai::handler::AI;
+use crate::dependencies::BotDependencies;
 use crate::user_conversation::{dto::FileInfo, handler::UserConversations};
 use open_ai_rust_responses_by_sshift::files::FilePurpose;
 use open_ai_rust_responses_by_sshift::vector_stores::{
     AddFileToVectorStoreRequest, CreateVectorStoreRequest,
 };
-use sled::Db;
 
 pub async fn upload_files_to_vector_store(
     user_id: i64,
-    db: &Db,
-    ai: AI,
+    bot_deps: BotDependencies,
     file_paths: Vec<String>,
 ) -> Result<String, anyhow::Error> {
-    let user_convos = UserConversations::new(db)?;
+    let user_convos = UserConversations::new(&bot_deps.db)?;
     let mut file_ids = Vec::new();
 
     // Check if user has invalid vector store ID and clear stale data upfront
@@ -23,7 +21,7 @@ pub async fn upload_files_to_vector_store(
         }
     }
 
-    let client = ai.get_client();
+    let client = bot_deps.ai.get_client();
 
     // Upload each file to OpenAI
     for path in &file_paths {
@@ -70,18 +68,26 @@ pub async fn upload_files_to_vector_store(
                     .await
                 {
                     Ok(_) => {
-                        log::info!("Successfully added file {} to existing vector store {}", file_id, existing_vs_id);
+                        log::info!(
+                            "Successfully added file {} to existing vector store {}",
+                            file_id,
+                            existing_vs_id
+                        );
                     }
                     Err(e) => {
                         let error_msg = e.to_string();
                         // If vector store doesn't exist, clear it and create a new one
                         if error_msg.contains("vector store") && error_msg.contains("not found") {
-                            log::warn!("Vector store {} not found when adding files, creating new vector store for user {}", existing_vs_id, user_id);
-                            
+                            log::warn!(
+                                "Vector store {} not found when adding files, creating new vector store for user {}",
+                                existing_vs_id,
+                                user_id
+                            );
+
                             // Clear the orphaned vector store reference
                             user_convos.set_vector_store_id(user_id, "")?;
                             user_convos.clear_files(user_id)?;
-                            
+
                             // Create a new vector store with all files
                             let vs_request = CreateVectorStoreRequest {
                                 name: format!("user_{}_vector_store", user_id),
@@ -89,10 +95,10 @@ pub async fn upload_files_to_vector_store(
                             };
                             let vector_store = client.vector_stores.create(vs_request).await?;
                             let new_vs_id = vector_store.id.clone();
-                            
+
                             // Store the new vector_store_id in the user's db record
                             user_convos.set_vector_store_id(user_id, &new_vs_id)?;
-                            
+
                             return Ok(new_vs_id);
                         } else {
                             // Re-throw other errors
@@ -123,8 +129,11 @@ pub async fn upload_files_to_vector_store(
 
 /// List files with names from user's local database (reliable, immediate)
 /// This bypasses the unreliable OpenAI vector store file listing API
-pub fn list_user_files_with_names(user_id: i64, db: &Db) -> Result<Vec<FileInfo>, anyhow::Error> {
-    let user_convos = UserConversations::new(db)?;
+pub fn list_user_files_with_names(
+    user_id: i64,
+    bot_deps: BotDependencies,
+) -> Result<Vec<FileInfo>, anyhow::Error> {
+    let user_convos = UserConversations::new(&bot_deps.db)?;
     let files = user_convos.get_files(user_id);
     Ok(files)
 }
@@ -134,13 +143,12 @@ pub fn list_user_files_with_names(user_id: i64, db: &Db) -> Result<Vec<FileInfo>
 /// To completely delete the file, you must also call client.files.delete()
 pub async fn delete_file_from_vector_store(
     user_id: i64,
-    db: &Db,
+    bot_deps: BotDependencies,
     vector_store_id: &str,
     file_id: &str,
-    ai: &AI,
 ) -> Result<(), anyhow::Error> {
-    let client = ai.get_client();
-    let user_convos = UserConversations::new(db)?;
+    let client = bot_deps.ai.get_client();
+    let user_convos = UserConversations::new(&bot_deps.db)?;
 
     // Remove file from vector store - now returns VectorStoreFileDeleteResponse
     match client
@@ -149,13 +157,21 @@ pub async fn delete_file_from_vector_store(
         .await
     {
         Ok(_delete_response) => {
-            log::info!("Successfully deleted file {} from vector store {}", file_id, vector_store_id);
+            log::info!(
+                "Successfully deleted file {} from vector store {}",
+                file_id,
+                vector_store_id
+            );
         }
         Err(e) => {
             let error_msg = e.to_string();
             // If vector store doesn't exist, clean up the database references
             if error_msg.contains("vector store") && error_msg.contains("not found") {
-                log::warn!("Vector store {} not found, cleaning up database references for user {}", vector_store_id, user_id);
+                log::warn!(
+                    "Vector store {} not found, cleaning up database references for user {}",
+                    vector_store_id,
+                    user_id
+                );
                 user_convos.set_vector_store_id(user_id, "")?;
                 user_convos.clear_files(user_id)?;
                 return Err(anyhow::anyhow!(
@@ -176,9 +192,12 @@ pub async fn delete_file_from_vector_store(
 /// Delete an entire vector store
 /// Note: This does not delete the underlying files from OpenAI's file storage
 /// The files remain in storage and can be used in other vector stores
-pub async fn delete_vector_store(user_id: i64, db: &Db, ai: &AI) -> Result<(), anyhow::Error> {
-    let user_convos = UserConversations::new(db)?;
-    let client = ai.get_client();
+pub async fn delete_vector_store(
+    user_id: i64,
+    bot_deps: BotDependencies,
+) -> Result<(), anyhow::Error> {
+    let user_convos = UserConversations::new(&bot_deps.db)?;
+    let client = bot_deps.ai.get_client();
 
     // Get the user's vector store ID
     if let Some(vector_store_id) = user_convos.get_vector_store_id(user_id) {
@@ -186,16 +205,28 @@ pub async fn delete_vector_store(user_id: i64, db: &Db, ai: &AI) -> Result<(), a
         if !vector_store_id.is_empty() {
             match client.vector_stores.delete(&vector_store_id).await {
                 Ok(_deleted_store) => {
-                    log::info!("Successfully deleted vector store {} for user {}", vector_store_id, user_id);
+                    log::info!(
+                        "Successfully deleted vector store {} for user {}",
+                        vector_store_id,
+                        user_id
+                    );
                 }
                 Err(e) => {
                     let error_msg = e.to_string();
                     // If vector store doesn't exist, that's fine - we still want to clean up database
                     if error_msg.contains("vector store") && error_msg.contains("not found") {
-                        log::warn!("Vector store {} was already deleted, cleaning up database references for user {}", vector_store_id, user_id);
+                        log::warn!(
+                            "Vector store {} was already deleted, cleaning up database references for user {}",
+                            vector_store_id,
+                            user_id
+                        );
                     } else {
                         // For other errors, log but continue with cleanup
-                        log::error!("Failed to delete vector store {}: {}, but continuing with database cleanup", vector_store_id, error_msg);
+                        log::error!(
+                            "Failed to delete vector store {}: {}, but continuing with database cleanup",
+                            vector_store_id,
+                            error_msg
+                        );
                     }
                 }
             }

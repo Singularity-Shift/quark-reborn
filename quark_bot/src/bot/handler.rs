@@ -1,14 +1,10 @@
 //! Command handlers for quark_bot Telegram bot.
 use crate::{
-    assets::{
-        command_image_collector::CommandImageCollector, handler::handle_file_upload,
-        media_aggregator::MediaGroupAggregator,
-    },
+    assets::handler::handle_file_upload,
     bot::hooks::{fund_account_hook, withdraw_funds_hook},
-    credentials::{dto::CredentialsPayload, handler::Auth},
-    group::{dto::GroupCredentials, handler::Group},
-    panora::handler::Panora,
-    services::handler::Services,
+    credentials::dto::CredentialsPayload,
+    dependencies::BotDependencies,
+    group::dto::GroupCredentials,
     utils::{self, create_purchase_request},
 };
 use anyhow::Result as AnyResult;
@@ -16,9 +12,8 @@ use aptos_rust_sdk_types::api_types::view::ViewRequest;
 use serde_json::value;
 
 use crate::{
-    ai::{handler::AI, moderation::ModerationService, vector_store::list_user_files_with_names},
-    user_conversation::handler::UserConversations,
-    user_model_preferences::handler::{UserModelPreferences, initialize_user_preferences},
+    ai::{moderation::ModerationService, vector_store::list_user_files_with_names},
+    user_model_preferences::handler::initialize_user_preferences,
 };
 
 use open_ai_rust_responses_by_sshift::{
@@ -31,9 +26,8 @@ use quark_core::helpers::{
 };
 use regex;
 use reqwest::Url;
-use sled::Db;
+use std::env;
 use std::time::Duration;
-use std::{env, sync::Arc};
 use teloxide::types::{
     ChatAction, InlineKeyboardButton, InlineKeyboardMarkup, InputFile, WebAppInfo,
 };
@@ -200,9 +194,7 @@ pub async fn handle_login_user(bot: Bot, msg: Message) -> AnyResult<()> {
 pub async fn handle_login_group(
     bot: Bot,
     msg: Message,
-    group: Group,
-    services: Services,
-    panora: Panora,
+    bot_deps: BotDependencies,
 ) -> AnyResult<()> {
     // Ensure this command is used in a group chat
     if msg.chat.is_private() {
@@ -235,10 +227,11 @@ pub async fn handle_login_group(
         return Ok(());
     }
 
-    let credentials = group.get_credentials(&group_id);
+    let credentials = bot_deps.group.get_credentials(&group_id);
 
     if credentials.is_none() {
-        let group_result = services
+        let group_result = bot_deps
+            .service
             .create_group(CreateGroupRequest {
                 group_id: group_id.to_string(),
             })
@@ -250,7 +243,7 @@ pub async fn handle_login_group(
             return Ok(());
         }
 
-        let jwt = group.generate_new_jwt(group_id);
+        let jwt = bot_deps.group.generate_new_jwt(group_id);
 
         if !jwt {
             bot.send_message(group_id, "❌ Unable to generate JWT.")
@@ -258,7 +251,7 @@ pub async fn handle_login_group(
             return Ok(());
         }
 
-        let payload_response = group.get_credentials(&group_id);
+        let payload_response = bot_deps.group.get_credentials(&group_id);
 
         if payload_response.is_none() {
             bot.send_message(group_id, "❌ Unable to get credentials.")
@@ -272,8 +265,7 @@ pub async fn handle_login_group(
     }
 
     let updated_credentials =
-        check_group_resource_account_address(&bot, &group, payload, msg.clone(), panora.clone())
-            .await;
+        check_group_resource_account_address(&bot, payload, msg.clone(), &bot_deps).await;
 
     if updated_credentials.is_err() {
         bot.send_message(msg.chat.id, "❌ Unable to save credentials.")
@@ -303,20 +295,15 @@ pub async fn handle_add_files(bot: Bot, msg: Message) -> AnyResult<()> {
     Ok(())
 }
 
-pub async fn handle_list_files(
-    bot: Bot,
-    msg: Message,
-    db: Db,
-    user_convos: UserConversations,
-) -> AnyResult<()> {
+pub async fn handle_list_files(bot: Bot, msg: Message, bot_deps: BotDependencies) -> AnyResult<()> {
     if !msg.chat.is_private() {
         bot.send_message(msg.chat.id, "❌ Please DM the bot to list your files.")
             .await?;
         return Ok(());
     }
     let user_id = msg.from.as_ref().map(|u| u.id.0).unwrap_or(0) as i64;
-    if let Some(_vector_store_id) = user_convos.get_vector_store_id(user_id) {
-        match list_user_files_with_names(user_id, &db) {
+    if let Some(_vector_store_id) = bot_deps.user_convos.get_vector_store_id(user_id) {
+        match list_user_files_with_names(user_id, bot_deps.clone()) {
             Ok(files) => {
                 if files.is_empty() {
                     bot.send_message(msg.chat.id, "📁 <b>Your Document Library</b>\n\n<i>No files uploaded yet</i>\n\n💡 Use /add_files to start building your personal AI knowledge base!")
@@ -387,13 +374,8 @@ pub async fn handle_list_files(
 pub async fn handle_reasoning_chat(
     bot: Bot,
     msg: Message,
-    service: Services,
-    ai: AI,
-    db: Db,
-    auth: Auth,
-    user_model_prefs: UserModelPreferences,
     prompt: String,
-    group: Group,
+    bot_deps: BotDependencies,
 ) -> AnyResult<()> {
     // --- Start Typing Indicator Immediately ---
     let bot_clone = bot.clone();
@@ -434,7 +416,7 @@ pub async fn handle_reasoning_chat(
 
     let username = username.unwrap();
 
-    let credentials = auth.get_credentials(&username);
+    let credentials = bot_deps.auth.get_credentials(&username);
 
     if credentials.is_none() {
         typing_indicator_handle.abort();
@@ -449,7 +431,7 @@ pub async fn handle_reasoning_chat(
     let credentials = credentials.unwrap();
 
     // Load user's reasoning model preferences
-    let preferences = user_model_prefs.get_preferences(username);
+    let preferences = bot_deps.user_model_prefs.get_preferences(username);
 
     let (reasoning_model, effort) = (
         preferences.reasoning_model.to_openai_model(),
@@ -548,7 +530,11 @@ pub async fn handle_reasoning_chat(
 
     // --- Upload replied message images to GCS ---
     let replied_message_image_urls = if !replied_message_image_paths.is_empty() {
-        match ai.upload_user_images(replied_message_image_paths).await {
+        match bot_deps
+            .ai
+            .upload_user_images(replied_message_image_paths)
+            .await
+        {
             Ok(urls) => urls,
             Err(e) => {
                 log::error!("Failed to upload replied message images: {}", e);
@@ -560,7 +546,11 @@ pub async fn handle_reasoning_chat(
     };
 
     // --- Upload user images to GCS ---
-    let user_uploaded_image_urls = match ai.upload_user_images(user_uploaded_image_paths).await {
+    let user_uploaded_image_urls = match bot_deps
+        .ai
+        .upload_user_images(user_uploaded_image_paths)
+        .await
+    {
         Ok(urls) => urls,
         Err(e) => {
             log::error!("Failed to upload user images: {}", e);
@@ -587,13 +577,12 @@ pub async fn handle_reasoning_chat(
     };
 
     // Asynchronously generate the response
-    let response_result = ai
+    let response_result = bot_deps
+        .ai
         .generate_response(
             bot.clone(),
             msg.clone(),
             &final_prompt,
-            &db,
-            auth,
             image_url_from_reply,
             all_image_urls,
             reasoning_model,
@@ -604,7 +593,7 @@ pub async fn handle_reasoning_chat(
                     .with_effort(effort)
                     .with_summary(SummarySetting::Detailed),
             ),
-            group,
+            bot_deps.clone(),
             None,
         )
         .await;
@@ -622,7 +611,7 @@ pub async fn handle_reasoning_chat(
                     file_search,
                     web_search,
                     image_gen,
-                    service,
+                    bot_deps.service.clone(),
                     ai_response.total_tokens,
                     ai_response.model,
                     &credentials.jwt,
@@ -693,14 +682,9 @@ pub async fn handle_reasoning_chat(
 pub async fn handle_chat(
     bot: Bot,
     msg: Message,
-    service: Services,
-    ai: AI,
-    db: Db,
-    auth: Auth,
-    user_model_prefs: UserModelPreferences,
     prompt: String,
     group_id: Option<String>,
-    group: Group,
+    bot_deps: BotDependencies,
 ) -> AnyResult<()> {
     // --- Start Typing Indicator Immediately ---
     let bot_clone = bot.clone();
@@ -739,7 +723,7 @@ pub async fn handle_chat(
 
     let username = username.unwrap();
 
-    let credentials = auth.get_credentials(&username);
+    let credentials = bot_deps.auth.get_credentials(&username);
     if credentials.is_none() {
         typing_indicator_handle.abort();
         bot.send_message(msg.chat.id, "❌ Unable to verify permissions.")
@@ -747,12 +731,12 @@ pub async fn handle_chat(
         return Ok(());
     }
 
-    let group_credentials = group.get_credentials(&msg.chat.id);
+    let group_credentials = bot_deps.group.get_credentials(&msg.chat.id);
 
     let credentials = credentials.unwrap();
 
     // Load user's chat model preferences
-    let preferences = user_model_prefs.get_preferences(username);
+    let preferences = bot_deps.user_model_prefs.get_preferences(username);
 
     let (chat_model, temperature) = (
         preferences.chat_model.to_openai_model(),
@@ -851,7 +835,11 @@ pub async fn handle_chat(
 
     // --- Upload replied message images to GCS ---
     let replied_message_image_urls = if !replied_message_image_paths.is_empty() {
-        match ai.upload_user_images(replied_message_image_paths).await {
+        match bot_deps
+            .ai
+            .upload_user_images(replied_message_image_paths)
+            .await
+        {
             Ok(urls) => urls,
             Err(e) => {
                 log::error!("Failed to upload replied message images: {}", e);
@@ -863,7 +851,11 @@ pub async fn handle_chat(
     };
 
     // --- Upload user images to GCS ---
-    let user_uploaded_image_urls = match ai.upload_user_images(user_uploaded_image_paths).await {
+    let user_uploaded_image_urls = match bot_deps
+        .ai
+        .upload_user_images(user_uploaded_image_paths)
+        .await
+    {
         Ok(urls) => urls,
         Err(e) => {
             log::error!("Failed to upload user images: {}", e);
@@ -890,20 +882,19 @@ pub async fn handle_chat(
     };
 
     // Asynchronously generate the response
-    let response_result = ai
+    let response_result = bot_deps
+        .ai
         .generate_response(
             bot.clone(),
             msg.clone(),
             &final_prompt,
-            &db,
-            auth,
             image_url_from_reply,
             all_image_urls,
             chat_model,
             8192,
             temperature,
             None,
-            group,
+            bot_deps.clone(),
             group_id.clone(),
         )
         .await;
@@ -931,7 +922,7 @@ pub async fn handle_chat(
                     file_search,
                     web_search,
                     image_gen,
-                    service,
+                    bot_deps.service.clone(),
                     ai_response.total_tokens,
                     ai_response.model,
                     &jwt,
@@ -1014,14 +1005,10 @@ pub async fn handle_chat(
     Ok(())
 }
 
-pub async fn handle_new_chat(
-    bot: Bot,
-    msg: Message,
-    user_convos: UserConversations,
-) -> AnyResult<()> {
+pub async fn handle_new_chat(bot: Bot, msg: Message, bot_deps: BotDependencies) -> AnyResult<()> {
     let user_id = msg.from.as_ref().map(|u| u.id.0).unwrap_or(0) as i64;
 
-    match user_convos.clear_response_id(user_id) {
+    match bot_deps.user_convos.clear_response_id(user_id) {
         Ok(_) => {
             bot.send_message(msg.chat.id, "🆕 <b>New conversation started!</b>\n\n✨ Your previous chat history has been cleared. Your next /chat command will start a fresh conversation thread.\n\n💡 <i>Your uploaded files and settings remain intact</i>")
                 .parse_mode(ParseMode::Html)
@@ -1045,9 +1032,7 @@ pub async fn handle_new_chat(
 pub async fn handle_web_app_data(
     bot: Bot,
     msg: Message,
-    auth: Auth,
-    _db: Db,
-    user_model_prefs: UserModelPreferences,
+    bot_deps: BotDependencies,
 ) -> AnyResult<()> {
     let web_app_data = msg.web_app_data().unwrap();
     let payload = web_app_data.data.clone();
@@ -1083,40 +1068,33 @@ pub async fn handle_web_app_data(
 
     let user_id = user.id;
 
-    auth.generate_new_jwt(
-        username.clone(),
-        user_id,
-        payload.account_address,
-        payload.resource_account_address,
-    )
-    .await;
+    bot_deps
+        .auth
+        .generate_new_jwt(
+            username.clone(),
+            user_id,
+            payload.account_address,
+            payload.resource_account_address,
+        )
+        .await;
 
     // Initialize default model preferences for new user
-    let _ = initialize_user_preferences(&username, &user_model_prefs).await;
+    let _ = initialize_user_preferences(&username, &bot_deps.user_model_prefs).await;
 
     return Ok(());
 }
 
-pub async fn handle_message(
-    bot: Bot,
-    msg: Message,
-    ai: AI,
-    media_aggregator: Arc<MediaGroupAggregator>,
-    cmd_collector: Arc<CommandImageCollector>,
-    db: Db,
-    auth: Auth,
-    group: Group,
-    panora: Panora,
-    services: Services,
-) -> AnyResult<()> {
+pub async fn handle_message(bot: Bot, msg: Message, bot_deps: BotDependencies) -> AnyResult<()> {
     // Sentinel: moderate every message in group if sentinel is on
+    let mut group_id: Option<String> = None;
     if !msg.chat.is_private() {
+        group_id = Some(msg.chat.id.to_string());
         let profile = std::env::var("PROFILE").unwrap_or("prod".to_string());
-        let sentinel_tree = db.open_tree("sentinel_state").unwrap();
+        let sentinel_tree = bot_deps.db.open_tree("sentinel_state").unwrap();
         let chat_id = msg.chat.id.0.to_be_bytes();
         let user = msg.from.clone();
 
-        let group_credentials = group.get_credentials(&msg.chat.id);
+        let group_credentials = bot_deps.group.get_credentials(&msg.chat.id);
 
         if group_credentials.is_none() {
             log::error!("Group credentials not found");
@@ -1137,7 +1115,10 @@ pub async fn handle_message(
                 let username = username.unwrap();
 
                 if !group_credentials.users.contains(&username) {
-                    group.add_user_to_group(msg.chat.id, username).await?;
+                    bot_deps
+                        .group
+                        .add_user_to_group(msg.chat.id, username)
+                        .await?;
                 }
             }
         }
@@ -1166,7 +1147,7 @@ pub async fn handle_message(
 
             let address = group_credentials.resource_account_address;
 
-            let coin_address = panora.aptos.get_token_address().await;
+            let coin_address = bot_deps.panora.aptos.get_token_address().await;
 
             if coin_address.is_err() {
                 bot.send_message(
@@ -1179,12 +1160,13 @@ pub async fn handle_message(
 
             let coin_address = coin_address.unwrap();
 
-            let group_balance = panora
+            let group_balance = bot_deps
+                .panora
                 .aptos
                 .get_account_balance(&address, &coin_address)
                 .await?;
 
-            let token = panora.get_token_ai_fees().await?;
+            let token = bot_deps.panora.get_token_ai_fees().await?;
 
             let token_price = token.usd_price;
 
@@ -1220,7 +1202,7 @@ pub async fn handle_message(
 
             let token_decimals = token_decimals.unwrap();
 
-            let min_deposit = (panora.min_deposit / 10_f64) / token_price;
+            let min_deposit = (bot_deps.panora.min_deposit / 10_f64) / token_price;
 
             let min_deposit = (min_deposit as f64 * 10_f64.powi(token_decimals as i32)) as u64;
 
@@ -1268,7 +1250,8 @@ pub async fn handle_message(
                     );
 
                     if profile != "dev" {
-                        let purchase_result = services
+                        let purchase_result = bot_deps
+                            .service
                             .group_purchase(
                                 group_credentials.jwt,
                                 PurchaseRequest {
@@ -1348,14 +1331,15 @@ pub async fn handle_message(
     }
 
     if msg.media_group_id().is_some() && msg.photo().is_some() {
-        media_aggregator.add_message(msg).await;
+        bot_deps.media_aggregator.add_message(msg).await;
         return Ok(());
     }
 
     // Photo-only message (no text/caption) may belong to a pending command
     if msg.text().is_none() && msg.caption().is_none() && msg.photo().is_some() {
+        let cmd_collector = bot_deps.cmd_collector.clone();
         cmd_collector
-            .try_attach_photo(msg, ai, auth, None, group)
+            .try_attach_photo(msg, bot_deps.clone(), group_id)
             .await;
         return Ok(());
     }
@@ -1367,12 +1351,17 @@ pub async fn handle_message(
             || msg.video().is_some()
             || msg.audio().is_some())
     {
-        handle_file_upload(bot, msg, db, ai).await?;
+        handle_file_upload(bot, msg, bot_deps.clone()).await?;
     }
     Ok(())
 }
 
-pub async fn handle_sentinel(bot: Bot, msg: Message, param: String, db: Db) -> AnyResult<()> {
+pub async fn handle_sentinel(
+    bot: Bot,
+    msg: Message,
+    param: String,
+    bot_deps: BotDependencies,
+) -> AnyResult<()> {
     // Only admins can use /sentinel
     if !msg.chat.is_private() {
         let admins = bot.get_chat_administrators(msg.chat.id).await?;
@@ -1391,7 +1380,7 @@ pub async fn handle_sentinel(bot: Bot, msg: Message, param: String, db: Db) -> A
         }
     }
     let param = param.trim().to_lowercase();
-    let sentinel_tree = db.open_tree("sentinel_state").unwrap();
+    let sentinel_tree = bot_deps.db.open_tree("sentinel_state").unwrap();
     let chat_id = msg.chat.id.0.to_be_bytes();
     match param.as_str() {
         "on" => {
@@ -1424,7 +1413,11 @@ pub async fn handle_sentinel(bot: Bot, msg: Message, param: String, db: Db) -> A
     Ok(())
 }
 
-pub async fn handle_wallet_address(bot: Bot, msg: Message, auth: Auth) -> AnyResult<()> {
+pub async fn handle_wallet_address(
+    bot: Bot,
+    msg: Message,
+    bot_deps: BotDependencies,
+) -> AnyResult<()> {
     println!("handle_wallet_address");
     let user = msg.from;
 
@@ -1445,7 +1438,7 @@ pub async fn handle_wallet_address(bot: Bot, msg: Message, auth: Auth) -> AnyRes
 
     let username = username.unwrap();
 
-    let user_credentials = auth.get_credentials(&username);
+    let user_credentials = bot_deps.auth.get_credentials(&username);
 
     if user_credentials.is_none() {
         bot.send_message(msg.chat.id, "❌ User not found").await?;
@@ -1469,16 +1462,10 @@ pub async fn handle_wallet_address(bot: Bot, msg: Message, auth: Auth) -> AnyRes
     Ok(())
 }
 
-pub async fn handle_mod(
-    bot: Bot,
-    msg: Message,
-    db: Db,
-    group: Group,
-    services: Services,
-) -> AnyResult<()> {
+pub async fn handle_mod(bot: Bot, msg: Message, bot_deps: BotDependencies) -> AnyResult<()> {
     // Check if sentinel is on for this chat
     if !msg.chat.is_private() {
-        let sentinel_tree = db.open_tree("sentinel_state").unwrap();
+        let sentinel_tree = bot_deps.db.open_tree("sentinel_state").unwrap();
         let chat_id = msg.chat.id.0.to_be_bytes();
         let sentinel_on = sentinel_tree
             .get(chat_id)
@@ -1496,7 +1483,7 @@ pub async fn handle_mod(
         }
     }
 
-    let group_credentials = group.get_credentials(&msg.chat.id);
+    let group_credentials = bot_deps.group.get_credentials(&msg.chat.id);
 
     if group_credentials.is_none() {
         bot.send_message(msg.chat.id, "❌ Group not found").await?;
@@ -1541,7 +1528,8 @@ pub async fn handle_mod(
                     result.total_tokens
                 );
 
-                let purchase_result = services
+                let purchase_result = bot_deps
+                    .service
                     .group_purchase(
                         group_credentials.unwrap().jwt,
                         PurchaseRequest {
@@ -1655,8 +1643,7 @@ pub async fn handle_balance(
     bot: Bot,
     msg: Message,
     symbol: &str,
-    auth: Auth,
-    panora: Panora,
+    bot_deps: BotDependencies,
 ) -> AnyResult<()> {
     let user = msg.from;
 
@@ -1678,7 +1665,7 @@ pub async fn handle_balance(
 
     let username = username.unwrap();
 
-    let user_credentials = auth.get_credentials(&username);
+    let user_credentials = bot_deps.auth.get_credentials(&username);
 
     if user_credentials.is_none() {
         log::error!("❌ User not found");
@@ -1694,7 +1681,7 @@ pub async fn handle_balance(
                 "APT".to_string(),
             )
         } else {
-            let token = panora.get_token_by_symbol(symbol).await;
+            let token = bot_deps.panora.get_token_by_symbol(symbol).await;
 
             if token.is_err() {
                 log::error!("❌ Error getting token: {}", token.as_ref().err().unwrap());
@@ -1716,7 +1703,8 @@ pub async fn handle_balance(
 
     let user_credentials = user_credentials.unwrap();
 
-    let balance = panora
+    let balance = bot_deps
+        .panora
         .aptos
         .node
         .get_account_balance(
@@ -1769,8 +1757,7 @@ pub async fn handle_balance(
 pub async fn handle_group_balance(
     bot: Bot,
     msg: Message,
-    group: Group,
-    panora: Panora,
+    bot_deps: BotDependencies,
     symbol: &str,
 ) -> AnyResult<()> {
     if !msg.chat.is_group() && !msg.chat.is_supergroup() {
@@ -1779,7 +1766,7 @@ pub async fn handle_group_balance(
         return Ok(());
     }
 
-    let group_credentials = group.get_credentials(&msg.chat.id);
+    let group_credentials = bot_deps.group.get_credentials(&msg.chat.id);
 
     if group_credentials.is_none() {
         bot.send_message(msg.chat.id, "❌ Group not found").await?;
@@ -1796,7 +1783,7 @@ pub async fn handle_group_balance(
                 "APT".to_string(),
             )
         } else {
-            let tokens = panora.get_token_by_symbol(symbol).await;
+            let tokens = bot_deps.panora.get_token_by_symbol(symbol).await;
 
             if tokens.is_err() {
                 log::error!("❌ Error getting token: {}", tokens.as_ref().err().unwrap());
@@ -1816,7 +1803,8 @@ pub async fn handle_group_balance(
             (token_type, token.decimals, token.symbol.clone())
         };
 
-    let balance = panora
+    let balance = bot_deps
+        .panora
         .aptos
         .node
         .get_account_balance(
@@ -1861,14 +1849,22 @@ pub async fn handle_group_balance(
     Ok(())
 }
 
-pub async fn handle_group_wallet_address(bot: Bot, msg: Message, group: Group) -> AnyResult<()> {
+pub async fn handle_group_wallet_address(
+    bot: Bot,
+    msg: Message,
+    bot_deps: BotDependencies,
+) -> AnyResult<()> {
     if !msg.chat.is_group() && !msg.chat.is_supergroup() {
         bot.send_message(msg.chat.id, "❌ This command can only be used in a group")
             .await?;
         return Ok(());
     }
 
-    let group_credentials = group.get_credentials(&msg.chat.id);
+    let group_credentials = bot_deps.group.get_credentials(&msg.chat.id);
+
+    log::info!("Group id: {:?}", msg.chat.id);
+
+    log::info!("Group credentials: {:?}", group_credentials);
 
     if group_credentials.is_none() {
         bot.send_message(msg.chat.id, "❌ Group not found").await?;
@@ -1927,10 +1923,9 @@ If you have questions, ask an admin before posting.
 
 async fn check_group_resource_account_address(
     bot: &Bot,
-    group: &Group,
     group_credentials: GroupCredentials,
     msg: Message,
-    panora: Panora,
+    bot_deps: &BotDependencies,
 ) -> AnyResult<GroupCredentials> {
     let group_credentials = group_credentials;
 
@@ -1939,13 +1934,14 @@ async fn check_group_resource_account_address(
         const RETRY_DELAY_MS: u64 = 2000;
 
         for attempt in 1..=MAX_RETRIES {
-            let resource_account_address = panora
+            let resource_account_address = bot_deps
+                .panora
                 .aptos
                 .node
                 .view_function(ViewRequest {
                     function: format!(
                         "{}::group::get_group_account",
-                        panora.aptos.contract_address
+                        bot_deps.panora.aptos.contract_address
                     ),
                     type_arguments: vec![],
                     arguments: vec![value::Value::String(msg.chat.id.to_string())],
@@ -1968,7 +1964,8 @@ async fn check_group_resource_account_address(
                         users: group_credentials.users.clone(),
                     };
 
-                    group
+                    bot_deps
+                        .group
                         .save_credentials(new_credentials)
                         .map_err(|_| anyhow::anyhow!("Error saving group credentials"))?;
 
