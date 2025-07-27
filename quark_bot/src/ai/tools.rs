@@ -4,11 +4,8 @@ use super::actions::{
 };
 use crate::{
     ai::actions::{execute_fund_account, execute_get_balance, execute_withdraw_funds},
-    credentials::handler::Auth,
     dao::handler::execute_create_dao,
-    group::handler::Group,
-    panora::handler::Panora,
-    services::handler::Services,
+    dependencies::BotDependencies,
 };
 use open_ai_rust_responses_by_sshift::types::Tool;
 use serde_json::json;
@@ -181,7 +178,7 @@ pub fn get_new_pools_tool() -> Tool {
 pub fn get_time_tool() -> Tool {
     Tool::function(
         "get_current_time",
-        "Get the current time for a specified timezone. Defaults to 'Europe/London' if not provided.",
+        "Get the current time for a specified timezone. Defaults to 'Europe/London' if not provided. YOU MUST NOT CALL THIS TOOL IF THE USER IS CREATING A DAO",
         json!({
             "type": "object",
             "properties": {
@@ -293,12 +290,13 @@ pub fn create_dao() -> Tool {
                         "type": "string"
                     }
                 },
-                "currency": {
+                "symbol": {
                     "type": "string",
-                    "description": "The currency of the DAO"
+                    "description": "The symbol of the currency of the DAO"
                 }
             },
-            "required": ["name", "description", "start_date", "end_date", "options", "currency"]
+            "required": ["name", "description", "start_date", "end_date", "options", "symbol"],
+            "additionalProperties": false
         }),
     )
 }
@@ -309,11 +307,8 @@ pub async fn execute_custom_tool(
     arguments: &serde_json::Value,
     bot: Bot,
     msg: Message,
-    service: Services,
-    auth: Auth,
-    panora: Panora,
-    group: Group,
     group_id: Option<String>,
+    bot_deps: BotDependencies,
 ) -> String {
     log::info!(
         "Executing tool: {} with arguments: {}",
@@ -322,21 +317,17 @@ pub async fn execute_custom_tool(
     );
 
     let result = match tool_name {
-        "get_balance" => execute_get_balance(arguments, msg, auth, panora, group, group_id).await,
-        "get_wallet_address" => execute_get_wallet_address(msg, auth, group, group_id).await,
-        "withdraw_funds" => execute_withdraw_funds(arguments, msg, auth, panora).await,
-        "fund_account" => execute_fund_account(arguments, msg, auth, panora).await,
+        "get_balance" => execute_get_balance(arguments, msg, group_id, bot_deps.clone()).await,
+        "get_wallet_address" => execute_get_wallet_address(msg, bot_deps.clone(), group_id).await,
+        "withdraw_funds" => execute_withdraw_funds(arguments, msg, bot_deps.clone()).await,
+        "fund_account" => execute_fund_account(arguments, msg, bot_deps.clone()).await,
         "get_trending_pools" => execute_trending_pools(arguments).await,
         "search_pools" => execute_search_pools(arguments).await,
         "get_new_pools" => execute_new_pools(arguments).await,
         "get_current_time" => execute_get_time(arguments).await,
         "get_fear_and_greed_index" => execute_fear_and_greed_index(arguments).await,
-        "get_pay_users" => {
-            execute_pay_users(arguments, msg, service, auth, panora, group, group_id).await
-        }
-        "create_dao" => {
-            execute_create_dao(arguments, bot, msg, service, group_id, group, panora).await
-        }
+        "get_pay_users" => execute_pay_users(arguments, msg, bot_deps.clone(), group_id).await,
+        "create_dao" => execute_create_dao(arguments, bot, msg, group_id, bot_deps.clone()).await,
         _ => {
             format!("Error: Unknown custom tool '{}'", tool_name)
         }

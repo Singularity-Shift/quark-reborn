@@ -72,6 +72,7 @@ pub async fn router() -> Router {
     let contract_address =
         env::var("CONTRACT_ADDRESS").expect("CONTRACT_ADDRESS environment variable not set");
     let redis_url = env::var("REDIS_URL").expect("REDIS_URL environment variable not set");
+    let aptos_api_key = env::var("APTOS_API_KEY").unwrap_or_default();
 
     println!("Attempting to connect to Redis");
     let redis_connection = connect_to_redis_with_retry(&redis_url).await;
@@ -95,7 +96,11 @@ pub async fn router() -> Router {
         ),
     };
 
-    let node = builder.build();
+    let node = if aptos_api_key.is_empty() {
+        builder.build()
+    } else {
+        builder.api_key(aptos_api_key.as_str()).unwrap().build()
+    };
 
     let contract_address = AccountAddress::from_str(&contract_address)
         .expect("CONTRACT_ADDRESS is not a valid account address");

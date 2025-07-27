@@ -1,9 +1,5 @@
-use crate::credentials::handler::Auth;
-use crate::group::handler::Group;
-use crate::user_model_preferences::handler::UserModelPreferences;
-use crate::{ai::handler::AI, services::handler::Services};
+use crate::dependencies::BotDependencies;
 use dashmap::DashMap;
-use sled::Db;
 use std::sync::Arc;
 use std::time::Duration;
 use teloxide::prelude::*;
@@ -23,25 +19,14 @@ pub struct CommandImageCollector {
     // Keyed by (chat_id, user_id)
     pendings: DashMap<(ChatId, i64), PendingCmd>,
     bot: Bot,
-    db: Db,
-    service: Services,
-    user_model_prefs: UserModelPreferences,
     debounce_ms: u64,
 }
 
 impl CommandImageCollector {
-    pub fn new(
-        bot: Bot,
-        db: Db,
-        service: Services,
-        user_model_prefs: UserModelPreferences,
-    ) -> Self {
+    pub fn new(bot: Bot) -> Self {
         Self {
             pendings: DashMap::new(),
             bot,
-            db,
-            service,
-            user_model_prefs,
             debounce_ms: 1000, // 1 second default
         }
     }
@@ -49,11 +34,9 @@ impl CommandImageCollector {
     /// Entry point for any incoming message that is a `/c` command
     pub async fn add_command(
         self: Arc<Self>,
-        ai: AI,
         msg: Message,
-        auth: Auth,
+        bot_deps: BotDependencies,
         group_id: Option<String>,
-        group: Group,
     ) {
         // Cancel any existing pending command for this user/chat
         let key = (
@@ -76,17 +59,15 @@ impl CommandImageCollector {
             },
         );
 
-        self.reset_timer(key, ai, msg, auth, group_id, group);
+        self.reset_timer(msg, key, bot_deps, group_id);
     }
 
     /// Entry point for photo-only messages that may belong to a pending command
     pub async fn try_attach_photo(
         self: Arc<Self>,
         msg: Message,
-        ai: AI,
-        auth: Auth,
+        bot_deps: BotDependencies,
         group_id: Option<String>,
-        group: Group,
     ) {
         let user_id = msg.from.as_ref().map(|u| u.id.0 as i64).unwrap_or(0);
         let key = (msg.chat.id, user_id);
@@ -94,18 +75,16 @@ impl CommandImageCollector {
             // Attach photo
             entry.extra_photos.push(msg.clone());
             // restart debounce
-            self.reset_timer(key, ai, msg, auth, group_id, group);
+            self.reset_timer(msg, key, bot_deps, group_id);
         }
     }
 
     fn reset_timer(
         self: &Arc<Self>,
-        key: (ChatId, i64),
-        ai: AI,
         msg: Message,
-        auth: Auth,
+        key: (ChatId, i64),
+        bot_deps: BotDependencies,
         group_id: Option<String>,
-        group: Group,
     ) {
         // Abort any existing timer first
         if let Some(mut entry) = self.pendings.get_mut(&key) {
@@ -117,9 +96,7 @@ impl CommandImageCollector {
         let collector = Arc::clone(self);
         let handle = tokio::spawn(async move {
             sleep(Duration::from_millis(collector.debounce_ms)).await;
-            collector
-                .finalize(key, ai, msg, auth, group_id, group)
-                .await;
+            collector.finalize(key, msg, group_id, bot_deps).await;
         });
 
         if let Some(mut entry) = self.pendings.get_mut(&key) {
@@ -130,11 +107,9 @@ impl CommandImageCollector {
     async fn finalize(
         self: &Arc<Self>,
         key: (ChatId, i64),
-        ai: AI,
         msg: Message,
-        auth: Auth,
         group_id: Option<String>,
-        group: Group,
+        bot_deps: BotDependencies,
     ) {
         if let Some((_k, pending)) = self.pendings.remove(&key) {
             let mut all_msgs = Vec::new();
@@ -159,13 +134,8 @@ impl CommandImageCollector {
                     if let Err(e) = handle_reasoning_chat(
                         self.bot.clone(),
                         msg,
-                        self.service.clone(),
-                        ai,
-                        self.db.clone(),
-                        auth,
-                        self.user_model_prefs.clone(),
                         text.to_string(),
-                        group,
+                        bot_deps.clone(),
                     )
                     .await
                     {
@@ -176,14 +146,9 @@ impl CommandImageCollector {
                     if let Err(e) = handle_chat(
                         self.bot.clone(),
                         msg,
-                        self.service.clone(),
-                        ai,
-                        self.db.clone(),
-                        auth,
-                        self.user_model_prefs.clone(),
                         text.to_string(),
                         group_id,
-                        group,
+                        bot_deps.clone(),
                     )
                     .await
                     {

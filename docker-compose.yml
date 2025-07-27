@@ -21,6 +21,7 @@ services:
       - GPG_PUBLIC_KEY=${GPG_PUBLIC_KEY}
       - GPG_REVIEWER=${GPG_REVIEWER}
       - REDIS_URL=redis://:${VALKEY_PASSWORD}@valkey:6379
+      - APTOS_API_KEY=${APTOS_API_KEY}
     networks:
       - quark-net
 
@@ -47,6 +48,7 @@ services:
       - MIN_DEPOSIT=${MIN_DEPOSIT}
       - CONTRACT_ADDRESS=${CONTRACT_ADDRESS}
       - PROFILE=${PROFILE}
+      - APTOS_API_KEY=${APTOS_API_KEY}
     networks:
       - quark-net
     volumes:

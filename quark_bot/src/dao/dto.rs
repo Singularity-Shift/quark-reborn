@@ -32,19 +32,19 @@ pub struct DaoEntry {
     pub result_notified: bool,
 }
 
-impl From<CreateDaoRequest> for DaoEntry {
-    fn from(request: CreateDaoRequest) -> Self {
+impl From<&CreateDaoRequest> for DaoEntry {
+    fn from(request: &CreateDaoRequest) -> Self {
         let now = Utc::now().timestamp() as u64;
 
         Self {
-            name: request.name,
-            description: request.description,
-            options: request.options,
+            name: request.name.clone(),
+            description: request.description.clone(),
+            options: request.options.clone(),
             start_date: request.start_date,
             end_date: request.end_date,
-            group_id: request.group_id,
-            dao_id: request.dao_id,
-            version: request.version,
+            group_id: request.group_id.clone(),
+            dao_id: request.dao_id.clone(),
+            version: request.version.clone(),
             coin_type: request.currency.clone(),
             status: DaoStatus::Pending,
             last_active_notification: now,

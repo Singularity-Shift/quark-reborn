@@ -1,19 +1,13 @@
 //! Callback query handlers for quark_bot.
 
+use crate::ai::vector_store::{
+    delete_file_from_vector_store, delete_vector_store, list_user_files_with_names,
+};
+use crate::dependencies::BotDependencies;
 use crate::user_model_preferences::callbacks::handle_model_preferences_callback;
 use crate::utils;
-use crate::{
-    ai::{
-        handler::AI,
-        vector_store::{
-            delete_file_from_vector_store, delete_vector_store, list_user_files_with_names,
-        },
-    },
-    user_conversation::handler::UserConversations,
-};
 use anyhow::Result;
 
-use sled::Db;
 use teloxide::{
     prelude::*,
     types::{InlineKeyboardButton, InlineKeyboardMarkup},
@@ -22,10 +16,7 @@ use teloxide::{
 pub async fn handle_callback_query(
     bot: Bot,
     query: teloxide::types::CallbackQuery,
-    db: Db,
-    user_convos: UserConversations,
-    user_model_prefs: crate::user_model_preferences::handler::UserModelPreferences,
-    ai: AI,
+    bot_deps: BotDependencies,
 ) -> Result<()> {
     if let Some(data) = &query.data {
         let user_id = query.from.id.0 as i64;
@@ -33,14 +24,19 @@ pub async fn handle_callback_query(
         if data.starts_with("delete_file:") {
             let file_id = data.strip_prefix("delete_file:").unwrap();
 
-            if let Some(vector_store_id) = user_convos.get_vector_store_id(user_id) {
-                match delete_file_from_vector_store(user_id, &db, &vector_store_id, file_id, &ai)
-                    .await
+            if let Some(vector_store_id) = bot_deps.user_convos.get_vector_store_id(user_id) {
+                match delete_file_from_vector_store(
+                    user_id,
+                    bot_deps.clone(),
+                    &vector_store_id,
+                    file_id,
+                )
+                .await
                 {
                     Ok(_) => {
                         bot.answer_callback_query(query.id.clone()).await?;
 
-                        match list_user_files_with_names(user_id, &db) {
+                        match list_user_files_with_names(user_id, bot_deps.clone()) {
                             Ok(files) => {
                                 if files.is_empty() {
                                     if let Some(
@@ -135,7 +131,7 @@ pub async fn handle_callback_query(
                     .await?;
             }
         } else if data == "clear_all_files" {
-            match delete_vector_store(user_id, &db, &ai).await {
+            match delete_vector_store(user_id, bot_deps.clone()).await {
                 Ok(_) => {
                     bot.answer_callback_query(query.id).await?;
                     if let Some(teloxide::types::MaybeInaccessibleMessage::Regular(message)) =
@@ -272,7 +268,17 @@ pub async fn handle_callback_query(
             || data.starts_with("set_effort:")
         {
             // Handle model preference callbacks
-            handle_model_preferences_callback(bot, query, user_model_prefs).await?;
+            handle_model_preferences_callback(bot, query, bot_deps.user_model_prefs.clone())
+                .await?;
+        } else if data == "dao_preferences_done"
+            || data.starts_with("dao_set_expiration_")
+            || data.starts_with("dao_set_notifications_")
+            || data.starts_with("dao_exp_")
+            || data.starts_with("dao_notif_")
+            || data == "dao_preferences_back"
+        {
+            // Handle DAO preferences callbacks
+            crate::dao::handler::handle_dao_preference_callback(bot, query, bot_deps).await?;
         } else if data == "voting_help" {
             // Handle voting help callback
             bot.answer_callback_query(query.id)
