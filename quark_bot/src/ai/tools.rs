@@ -266,7 +266,7 @@ pub fn get_pay_users_tool() -> Tool {
 pub fn create_dao() -> Tool {
     Tool::function(
         "create_dao",
-        "Create a new DAO with the given name,description, start date, end date, currency and options to vote for, if some of theses dates are not provided, ask the user to provide them",
+        "Create a new DAO by specifying its name, description, voting options, currency, and the start and end dates (in seconds since epoch). Do not attempt to auto-fill missing dates using the current time or the get time tool. If any required information—especially the dates—is missing, always prompt the user to provide the missing details before proceeding.",
         json!({
             "type": "object",
             "properties": {
