@@ -227,9 +227,12 @@ pub async fn handle_login_group(
         return Ok(());
     }
 
-    let credentials = bot_deps.group.get_credentials(&group_id);
+    let group_exists = bot_deps
+        .group
+        .group_exists(group_id, bot_deps.panora.clone())
+        .await;
 
-    if credentials.is_none() {
+    if !group_exists {
         let group_result = bot_deps
             .service
             .create_group(CreateGroupRequest {
@@ -242,27 +245,25 @@ pub async fn handle_login_group(
                 .await?;
             return Ok(());
         }
-
-        let jwt = bot_deps.group.generate_new_jwt(group_id);
-
-        if !jwt {
-            bot.send_message(group_id, "❌ Unable to generate JWT.")
-                .await?;
-            return Ok(());
-        }
-
-        let payload_response = bot_deps.group.get_credentials(&group_id);
-
-        if payload_response.is_none() {
-            bot.send_message(group_id, "❌ Unable to get credentials.")
-                .await?;
-            return Ok(());
-        }
-
-        payload = payload_response.unwrap();
-    } else {
-        payload = credentials.unwrap();
     }
+
+    let jwt = bot_deps.group.generate_new_jwt(group_id);
+
+    if !jwt {
+        bot.send_message(group_id, "❌ Unable to generate JWT.")
+            .await?;
+        return Ok(());
+    }
+
+    let payload_response = bot_deps.group.get_credentials(&group_id);
+
+    if payload_response.is_none() {
+        bot.send_message(group_id, "❌ Unable to get credentials.")
+            .await?;
+        return Ok(());
+    }
+
+    payload = payload_response.unwrap();
 
     let updated_credentials =
         check_group_resource_account_address(&bot, payload, msg.clone(), &bot_deps).await;
@@ -281,6 +282,14 @@ pub async fn handle_login_group(
 
 pub async fn handle_help(bot: Bot, msg: Message) -> AnyResult<()> {
     bot.send_message(msg.chat.id, Command::descriptions().to_string())
+        .await?;
+    Ok(())
+}
+
+pub async fn handle_prices(bot: Bot, msg: Message) -> AnyResult<()> {
+    let pricing_info = crate::ai::actions::execute_prices(&serde_json::json!({})).await;
+    bot.send_message(msg.chat.id, pricing_info)
+        .parse_mode(ParseMode::Html)
         .await?;
     Ok(())
 }
@@ -462,9 +471,9 @@ pub async fn handle_reasoning_chat(
             }
         }
 
-        // Process images from replied message
+        // Process images from replied message – only keep the largest resolution
         if let Some(photos) = reply.photo() {
-            for photo in photos {
+            if let Some(photo) = photos.last() {
                 let file_id = &photo.file.id;
                 let file_info = bot.get_file(file_id.clone()).await?;
                 let extension = file_info
@@ -507,8 +516,8 @@ pub async fn handle_reasoning_chat(
     // --- Download user-attached images ---
     let mut user_uploaded_image_paths: Vec<(String, String)> = Vec::new();
     if let Some(photos) = msg.photo() {
-        // Process all photos, not just the last one
-        for photo in photos {
+        // Only keep the largest PhotoSize (last element)
+        if let Some(photo) = photos.last() {
             let file_id = &photo.file.id;
             let file_info = bot.get_file(file_id.clone()).await?;
             let extension = file_info
@@ -767,9 +776,9 @@ pub async fn handle_chat(
             }
         }
 
-        // Process images from replied message
+        // Process images from replied message – only take the largest resolution (last PhotoSize)
         if let Some(photos) = reply.photo() {
-            for photo in photos {
+            if let Some(photo) = photos.last() {
                 let file_id = &photo.file.id;
                 let file_info = bot.get_file(file_id.clone()).await?;
                 let extension = file_info
@@ -812,8 +821,8 @@ pub async fn handle_chat(
     // --- Download user-attached images ---
     let mut user_uploaded_image_paths: Vec<(String, String)> = Vec::new();
     if let Some(photos) = msg.photo() {
-        // Process all photos, not just the last one
-        for photo in photos {
+        // Telegram orders PhotoSize from smallest to largest; take the last (largest)
+        if let Some(photo) = photos.last() {
             let file_id = &photo.file.id;
             let file_info = bot.get_file(file_id.clone()).await?;
             let extension = file_info
@@ -1331,7 +1340,8 @@ pub async fn handle_message(bot: Bot, msg: Message, bot_deps: BotDependencies) -
     }
 
     if msg.media_group_id().is_some() && msg.photo().is_some() {
-        bot_deps.media_aggregator.add_message(msg).await;
+        let media_aggregator = bot_deps.media_aggregator.clone();
+        media_aggregator.add_message(msg, bot_deps.clone()).await;
         return Ok(());
     }
 
@@ -1863,8 +1873,6 @@ pub async fn handle_group_wallet_address(
     let group_credentials = bot_deps.group.get_credentials(&msg.chat.id);
 
     log::info!("Group id: {:?}", msg.chat.id);
-
-    log::info!("Group credentials: {:?}", group_credentials);
 
     if group_credentials.is_none() {
         bot.send_message(msg.chat.id, "❌ Group not found").await?;

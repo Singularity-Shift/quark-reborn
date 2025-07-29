@@ -120,6 +120,8 @@ pub async fn execute_create_dao(
 
     let start_date = start_date.unwrap();
 
+    log::info!("Start date: {}", start_date);
+
     if end_date.is_none() {
         return "❌ End date is invalid".to_string();
     }
@@ -131,6 +133,8 @@ pub async fn execute_create_dao(
     }
 
     let end_date = end_date.unwrap();
+
+    log::info!("End date: {}", end_date);
 
     if start_date > end_date {
         return "❌ Start date must be before end date".to_string();

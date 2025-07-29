@@ -4,8 +4,8 @@ use teloxide::{Bot, prelude::*, types::Message};
 
 use super::handler::{
     handle_add_files, handle_chat, handle_help, handle_list_files, handle_login_group,
-    handle_login_user, handle_mod, handle_moderation_rules, handle_new_chat, handle_reasoning_chat,
-    handle_sentinel,
+    handle_login_user, handle_mod, handle_moderation_rules, handle_new_chat, handle_prices,
+    handle_reasoning_chat, handle_sentinel,
 };
 
 use crate::bot::handler::{
@@ -29,6 +29,7 @@ pub async fn answers(
         Command::Help => handle_help(bot, msg).await?,
         Command::WalletAddress => handle_wallet_address(bot, msg, bot_deps.clone()).await?,
         Command::Balance(symbol) => handle_balance(bot, msg, &symbol, bot_deps.clone()).await?,
+        Command::Prices => handle_prices(bot, msg).await?,
         Command::LoginUser => handle_login_user(bot, msg).await?,
         Command::LoginGroup => handle_login_group(bot, msg, bot_deps.clone()).await?,
         Command::AddFiles => handle_add_files(bot, msg).await?,

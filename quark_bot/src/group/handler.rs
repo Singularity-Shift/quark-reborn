@@ -1,9 +1,12 @@
 use anyhow::Result;
+use aptos_rust_sdk::client::rest_api::AptosFullnodeClient;
+use aptos_rust_sdk_types::api_types::view::ViewRequest;
 use quark_core::helpers::jwt::JwtManager;
+use serde_json::Value;
 use sled::Tree;
 use teloxide::types::{ChatId, Message};
 
-use crate::group::dto::GroupCredentials;
+use crate::{group::dto::GroupCredentials, panora::handler::Panora};
 
 #[derive(Clone)]
 pub struct Group {
@@ -20,6 +23,7 @@ impl Group {
 
     pub fn save_credentials(&self, credentials: GroupCredentials) -> Result<()> {
         let bytes = serde_json::to_vec(&credentials).unwrap();
+
         self.db
             .fetch_and_update(credentials.group_id.to_string(), |existing| {
                 if let Some(existing) = existing {
@@ -77,6 +81,38 @@ impl Group {
         } else {
             None
         }
+    }
+
+    pub async fn group_exists(&self, group_id: ChatId, panora: Panora) -> bool {
+        let group_id = group_id.to_string();
+
+        let node = panora.aptos.node;
+
+        let contract_address = panora.aptos.contract_address;
+
+        let payload = ViewRequest {
+            function: format!("{}::group::exist_group_id", contract_address),
+            type_arguments: vec![],
+            arguments: vec![Value::String(group_id)],
+        };
+
+        let response = node.view_function(payload).await;
+
+        if response.is_err() {
+            return false;
+        }
+
+        let response = response.unwrap().into_inner();
+
+        let response = serde_json::from_value::<Vec<bool>>(response);
+
+        if response.is_err() {
+            return false;
+        }
+
+        let response = response.unwrap();
+
+        response[0]
     }
 
     pub async fn verify(&self, msg: Message) -> bool {

@@ -8,6 +8,7 @@ mod dao;
 mod db;
 mod group;
 mod job;
+mod message_history;
 mod panora;
 mod services;
 mod user_conversation;
@@ -24,6 +25,7 @@ use crate::{
     dependencies::BotDependencies,
     group::handler::Group,
     job::job_scheduler::schedule_jobs,
+    message_history::handler::MessageHistory,
     panora::handler::Panora,
     services::handler::Services,
     user_conversation::handler::UserConversations,
@@ -56,8 +58,6 @@ async fn main() {
     let aptos_network = env::var("APTOS_NETWORK").expect("APTOS_NETWORK not set");
     let contract_address = env::var("CONTRACT_ADDRESS").expect("CONTRACT_ADDRESS not set");
     let aptos_api_key = env::var("APTOS_API_KEY").unwrap_or_default();
-
-    let media_aggregator = Arc::new(media_aggregator::MediaGroupAggregator::new());
 
     let google_cloud = GcsImageUploader::new(&gcs_creds, bucket_name)
         .await
@@ -114,6 +114,13 @@ async fn main() {
         bot.clone(),
     ));
 
+    let media_aggregator = Arc::new(media_aggregator::MediaGroupAggregator::new(
+        bot.clone(),
+        ai.clone(),
+        auth.clone(),
+        user_model_prefs.clone(),
+    ));
+
     let commands = vec![
         BotCommand::new("aptosconnect", "Open the Aptos Connect app."),
         BotCommand::new("help", "Display this text."),
@@ -151,7 +158,10 @@ async fn main() {
         BotCommand::new("groupwalletaddress", "Get the group's wallet address."),
         BotCommand::new("groupbalance", "Get the group's balance of a token."),
         BotCommand::new("daopreferences", "Set dao preferences."),
+        BotCommand::new("prices", "Display model pricing information."),
     ];
+
+    let history_storage = InMemStorage::<MessageHistory>::new();
 
     bot.set_my_commands(commands).await.unwrap();
 
@@ -167,6 +177,7 @@ async fn main() {
         group: group.clone(),
         dao: dao.clone(),
         media_aggregator: media_aggregator.clone(),
+        history_storage: history_storage.clone(),
     };
 
     Dispatcher::builder(bot.clone(), handler_tree())

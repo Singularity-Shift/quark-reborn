@@ -52,9 +52,10 @@ pub fn handler_tree() -> Handler<'static, Result<()>, DpHandlerDescription> {
                             msg.media_group_id().is_some() && msg.photo().is_some()
                         })
                         .endpoint(
-                            |bot_deps: BotDependencies,
-                             msg: Message,| async move {
-                                bot_deps.media_aggregator.add_message(msg).await;
+                            |bot_deps: BotDependencies, msg: Message| async move {
+                                let media_aggregator = bot_deps.media_aggregator.clone();
+                                media_aggregator.add_message(msg, bot_deps.clone())
+                                    .await;
                                 Ok(())
                             },
                         ),
@@ -70,6 +71,7 @@ pub fn handler_tree() -> Handler<'static, Result<()>, DpHandlerDescription> {
                                     | Command::LoginUser
                                     | Command::LoginGroup
                                     | Command::AptosConnect
+                                    | Command::Prices
                             )
                         })
                         .endpoint(answers),
