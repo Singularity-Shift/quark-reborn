@@ -70,7 +70,7 @@ pub fn job_active_daos(dao: Dao, bot: Bot) -> Job {
         Ok(url) => url,
         Err(e) => {
             log::error!("Failed to get APP_URL environment variable: {}", e);
-            return Job::new_async("0 */10 * * * *", move |_uuid, _l| {
+            return Job::new_async("0 */2 * * * *", move |_uuid, _l| {
                 Box::pin(async move {
                     log::error!("Cannot run active DAOs job - APP_URL not configured");
                 })
@@ -78,10 +78,11 @@ pub fn job_active_daos(dao: Dao, bot: Bot) -> Job {
         }
     };
     
-    Job::new_async("0 */10 * * * *", move |_uuid, _l| {
+    Job::new_async("0 */2 * * * *", move |_uuid, _l| {
         let base_url = base_url.clone();
         let dao = dao.clone();
         let bot = bot.clone();
+        log::info!("Running active DAOs job");
         Box::pin(async move {
             let daos = match dao.get_active_daos() {
                 Ok(daos) => daos,
@@ -177,6 +178,9 @@ pub fn job_active_daos(dao: Dao, bot: Bot) -> Job {
                         dao_entry.description,
                         dao_entry.end_date
                     );
+
+                    log::info!("Sending active DAO notification for: {}", dao_entry.dao_id);
+                    log::info!("Message text: {}", message_text);
 
                     // Send message with error handling
                     match bot.send_message(chat_group_id, message_text)

@@ -96,7 +96,7 @@ pub async fn pay_members(
         }
         CoinVersion::V2 => TransactionPayload::EntryFunction(EntryFunction::new(
             ModuleId::new(contract_address, "group".to_string()),
-            "pay_users_v1".to_string(),
+            "pay_users_v2".to_string(),
             vec![],
             vec![
                 bcs::to_bytes(&group_id.0.to_string()).map_err(|e| ErrorServer {

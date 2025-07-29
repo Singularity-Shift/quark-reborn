@@ -51,6 +51,8 @@ pub enum Command {
     GroupBalance(String),
     #[command(description = "Set dao preferences.")]
     DaoPreferences,
+    #[command(description = "Display model pricing information.")]
+    Prices,
 }
 
 #[derive(Debug, Clone, Default)]

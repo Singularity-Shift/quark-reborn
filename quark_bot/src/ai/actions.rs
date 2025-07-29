@@ -1,9 +1,11 @@
 use std::env;
 
+use chrono::Utc;
 use quark_core::helpers::dto::{CoinVersion, PayUsersRequest, TransactionResponse};
 use teloxide::types::Message;
 
 use crate::dependencies::BotDependencies;
+use crate::message_history::handler::fetch;
 
 /// Execute trending pools fetch from GeckoTerminal
 pub async fn execute_trending_pools(arguments: &serde_json::Value) -> String {
@@ -950,11 +952,14 @@ fn format_new_pools_response(data: &serde_json::Value, network: &str) -> String 
 
 /// Execute get time fetch from WorldTimeAPI
 pub async fn execute_get_time(arguments: &serde_json::Value) -> String {
+    log::info!("Executing get time tool");
+    log::info!("Arguments: {:?}", arguments);
+
     let timezone = arguments
         .get("timezone")
         .and_then(|v| v.as_str())
         .filter(|s| !s.trim().is_empty())
-        .unwrap_or("Europe/London");
+        .unwrap_or("Africa/Dakar");
 
     // Use TIME_API_BASE_URL from env if set, otherwise default to just the base
     let base_url =
@@ -999,6 +1004,8 @@ fn format_time_response_timeapi(data: &serde_json::Value) -> String {
         .unwrap_or("Unknown");
     let date = data.get("date").and_then(|v| v.as_str()).unwrap_or("");
     let time = data.get("time").and_then(|v| v.as_str()).unwrap_or("");
+    log::info!("Time: {}", time);
+    log::info!("Date: {}", date);
     let day_of_week = data.get("dayOfWeek").and_then(|v| v.as_str()).unwrap_or("");
     let dst_active = data
         .get("dstActive")
@@ -1010,13 +1017,18 @@ fn format_time_response_timeapi(data: &serde_json::Value) -> String {
         return "❌ Could not extract the time from the API response.".to_string();
     }
 
+    // Get current UTC epoch seconds for DAO calculations
+    // Since we're requesting UTC time from the API, we can use current timestamp
+    let epoch_seconds = Utc::now().timestamp() as u64;
+
     format!(
-        "🕰️ The current time in **{}** is **{}** on **{}** (Date: {}, DST: {}).",
+        "🕰️ The current time in **{}** is **{}** on **{}** (Date: {}, DST: {}).\n\n**EPOCH SECONDS: {}** (Use this value for DAO date calculations)",
         timezone,
         time,
         day_of_week,
         date,
-        if dst_active { "active" } else { "inactive" }
+        if dst_active { "active" } else { "inactive" },
+        epoch_seconds
     )
 }
 
@@ -1685,4 +1697,48 @@ pub async fn execute_fund_account(
     let url = format!("{}/fund?coin={}&amount={}", app_url, symbol, amount);
 
     url
+}
+
+/// Execute prices command to display model pricing information
+pub async fn execute_prices(_arguments: &serde_json::Value) -> String {
+    "💰 <b>Model Prices</b> <i>(per 1000 tokens)</i>
+
+🤖 <b>AI Models:</b>
+• <code>o3</code> - <b>$0.0136</b>
+• <code>o4-mini</code> - <b>$0.00748</b>
+• <code>GPT-4o</code> - <b>$0.034</b>
+• <code>GPT-4.1</code> - <b>$0.0136</b>
+• <code>GPT-4.1-mini</code> - <b>$0.00272</b>
+• <code>sentinel</code> - <b>$0.00068</b>
+
+🛠️ <b>Other Services:</b>
+• <code>GPT-image-1</code> - <b>$0.25</b>
+• <code>File search (storage)</code> - <b>FREE</b> 🎉
+• <code>File search</code> - <b>$0.00425</b>
+
+💳 <b>Payment Information:</b>
+💰 Payment is made in <b>📒</b> at the <u>dollar market rate</u>
+⚠️ <i>All prices are subject to change based on provider rates</i>"
+        .to_string()
+}
+
+/// Fetch the recent messages from the rolling buffer (up to 20 lines)
+pub async fn execute_get_recent_messages(msg: Message, bot_deps: BotDependencies) -> String {
+    if msg.chat.is_private() {
+        return "This tool is only available in group chats.".into();
+    }
+
+    let lines = fetch(msg.chat.id, bot_deps.history_storage.clone()).await;
+    if lines.is_empty() {
+        return "(No recent messages stored.)".into();
+    }
+
+    lines
+        .into_iter()
+        .map(|e| match e.sender {
+            Some(name) => format!("{name}: {}", e.text),
+            None => e.text,
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
 }

@@ -89,8 +89,6 @@ impl Aptos {
             .await?
             .into_inner();
 
-        log::info!("coin_address_value: {:?}", coin_address_value);
-
         let coin_address = serde_json::from_value::<Vec<TokenAddress>>(coin_address_value)?;
 
         if coin_address[0].vec[0].clone() == "0x1" {

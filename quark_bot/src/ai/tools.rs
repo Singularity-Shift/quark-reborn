@@ -1,6 +1,7 @@
 use super::actions::{
-    execute_fear_and_greed_index, execute_get_time, execute_get_wallet_address, execute_new_pools,
-    execute_pay_users, execute_search_pools, execute_trending_pools,
+    execute_fear_and_greed_index, execute_get_recent_messages, execute_get_time,
+    execute_get_wallet_address, execute_new_pools, execute_pay_users, execute_search_pools,
+    execute_trending_pools,
 };
 use crate::{
     ai::actions::{execute_fund_account, execute_get_balance, execute_withdraw_funds},
@@ -178,16 +179,16 @@ pub fn get_new_pools_tool() -> Tool {
 pub fn get_time_tool() -> Tool {
     Tool::function(
         "get_current_time",
-        "Get the current time for a specified timezone. Defaults to 'Europe/London' if not provided. YOU MUST NOT CALL THIS TOOL IF THE USER IS CREATING A DAO",
+        "Get the current time for a specified timezone. CRITICAL: MUST be used before creating any DAO to get the current UTC time for date calculations. Always use timezone 'UTC' for DAO creation.",
         json!({
             "type": "object",
             "properties": {
                 "timezone": {
                     "type": "string",
-                    "description": "The timezone to get the current time for, in IANA format (e.g., 'America/New_York', 'Europe/London', 'Asia/Tokyo').",
-                    "default": "Europe/London"
-                }
-            },
+                    "description": "The timezone to get the current time for, in IANA format (e.g., 'America/New_York', 'Europe/London', 'Asia/Tokyo'). Use 'UTC' for DAO creation to ensure consistent time calculations.",
+                    "default": "UTC"
+                    }
+                },
             "required": []
         }),
     )
@@ -263,7 +264,7 @@ pub fn get_pay_users_tool() -> Tool {
 pub fn create_dao() -> Tool {
     Tool::function(
         "create_dao",
-        "Create a new DAO with the given name,description, start date, end date, currency and options to vote for, if some of theses dates are not provided, ask the user to provide them",
+        "Create a new DAO with the given name, description, start date, end date, currency and options to vote for. CRITICAL: You MUST use get_current_time tool with timezone 'UTC' FIRST to get the current time before calling this tool. All dates must be calculated from the current UTC time and converted to seconds since epoch.",
         json!({
             "type": "object",
             "properties": {
@@ -277,11 +278,11 @@ pub fn create_dao() -> Tool {
                 },
                 "start_date": {
                     "type": "string",
-                    "description": "The start date of the DAO in seconds since epoch"
+                    "description": "The start date of the DAO in seconds since epoch (UTC+0). MUST be calculated from current UTC time obtained from get_current_time tool. Examples: 'in 5 minutes' = current_utc_epoch + 300, 'in 1 hour' = current_utc_epoch + 3600, 'tomorrow' = current_utc_epoch + 86400. For conflicting times like 'in 5 minutes 29th July 2025', use the relative time (5 minutes from now)."
                 },
                 "end_date": {
                     "type": "string",
-                    "description": "The end date of the DAO in seconds since epoch"
+                    "description": "The end date of the DAO in seconds since epoch (UTC+0). Calculate duration from start_date, not from current time. Example: 'end in 3 days' = start_date + 259200 seconds."
                 },
                 "options": {
                     "type": "array",
@@ -298,6 +299,15 @@ pub fn create_dao() -> Tool {
             "required": ["name", "description", "start_date", "end_date", "options", "symbol"],
             "additionalProperties": false
         }),
+    )
+}
+
+/// Get recent group messages – returns last ≈20 lines
+pub fn get_recent_messages_tool() -> Tool {
+    Tool::function(
+        "get_recent_messages",
+        "Retrieve the most recent messages (up to 20) from THIS Telegram group chat for situational awareness. Use this tool automatically when: responding to vague references ('that', 'it', 'what we discussed'), when context would improve your response, when asked about recent activity/mood/topics, or when a more contextual response would be helpful. This provides conversation flow awareness.",
+        serde_json::json!({}),
     )
 }
 
@@ -328,6 +338,7 @@ pub async fn execute_custom_tool(
         "get_fear_and_greed_index" => execute_fear_and_greed_index(arguments).await,
         "get_pay_users" => execute_pay_users(arguments, msg, bot_deps.clone(), group_id).await,
         "create_dao" => execute_create_dao(arguments, bot, msg, group_id, bot_deps.clone()).await,
+        "get_recent_messages" => execute_get_recent_messages(msg, bot_deps).await,
         _ => {
             format!("Error: Unknown custom tool '{}'", tool_name)
         }
@@ -364,5 +375,6 @@ pub fn get_all_custom_tools() -> Vec<Tool> {
         get_fear_and_greed_index_tool(),
         get_pay_users_tool(),
         create_dao(),
+        get_recent_messages_tool(),
     ]
 }

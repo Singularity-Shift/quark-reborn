@@ -1,5 +1,6 @@
 use std::sync::Arc;
 
+use crate::message_history::handler::HistoryStorage;
 use crate::{
     ai::handler::AI, assets::media_aggregator::MediaGroupAggregator, credentials::handler::Auth,
     dao::dao::Dao, group::handler::Group, panora::handler::Panora, services::handler::Services,
@@ -20,4 +21,5 @@ pub struct BotDependencies {
     pub group: Group,
     pub dao: Dao,
     pub media_aggregator: Arc<MediaGroupAggregator>,
+    pub history_storage: HistoryStorage,
 }
