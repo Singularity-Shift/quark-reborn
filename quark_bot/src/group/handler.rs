@@ -1,5 +1,4 @@
 use anyhow::Result;
-use aptos_rust_sdk::client::rest_api::AptosFullnodeClient;
 use aptos_rust_sdk_types::api_types::view::ViewRequest;
 use quark_core::helpers::jwt::JwtManager;
 use serde_json::Value;
