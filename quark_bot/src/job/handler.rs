@@ -24,6 +24,15 @@ fn escape_markdown_v2(text: &str) -> String {
         .collect()
 }
 
+// Helper function to format timestamp to human-readable date and time
+fn format_timestamp_to_human_readable(timestamp: u64) -> String {
+    let datetime = chrono::DateTime::from_timestamp(timestamp as i64, 0);
+    match datetime {
+        Some(dt) => dt.format("%B %d, %Y at %I:%M %p UTC").to_string(),
+        None => format!("Unknown time (timestamp: {})", timestamp),
+    }
+}
+
 pub fn job_token_list(panora: Panora) -> Job {
     Job::new_async("0 0 * * * *", move |_uuid, _l| {
         let panora = panora.clone();
@@ -84,7 +93,7 @@ pub fn job_active_daos(dao: Dao, bot: Bot) -> Job {
         let bot = bot.clone();
         log::info!("Running active DAOs job");
         Box::pin(async move {
-            let daos = match dao.get_active_daos() {
+            let daos = match dao.get_active_proposals() {
                 Ok(daos) => daos,
                 Err(e) => {
                     log::error!("Failed to get active DAOs: {}", e);
@@ -115,7 +124,7 @@ pub fn job_active_daos(dao: Dao, bot: Bot) -> Job {
                 let now = Utc::now().timestamp() as u64;
 
                 if dao_entry.last_active_notification
-                    + admin_preferences.interval_active_dao_notifications
+                    + admin_preferences.interval_active_proposal_notifications
                     < now
                 {
                     // Create inline keyboard with voting options
@@ -123,10 +132,10 @@ pub fn job_active_daos(dao: Dao, bot: Bot) -> Job {
                     
                     for (index, option) in dao_entry.options.iter().enumerate() {
                         let base_url = format!(
-                            "{}/dao?group_id={}&dao_id={}&choice_id={}&coin_type={}&coin_version={}",
+                            "{}/dao?group_id={}&proposal_id={}&choice_id={}&coin_type={}&coin_version={}",
                             base_url,
                             group_id,
-                            dao_entry.dao_id,
+                            dao_entry.proposal_id,
                             index,
                             dao_entry.coin_type,
                             match dao_entry.version {
@@ -139,7 +148,7 @@ pub fn job_active_daos(dao: Dao, bot: Bot) -> Job {
                         let parsed_url: reqwest::Url = match base_url.parse() {
                             Ok(url) => url,
                             Err(e) => {
-                                log::error!("Failed to parse URL for DAO {}: {}", dao_entry.dao_id, e);
+                                log::error!("Failed to parse URL for DAO {}: {}", dao_entry.proposal_id, e);
                                 continue;
                             }
                         };
@@ -173,13 +182,13 @@ pub fn job_active_daos(dao: Dao, bot: Bot) -> Job {
 
                     // Create rich message text
                     let message_text = format!(
-                        "🏛️ {}\n\n📝 {}\n\n⏰ Voting ends at timestamp: {}\n\n👆 Choose your preferred way to vote:\n📱 Mini App (opens in Telegram)\n🌐 Browser (opens externally)",
+                        "🏛️ {}\n\n📝 {}\n\n⏰ Voting ends at: {}\n\n👆 Choose your preferred way to vote:\n📱 Mini App (opens in Telegram)\n🌐 Browser (opens externally)",
                         dao_entry.name,
                         dao_entry.description,
-                        dao_entry.end_date
+                        format_timestamp_to_human_readable(dao_entry.end_date)
                     );
 
-                    log::info!("Sending active DAO notification for: {}", dao_entry.dao_id);
+                    log::info!("Sending active DAO notification for: {}", dao_entry.proposal_id);
                     log::info!("Message text: {}", message_text);
 
                     // Send message with error handling
@@ -188,17 +197,17 @@ pub fn job_active_daos(dao: Dao, bot: Bot) -> Job {
                         .await
                     {
                         Ok(_) => {
-                            log::info!("Successfully sent active DAO notification for: {}", dao_entry.dao_id);
+                            log::info!("Successfully sent active DAO notification for: {}", dao_entry.proposal_id);
                         }
                         Err(e) => {
-                            log::error!("Failed to send active DAO notification for {}: {}", dao_entry.dao_id, e);
+                            log::error!("Failed to send active DAO notification for {}: {}", dao_entry.proposal_id, e);
                             continue;
                         }
                     }
 
                     // Update last active notification with error handling
-                    if let Err(e) = dao.update_last_active_notification(dao_entry.dao_id.clone()) {
-                        log::error!("Failed to update last active notification for DAO {}: {}", dao_entry.dao_id, e);
+                    if let Err(e) = dao.update_last_active_notification(dao_entry.proposal_id.clone()) {
+                        log::error!("Failed to update last active notification for DAO {}: {}", dao_entry.proposal_id, e);
                     }
                 }
             }
@@ -216,7 +225,7 @@ pub fn job_daos_results(panora: Panora, bot: Bot, dao: Dao) -> Job {
             log::info!("DAO results job executed at {}", Utc::now());
             
             // Get finished DAOs that haven't been notified yet
-            let daos = match dao.get_dao_results() {
+            let daos = match dao.get_proposal_results() {
                 Ok(daos) => daos,
                 Err(e) => {
                     log::error!("Failed to get active DAOs: {}", e);
@@ -226,17 +235,17 @@ pub fn job_daos_results(panora: Panora, bot: Bot, dao: Dao) -> Job {
 
             for dao_entry in daos {
                 // Check if DAO has ended and results haven't been sent
-                log::info!("Processing finished DAO: {}", dao_entry.dao_id);
+                log::info!("Processing finished DAO: {}", dao_entry.proposal_id);
                 
                 match fetch_and_send_dao_results(&panora, &bot, &dao, &dao_entry).await {
                     Ok(_) => {
-                        log::info!("Successfully sent DAO results for: {}", dao_entry.dao_id);
-                        if let Err(e) = dao.update_result_notified(dao_entry.dao_id.clone()) {
-                            log::error!("Failed to update result_notified for DAO {}: {}", dao_entry.dao_id, e);
+                        log::info!("Successfully sent DAO results for: {}", dao_entry.proposal_id);
+                        if let Err(e) = dao.update_result_notified(dao_entry.proposal_id.clone()) {
+                            log::error!("Failed to update result_notified for DAO {}: {}", dao_entry.proposal_id, e);
                         }
                     }
                     Err(e) => {
-                        log::error!("Failed to send DAO results for {}: {}", dao_entry.dao_id, e);
+                        log::error!("Failed to send DAO results for {}: {}", dao_entry.proposal_id, e);
                     }
                 }
             }
@@ -249,7 +258,7 @@ async fn fetch_and_send_dao_results(
     panora: &Panora,
     bot: &Bot,
     _dao: &Dao,
-    dao_entry: &crate::dao::dto::DaoEntry,
+    dao_entry: &crate::dao::dto::ProposalEntry,
 ) -> anyhow::Result<()> {
     let group_id = dao_entry.group_id.clone();
     
@@ -257,7 +266,7 @@ async fn fetch_and_send_dao_results(
     let chat_group_id = match group_id.parse::<i64>() {
         Ok(id) => ChatId(id),
         Err(e) => {
-            log::error!("Failed to parse group ID {} for DAO {}: {}", group_id, dao_entry.dao_id, e);
+            log::error!("Failed to parse group ID {} for DAO {}: {}", group_id, dao_entry.proposal_id, e);
             return Err(anyhow::anyhow!("Invalid group ID: {}", e));
         }
     };
@@ -273,7 +282,7 @@ async fn fetch_and_send_dao_results(
         type_arguments: vec![],
         arguments: vec![
             serde_json::to_value(&group_id)?,
-            serde_json::to_value(&dao_entry.dao_id)?,
+            serde_json::to_value(&dao_entry.proposal_id)?,
         ],
     };
     
@@ -281,7 +290,7 @@ async fn fetch_and_send_dao_results(
     let response = match panora.aptos.node.view_function(view_request).await {
         Ok(resp) => resp,
         Err(e) => {
-            log::error!("Failed to call smart contract for DAO {}: {}", dao_entry.dao_id, e);
+            log::error!("Failed to call smart contract for DAO {}: {}", dao_entry.proposal_id, e);
             return Err(anyhow::anyhow!("Smart contract call failed: {}", e));
         }
     };
@@ -351,25 +360,25 @@ async fn fetch_and_send_dao_results(
                 .await
             {
                 Ok(_) => {
-                    log::info!("Sent DAO results for {} to group {}", dao_entry.dao_id, group_id);
+                    log::info!("Sent DAO results for {} to group {}", dao_entry.proposal_id, group_id);
                 }
                 Err(e) => {
-                    log::error!("Failed to send DAO results for {} to group {}: {}", dao_entry.dao_id, group_id, e);
+                    log::error!("Failed to send DAO results for {} to group {}: {}", dao_entry.proposal_id, group_id, e);
                     return Err(anyhow::anyhow!("Failed to send message: {}", e));
                 }
             }
         } else {
-            log::warn!("No DAO data found in response for DAO: {}", dao_entry.dao_id);
+            log::warn!("No DAO data found in response for DAO: {}", dao_entry.proposal_id);
             // Send a simple completion message with error handling
             if let Err(e) = bot.send_message(chat_group_id, format!("🏛️ DAO \"{}\" has ended.", dao_entry.name)).await {
-                log::error!("Failed to send fallback message for DAO {}: {}", dao_entry.dao_id, e);
+                log::error!("Failed to send fallback message for DAO {}: {}", dao_entry.proposal_id, e);
             }
         }
     } else {
-        log::warn!("No data returned from smart contract for DAO: {}", dao_entry.dao_id);
+        log::warn!("No data returned from smart contract for DAO: {}", dao_entry.proposal_id);
         // Send a simple completion message with error handling
         if let Err(e) = bot.send_message(chat_group_id, format!("🏛️ DAO \"{}\" has ended.", dao_entry.name)).await {
-            log::error!("Failed to send fallback message for DAO {}: {}", dao_entry.dao_id, e);
+            log::error!("Failed to send fallback message for DAO {}: {}", dao_entry.proposal_id, e);
         }
     }
     
@@ -383,7 +392,7 @@ pub fn job_dao_results_cleanup(dao: Dao) -> Job {
         Box::pin(async move {
             log::info!("Starting DAO cleanup job at {}", Utc::now());
             
-            match dao.remove_expired_daos() {
+            match dao.remove_expired_proposals() {
                 Ok(_) => {
                     log::info!("Successfully completed DAO cleanup job");
                 }

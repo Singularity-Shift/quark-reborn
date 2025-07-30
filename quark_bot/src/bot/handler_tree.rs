@@ -105,7 +105,7 @@ pub fn handler_tree() -> Handler<'static, Result<()>, DpHandlerDescription> {
                             matches!(
                                 cmd,
                                 Command::G(_) 
-                                    | Command::Mod | Command::Sentinel(_) | Command::GroupBalance(_) | Command::GroupWalletAddress | Command::ModerationRules
+                                    | Command::Mod | Command::Sentinel(_) | Command::GroupBalance(_) | Command::GroupWalletAddress | Command::ModerationRules | Command::DaoPreferences
                             )
                         })
                         .filter_async(|msg: Message, bot_deps: BotDependencies| async move {

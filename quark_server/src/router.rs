@@ -12,7 +12,7 @@ use utoipa_redoc::{Redoc, Servable};
 
 use crate::{
     create_group::handler::create_group,
-    dao::handler::create_dao,
+    dao::handler::create_proposal,
     docs::{dto::ApiDoc, handler::api_docs},
     info::handler::info,
     middlewares::handler::{auth, auth_group},
@@ -122,7 +122,7 @@ pub async fn router() -> Router {
     let auth_group_router = Router::new()
         .route("/pay-members", post(pay_members))
         .route("/group-purchase", post(group_purchase))
-        .route("/dao", post(create_dao))
+        .route("/proposal", post(create_proposal))
         .route_layer(middleware::from_fn(auth_group));
 
     Router::new()
