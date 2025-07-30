@@ -217,6 +217,8 @@ pub async fn handle_dao_preferences(
     bot_deps: BotDependencies,
 ) -> anyhow::Result<()> {
     // Check if user is admin
+
+    log::info!("handle_dao_preferences called");
     let user = msg.from.as_ref();
     if user.is_none() {
         bot.send_message(msg.chat.id, "❌ User information not available.")
@@ -252,6 +254,8 @@ pub async fn handle_dao_preferences(
                 expiration_time: 24 * 60 * 60, // 24 hours in seconds
                 interval_active_dao_notifications: 60 * 60, // 1 hour in seconds
             };
+
+            log::info!("Default preferences: {:?}", default_prefs);
 
             // Save default preferences
             if let Err(_e) = bot_deps
@@ -297,6 +301,8 @@ pub async fn handle_dao_preferences(
         current_prefs.expiration_time / 3600,
         current_prefs.interval_active_dao_notifications / 3600
     );
+
+    log::info!("Message text: {}", message_text);
 
     bot.send_message(msg.chat.id, message_text)
         .parse_mode(teloxide::types::ParseMode::Html)
