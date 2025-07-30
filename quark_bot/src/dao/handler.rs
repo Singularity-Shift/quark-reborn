@@ -231,7 +231,7 @@ pub async fn handle_proposal_preferences(
     if !is_admin {
         bot.send_message(
             msg.chat.id,
-            "❌ Only group admins can manage proposal preferences.",
+            "❌ Only group admins can manage DAO preferences.",
         )
         .await?;
         return Ok(());
@@ -239,7 +239,7 @@ pub async fn handle_proposal_preferences(
 
     let group_id = msg.chat.id.to_string();
 
-    // Get current proposal admin preferences
+    // Get current DAO admin preferences
     let proposal_admin_preferences = bot_deps.dao.get_proposal_admin_preferences(group_id.clone());
 
     let current_prefs = match proposal_admin_preferences {
@@ -258,7 +258,7 @@ pub async fn handle_proposal_preferences(
                 .dao
                 .set_proposal_admin_preferences(group_id.clone(), default_prefs.clone())
             {
-                bot.send_message(msg.chat.id, "❌ Error creating default proposal preferences.")
+                bot.send_message(msg.chat.id, "❌ Error creating default DAO preferences.")
                     .await?;
                 return Ok(());
             }
@@ -289,7 +289,7 @@ pub async fn handle_proposal_preferences(
     ]);
 
     let message_text = format!(
-        "🏛️ <b>Proposal Admin Preferences</b>\n\n\
+        "🏛️ <b>DAO Admin Preferences</b>\n\n\
         📊 <b>Current Settings:</b>\n\
         ⏰ <b>Expiration Time:</b> {} hours\n\
         🔔 <b>Notification Interval:</b> {} hours\n\n\
@@ -397,7 +397,7 @@ pub async fn handle_dao_preference_callback(
             msg.chat.id,
             msg.id,
             "⏰ <b>Select Expiration Time</b>\n\n\
-            Choose how long DAOs should remain active before expiring:",
+            Choose how long proposals should remain active before expiring:",
         )
         .parse_mode(teloxide::types::ParseMode::Html)
         .reply_markup(keyboard)
@@ -469,7 +469,7 @@ pub async fn handle_dao_preference_callback(
             msg.chat.id,
             msg.id,
             "🔔 <b>Select Notification Interval</b>\n\n\
-            Choose how often to send notifications for active DAOs:",
+            Choose how often to send notifications for active proposals:",
         )
         .parse_mode(teloxide::types::ParseMode::Html)
         .reply_markup(keyboard)
