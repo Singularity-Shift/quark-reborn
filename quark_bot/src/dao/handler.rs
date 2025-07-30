@@ -8,6 +8,18 @@ use uuid::Uuid;
 
 use crate::{dao::dto::ProposalEntry, dependencies::BotDependencies};
 
+// Helper function to format time duration in a human-readable way
+fn format_time_duration(seconds: u64) -> String {
+    let hours = seconds / 3600;
+    
+    if hours < 24 {
+        format!("{} hour{}", hours, if hours == 1 { "" } else { "s" })
+    } else {
+        let days = hours / 24;
+        format!("{} day{}", days, if days == 1 { "" } else { "s" })
+    }
+}
+
 pub async fn execute_create_proposal(
     arguments: &serde_json::Value,
     bot: Bot,
@@ -249,7 +261,7 @@ pub async fn handle_dao_preferences(
             use crate::dao::dto::DaoAdminPreferences;
             let default_prefs = DaoAdminPreferences {
                 group_id: group_id.clone(),
-                expiration_time: 24 * 60 * 60, // 24 hours in seconds
+                expiration_time: 7 * 24 * 60 * 60, // 7 days in seconds
                 interval_active_proposal_notifications: 60 * 60, // 1 hour in seconds
             };
 
@@ -270,15 +282,15 @@ pub async fn handle_dao_preferences(
     let keyboard = InlineKeyboardMarkup::new(vec![
         vec![InlineKeyboardButton::new(
             format!(
-                "⏰ Expiration Time: {}h",
-                current_prefs.expiration_time / 3600
+                "⏰ Expiration Time: {}",
+                format_time_duration(current_prefs.expiration_time)
             ),
             InlineKeyboardButtonKind::CallbackData(format!("dao_set_expiration_{}", group_id)),
         )],
         vec![InlineKeyboardButton::new(
             format!(
-                "🔔 Notification Interval: {}h",
-                current_prefs.interval_active_proposal_notifications / 3600
+                "🔔 Notification Interval: {}",
+                format_time_duration(current_prefs.interval_active_proposal_notifications)
             ),
             InlineKeyboardButtonKind::CallbackData(format!("dao_set_notifications_{}", group_id)),
         )],
@@ -291,11 +303,11 @@ pub async fn handle_dao_preferences(
     let message_text = format!(
         "🏛️ <b>DAO Admin Preferences</b>\n\n\
         📊 <b>Current Settings:</b>\n\
-        ⏰ <b>Expiration Time:</b> {} hours\n\
-        🔔 <b>Notification Interval:</b> {} hours\n\n\
+        ⏰ <b>Expiration Time:</b> {}\n\
+        🔔 <b>Notification Interval:</b> {}\n\n\
         💡 <i>Click the buttons below to modify these settings</i>",
-        current_prefs.expiration_time / 3600,
-        current_prefs.interval_active_proposal_notifications / 3600
+        format_time_duration(current_prefs.expiration_time),
+        format_time_duration(current_prefs.interval_active_proposal_notifications)
     );
 
     bot.send_message(msg.chat.id, message_text)
@@ -498,8 +510,8 @@ pub async fn handle_dao_preference_callback(
                 msg.chat.id,
                 msg.id,
                 format!(
-                    "✅ <b>Expiration time updated to {} hours</b>",
-                    expiration_time / 3600
+                    "✅ <b>Expiration time updated to {}</b>",
+                    format_time_duration(expiration_time)
                 ),
             )
             .parse_mode(teloxide::types::ParseMode::Html)
@@ -529,8 +541,8 @@ pub async fn handle_dao_preference_callback(
                 msg.chat.id,
                 msg.id,
                 format!(
-                    "✅ <b>Notification interval updated to {} hours</b>",
-                    notification_interval / 3600
+                    "✅ <b>Notification interval updated to {}</b>",
+                    format_time_duration(notification_interval)
                 ),
             )
             .parse_mode(teloxide::types::ParseMode::Html)
@@ -547,15 +559,15 @@ pub async fn handle_dao_preference_callback(
         let keyboard = InlineKeyboardMarkup::new(vec![
             vec![InlineKeyboardButton::new(
                 format!(
-                    "⏰ Expiration Time: {}h",
-                    current_prefs.expiration_time / 3600
+                    "⏰ Expiration Time: {}",
+                    format_time_duration(current_prefs.expiration_time)
                 ),
                 InlineKeyboardButtonKind::CallbackData(format!("dao_set_expiration_{}", group_id)),
             )],
             vec![InlineKeyboardButton::new(
                 format!(
-                    "🔔 Notification Interval: {}h",
-                    current_prefs.interval_active_proposal_notifications / 3600
+                    "🔔 Notification Interval: {}",
+                    format_time_duration(current_prefs.interval_active_proposal_notifications)
                 ),
                 InlineKeyboardButtonKind::CallbackData(format!(
                     "dao_set_notifications_{}",
@@ -571,11 +583,11 @@ pub async fn handle_dao_preference_callback(
         let message_text = format!(
             "🏛️ <b>DAO Admin Preferences</b>\n\n\
             📊 <b>Current Settings:</b>\n\
-            ⏰ <b>Expiration Time:</b> {} hours\n\
-            🔔 <b>Notification Interval:</b> {} hours\n\n\
+            ⏰ <b>Expiration Time:</b> {}\n\
+            🔔 <b>Notification Interval:</b> {}\n\n\
             💡 <i>Click the buttons below to modify these settings</i>",
-            current_prefs.expiration_time / 3600,
-            current_prefs.interval_active_proposal_notifications / 3600
+            format_time_duration(current_prefs.expiration_time),
+            format_time_duration(current_prefs.interval_active_proposal_notifications)
         );
 
         bot.edit_message_text(msg.chat.id, msg.id, message_text)

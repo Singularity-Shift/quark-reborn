@@ -33,16 +33,18 @@ impl Dao {
 
                     let mut admin_preferences = admin_preferences_result.unwrap();
 
-                    let admin_preference = admin_preferences
+                    // Find and update existing preference or add new one
+                    let existing_index = admin_preferences
                         .iter()
-                        .find(|preference| preference.group_id == group_id);
+                        .position(|preference| preference.group_id == group_id);
 
-                    if let Some(admin_preference) = admin_preference {
-                        let mut admin_preference = admin_preference.clone();
-                        admin_preference.expiration_time = preferences.expiration_time;
-                        admin_preference.interval_active_proposal_notifications =
-                            preferences.interval_active_proposal_notifications.clone();
+                    if let Some(index) = existing_index {
+                        // Update existing preference
+                        admin_preferences[index].expiration_time = preferences.expiration_time;
+                        admin_preferences[index].interval_active_proposal_notifications =
+                            preferences.interval_active_proposal_notifications;
                     } else {
+                        // Add new preference
                         admin_preferences.push(preferences.clone());
                     }
 
@@ -61,8 +63,8 @@ impl Dao {
         if admin_preferences.is_none() {
             return Ok(DaoAdminPreferences {
                 group_id,
-                expiration_time: Utc::now().timestamp() as u64 + 7 * 24 * 60 * 60,
-                interval_active_proposal_notifications: 3600,
+                expiration_time: 7 * 24 * 60 * 60, // 7 days in seconds
+                interval_active_proposal_notifications: 3600, // 1 hour in seconds
             });
         }
 
@@ -80,7 +82,31 @@ impl Dao {
             .find(|preference| preference.group_id == group_id);
 
         if let Some(admin_preference) = admin_preference {
-            Ok(admin_preference.clone())
+            let mut corrected_preference = admin_preference.clone();
+            
+            // Fix corrupted expiration_time values (detect if they're timestamps instead of durations)
+            // If expiration_time is greater than 100 years in seconds, it's likely a corrupted timestamp
+            if corrected_preference.expiration_time > 100 * 365 * 24 * 60 * 60 {
+                log::warn!("Detected corrupted expiration_time: {}, resetting to default 7 days", corrected_preference.expiration_time);
+                corrected_preference.expiration_time = 7 * 24 * 60 * 60; // 7 days in seconds
+            }
+            
+            // Ensure notification interval is reasonable (between 1 hour and 7 days)
+            if corrected_preference.interval_active_proposal_notifications < 3600 || 
+               corrected_preference.interval_active_proposal_notifications > 7 * 24 * 60 * 60 {
+                log::warn!("Detected invalid notification interval: {}, resetting to default 1 hour", corrected_preference.interval_active_proposal_notifications);
+                corrected_preference.interval_active_proposal_notifications = 3600; // 1 hour in seconds
+            }
+            
+            // If we corrected any values, save them back to the database
+            if corrected_preference.expiration_time != admin_preference.expiration_time ||
+               corrected_preference.interval_active_proposal_notifications != admin_preference.interval_active_proposal_notifications {
+                if let Err(e) = self.set_dao_admin_preferences(group_id.clone(), corrected_preference.clone()) {
+                    log::error!("Failed to save corrected DAO preferences: {}", e);
+                }
+            }
+            
+            Ok(corrected_preference)
         } else {
             Err(anyhow::anyhow!("No admin preference found"))
         }
