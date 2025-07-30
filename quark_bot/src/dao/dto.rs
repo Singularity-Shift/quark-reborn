@@ -10,7 +10,7 @@ pub enum ProposalStatus {
 }
 
 #[derive(Serialize, Deserialize, Clone)]
-pub struct ProposalAdminPreferences {
+pub struct DaoAdminPreferences {
     pub group_id: String,
     pub expiration_time: u64,
     pub interval_active_proposal_notifications: u64,
