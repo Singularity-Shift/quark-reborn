@@ -11,10 +11,16 @@ use crate::{dao::dto::ProposalEntry, dependencies::BotDependencies};
 // Helper function to format time duration in a human-readable way
 fn format_time_duration(seconds: u64) -> String {
     let hours = seconds / 3600;
+    let minutes = (seconds % 3600) / 60;
     
-    if hours < 24 {
+    if hours == 0 {
+        // Less than 1 hour, show in minutes
+        format!("{} minute{}", minutes, if minutes == 1 { "" } else { "s" })
+    } else if hours < 24 {
+        // 1-23 hours, show in hours
         format!("{} hour{}", hours, if hours == 1 { "" } else { "s" })
     } else {
+        // 24+ hours, show in days
         let days = hours / 24;
         format!("{} day{}", days, if days == 1 { "" } else { "s" })
     }
@@ -419,6 +425,32 @@ pub async fn handle_dao_preference_callback(
 
         // Show options for notification interval
         let keyboard = InlineKeyboardMarkup::new(vec![
+            vec![
+                InlineKeyboardButton::new(
+                    "5min",
+                    InlineKeyboardButtonKind::CallbackData(format!(
+                        "dao_notif_{}_{}",
+                        group_id,
+                        5 * 60
+                    )),
+                ),
+                InlineKeyboardButton::new(
+                    "10min",
+                    InlineKeyboardButtonKind::CallbackData(format!(
+                        "dao_notif_{}_{}",
+                        group_id,
+                        10 * 60
+                    )),
+                ),
+                InlineKeyboardButton::new(
+                    "15min",
+                    InlineKeyboardButtonKind::CallbackData(format!(
+                        "dao_notif_{}_{}",
+                        group_id,
+                        15 * 60
+                    )),
+                ),
+            ],
             vec![
                 InlineKeyboardButton::new(
                     "30min",
