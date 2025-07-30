@@ -38,8 +38,3 @@ next-env.d.ts
 .idea
 
 certificates
-
-review_key
-review_key.gpg
-privkey.asc
-pubkey.asc

@@ -1,0 +1,10 @@
+[33m2781c9e[m reverted to dao preprences
+[33m4558277[m refactor: rename DAO terminology to Proposal throughout codebase
+[33m5ca019a[m Merge branch 'main' into feat/implement-dao
+[33m346e5da[m fix group contract
+[33mf2af06a[m[33m ([m[1;31morigin/fix/media-aggregator[m[33m, [m[1;32mfix/media-aggregator[m[33m)[m feat: optimize image processing to handle multiple images in media groups
+[33maa10975[m ix: complete MediaGroupAggregator implementation for multi-image commands
+[33m9d2f28a[m second tool attempt for group context tool
+[33m9c02c3d[m feat(bot): add rolling 20-message group chat memory (captures all messages, including bots)
+[33m06876f2[m implementing dao
+[33m5563d69[m prices command added

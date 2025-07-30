@@ -24,6 +24,15 @@ fn escape_markdown_v2(text: &str) -> String {
         .collect()
 }
 
+// Helper function to format timestamp to human-readable date and time
+fn format_timestamp_to_human_readable(timestamp: u64) -> String {
+    let datetime = chrono::DateTime::from_timestamp(timestamp as i64, 0);
+    match datetime {
+        Some(dt) => dt.format("%B %d, %Y at %I:%M %p UTC").to_string(),
+        None => format!("Unknown time (timestamp: {})", timestamp),
+    }
+}
+
 pub fn job_token_list(panora: Panora) -> Job {
     Job::new_async("0 0 * * * *", move |_uuid, _l| {
         let panora = panora.clone();
@@ -173,10 +182,10 @@ pub fn job_active_daos(dao: Dao, bot: Bot) -> Job {
 
                     // Create rich message text
                     let message_text = format!(
-                        "🏛️ {}\n\n📝 {}\n\n⏰ Voting ends at timestamp: {}\n\n👆 Choose your preferred way to vote:\n📱 Mini App (opens in Telegram)\n🌐 Browser (opens externally)",
+                        "🏛️ {}\n\n📝 {}\n\n⏰ Voting ends at: {}\n\n👆 Choose your preferred way to vote:\n📱 Mini App (opens in Telegram)\n🌐 Browser (opens externally)",
                         dao_entry.name,
                         dao_entry.description,
-                        dao_entry.end_date
+                        format_timestamp_to_human_readable(dao_entry.end_date)
                     );
 
                     log::info!("Sending active DAO notification for: {}", dao_entry.proposal_id);
