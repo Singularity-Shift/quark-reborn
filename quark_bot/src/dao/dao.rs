@@ -91,8 +91,8 @@ impl Dao {
                 corrected_preference.expiration_time = 7 * 24 * 60 * 60; // 7 days in seconds
             }
             
-            // Ensure notification interval is reasonable (between 1 hour and 7 days)
-            if corrected_preference.interval_active_proposal_notifications < 3600 || 
+            // Ensure notification interval is reasonable (between 5 minutes and 7 days)
+            if corrected_preference.interval_active_proposal_notifications < 5 * 60 || 
                corrected_preference.interval_active_proposal_notifications > 7 * 24 * 60 * 60 {
                 log::warn!("Detected invalid notification interval: {}, resetting to default 1 hour", corrected_preference.interval_active_proposal_notifications);
                 corrected_preference.interval_active_proposal_notifications = 3600; // 1 hour in seconds
