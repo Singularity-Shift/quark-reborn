@@ -141,7 +141,7 @@ pub async fn answers(
         Command::GroupBalance(symbol) => {
             handle_group_balance(bot, msg, bot_deps.clone(), &symbol).await?;
         }
-        Command::ProposalPreferences => {
+        Command::DaoPreferences => {
             handle_proposal_preferences(bot, msg, bot_deps.clone()).await?;
         }
     };
