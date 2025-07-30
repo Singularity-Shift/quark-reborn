@@ -14,6 +14,12 @@ pub struct DaoAdminPreferences {
     pub group_id: String,
     pub expiration_time: u64,
     pub interval_active_proposal_notifications: u64,
+    #[serde(default = "default_dao_token")]
+    pub default_dao_token: String,
+}
+
+fn default_dao_token() -> String {
+    "📒".to_string()
 }
 
 #[derive(Serialize, Deserialize, Clone)]

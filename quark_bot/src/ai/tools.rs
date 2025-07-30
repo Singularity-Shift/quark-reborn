@@ -264,7 +264,7 @@ pub fn get_pay_users_tool() -> Tool {
 pub fn create_proposal() -> Tool {
     Tool::function(
         "create_proposal",
-        "Create a new voting proposal for the with the given name, description, start date, end date, currency and options to vote for. CRITICAL: You MUST use get_current_time tool with timezone 'UTC' FIRST to get the current time before calling this tool. All dates must be calculated from the current UTC time and converted to seconds since epoch.",
+        "Create a new voting proposal for the with the given name, description, start date, end date, currency and options to vote for. CRITICAL: You MUST use get_current_time tool with timezone 'UTC' FIRST to get the current time before calling this tool. All dates must be calculated from the current UTC time and converted to seconds since epoch. The symbol parameter is optional - if not provided, the tool will use the saved DAO token preference for the group.",
         json!({
             "type": "object",
             "properties": {
@@ -293,10 +293,10 @@ pub fn create_proposal() -> Tool {
                 },
                 "symbol": {
                     "type": "string",
-                    "description": "The symbol of the currency of the proposal"
+                    "description": "The symbol of the currency of the proposal. Optional - if not provided, will use the saved DAO token preference for this group."
                 }
             },
-            "required": ["name", "description", "start_date", "end_date", "options", "symbol"],
+            "required": ["name", "description", "start_date", "end_date", "options"],
             "additionalProperties": false
         }),
     )

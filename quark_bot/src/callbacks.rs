@@ -273,6 +273,7 @@ pub async fn handle_callback_query(
         } else if data == "dao_preferences_done"
             || data.starts_with("dao_set_expiration_")
             || data.starts_with("dao_set_notifications_")
+            || data.starts_with("dao_set_token_")
             || data.starts_with("dao_exp_")
             || data.starts_with("dao_notif_")
             || data == "dao_preferences_back"

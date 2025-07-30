@@ -108,13 +108,18 @@ pub async fn execute_create_proposal(
         .map(|option| option.as_str().unwrap().to_string())
         .collect::<Vec<String>>();
 
-    let symbol = arguments["symbol"].as_str();
-
-    if symbol.is_none() {
-        return "❌ Symbol is required".to_string();
-    }
-
-    let symbol = symbol.unwrap();
+    // Get symbol from arguments or use saved DAO token preference
+    let symbol = if let Some(provided_symbol) = arguments["symbol"].as_str() {
+        provided_symbol.to_uppercase()
+    } else {
+        // Use saved DAO token preference
+        match bot_deps.dao.get_dao_admin_preferences(group_id.clone()) {
+            Ok(prefs) => prefs.default_dao_token,
+            Err(_) => {
+                return "❌ No symbol provided and no DAO token preference found. Please set a DAO token preference or provide a symbol.".to_string();
+            }
+        }
+    };
 
     let start_date = arguments["start_date"].as_str();
 
@@ -178,7 +183,7 @@ pub async fn execute_create_proposal(
         return "❌ Start date cannot be more than 30 days in the future".to_string();
     }
 
-    let token = bot_deps.panora.get_token_by_symbol(symbol).await;
+    let token = bot_deps.panora.get_token_by_symbol(&symbol).await;
 
     if token.is_err() {
         return "❌ Error getting token address".to_string();
@@ -269,6 +274,7 @@ pub async fn handle_dao_preferences(
                 group_id: group_id.clone(),
                 expiration_time: 7 * 24 * 60 * 60, // 7 days in seconds
                 interval_active_proposal_notifications: 60 * 60, // 1 hour in seconds
+                default_dao_token: "📒".to_string(),
             };
 
             // Save default preferences
@@ -301,6 +307,13 @@ pub async fn handle_dao_preferences(
             InlineKeyboardButtonKind::CallbackData(format!("dao_set_notifications_{}", group_id)),
         )],
         vec![InlineKeyboardButton::new(
+            format!(
+                "💰 DAO Token: {}",
+                current_prefs.default_dao_token
+            ),
+            InlineKeyboardButtonKind::CallbackData(format!("dao_set_token_{}", group_id)),
+        )],
+        vec![InlineKeyboardButton::new(
             "✅ Done",
             InlineKeyboardButtonKind::CallbackData("dao_preferences_done".to_string()),
         )],
@@ -310,10 +323,12 @@ pub async fn handle_dao_preferences(
         "🏛️ <b>DAO Admin Preferences</b>\n\n\
         📊 <b>Current Settings:</b>\n\
         ⏰ <b>Expiration Time:</b> {}\n\
-        🔔 <b>Notification Interval:</b> {}\n\n\
+        🔔 <b>Notification Interval:</b> {}\n\
+        💰 <b>DAO Token:</b> {}\n\n\
         💡 <i>Click the buttons below to modify these settings</i>",
         format_time_duration(current_prefs.expiration_time),
-        format_time_duration(current_prefs.interval_active_proposal_notifications)
+        format_time_duration(current_prefs.interval_active_proposal_notifications),
+        current_prefs.default_dao_token
     );
 
     bot.send_message(msg.chat.id, message_text)
@@ -336,6 +351,13 @@ pub async fn handle_dao_preference_callback(
     };
 
     if data == "dao_preferences_done" {
+        // Clear any pending token input state
+        let group_id = msg.chat.id.to_string();
+        let user_id = query.from.id.0.to_string();
+        let dao_token_input_tree = bot_deps.db.open_tree("dao_token_input_pending").unwrap();
+        let key = format!("{}_{}", user_id, group_id);
+        dao_token_input_tree.remove(key.as_bytes()).unwrap();
+        
         bot.edit_message_text(
             msg.chat.id,
             msg.id,
@@ -518,6 +540,38 @@ pub async fn handle_dao_preference_callback(
         .parse_mode(teloxide::types::ParseMode::Html)
         .reply_markup(keyboard)
         .await?;
+    } else if data.starts_with("dao_set_token_") {
+        let group_id = data.strip_prefix("dao_set_token_").unwrap();
+        let user_id = query.from.id.0.to_string();
+
+        // Store pending token input state in database
+        let dao_token_input_tree = bot_deps.db.open_tree("dao_token_input_pending").unwrap();
+        let key = format!("{}_{}", user_id, group_id);
+        dao_token_input_tree.insert(key.as_bytes(), group_id.as_bytes()).unwrap();
+
+        // Prompt user to send a message with the token ticker
+        let keyboard = InlineKeyboardMarkup::new(vec![
+            vec![InlineKeyboardButton::new(
+                "🔙 Back",
+                InlineKeyboardButtonKind::CallbackData("dao_preferences_back".to_string()),
+            )],
+        ]);
+
+        bot.edit_message_text(
+            msg.chat.id,
+            msg.id,
+            "💰 <b>Enter DAO Token</b>\n\n\
+            Please send a message with your preferred token ticker or emojicoin.\n\n\
+            <b>Examples:</b>\n\
+            • <code>APT</code>\n\
+            • <code>USDC</code>\n\
+            • <code>📒</code>\n\
+            • <code>eth</code> (will be converted to ETH)\n\n\
+            <i>Token tickers will be automatically converted to uppercase.</i>",
+        )
+        .parse_mode(teloxide::types::ParseMode::Html)
+        .reply_markup(keyboard)
+        .await?;
     } else if data.starts_with("dao_exp_") {
         let parts: Vec<&str> = data.split('_').collect();
         if parts.len() >= 4 {
@@ -580,9 +634,16 @@ pub async fn handle_dao_preference_callback(
             .parse_mode(teloxide::types::ParseMode::Html)
             .await?;
         }
+
     } else if data == "dao_preferences_back" {
         // Go back to main preferences menu - just edit the message back to the main menu
         let group_id = msg.chat.id.to_string();
+        
+        // Clear any pending token input state
+        let user_id = query.from.id.0.to_string();
+        let dao_token_input_tree = bot_deps.db.open_tree("dao_token_input_pending").unwrap();
+        let key = format!("{}_{}", user_id, group_id);
+        dao_token_input_tree.remove(key.as_bytes()).unwrap();
         let current_prefs = match bot_deps.dao.get_dao_admin_preferences(group_id.clone()) {
             Ok(prefs) => prefs,
             Err(_) => return Ok(()),
@@ -607,6 +668,13 @@ pub async fn handle_dao_preference_callback(
                 )),
             )],
             vec![InlineKeyboardButton::new(
+                format!(
+                    "💰 DAO Token: {}",
+                    current_prefs.default_dao_token
+                ),
+                InlineKeyboardButtonKind::CallbackData(format!("dao_set_token_{}", group_id)),
+            )],
+            vec![InlineKeyboardButton::new(
                 "✅ Done",
                 InlineKeyboardButtonKind::CallbackData("dao_preferences_done".to_string()),
             )],
@@ -616,10 +684,12 @@ pub async fn handle_dao_preference_callback(
             "🏛️ <b>DAO Admin Preferences</b>\n\n\
             📊 <b>Current Settings:</b>\n\
             ⏰ <b>Expiration Time:</b> {}\n\
-            🔔 <b>Notification Interval:</b> {}\n\n\
+            🔔 <b>Notification Interval:</b> {}\n\
+            💰 <b>DAO Token:</b> {}\n\n\
             💡 <i>Click the buttons below to modify these settings</i>",
             format_time_duration(current_prefs.expiration_time),
-            format_time_duration(current_prefs.interval_active_proposal_notifications)
+            format_time_duration(current_prefs.interval_active_proposal_notifications),
+            current_prefs.default_dao_token
         );
 
         bot.edit_message_text(msg.chat.id, msg.id, message_text)

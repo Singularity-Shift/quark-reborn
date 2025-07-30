@@ -43,14 +43,19 @@ impl Dao {
                         admin_preferences[index].expiration_time = preferences.expiration_time;
                         admin_preferences[index].interval_active_proposal_notifications =
                             preferences.interval_active_proposal_notifications;
+                        admin_preferences[index].default_dao_token = preferences.default_dao_token.to_uppercase();
                     } else {
-                        // Add new preference
-                        admin_preferences.push(preferences.clone());
+                        // Add new preference with uppercase token
+                        let mut new_prefs = preferences.clone();
+                        new_prefs.default_dao_token = new_prefs.default_dao_token.to_uppercase();
+                        admin_preferences.push(new_prefs);
                     }
 
                     Some(serde_json::to_vec(&admin_preferences).unwrap())
                 } else {
-                    Some(serde_json::to_vec(&vec![preferences.clone()]).unwrap())
+                    let mut new_prefs = preferences.clone();
+                    new_prefs.default_dao_token = new_prefs.default_dao_token.to_uppercase();
+                    Some(serde_json::to_vec(&vec![new_prefs]).unwrap())
                 }
             })?;
 
@@ -65,6 +70,7 @@ impl Dao {
                 group_id,
                 expiration_time: 7 * 24 * 60 * 60, // 7 days in seconds
                 interval_active_proposal_notifications: 3600, // 1 hour in seconds
+                default_dao_token: "📒".to_string(),
             });
         }
 
@@ -98,9 +104,18 @@ impl Dao {
                 corrected_preference.interval_active_proposal_notifications = 3600; // 1 hour in seconds
             }
             
+            // Ensure default_dao_token is set and uppercase
+            if corrected_preference.default_dao_token.is_empty() {
+                log::warn!("Detected empty default_dao_token, setting to default 📒");
+                corrected_preference.default_dao_token = "📒".to_string();
+            } else {
+                corrected_preference.default_dao_token = corrected_preference.default_dao_token.to_uppercase();
+            }
+            
             // If we corrected any values, save them back to the database
             if corrected_preference.expiration_time != admin_preference.expiration_time ||
-               corrected_preference.interval_active_proposal_notifications != admin_preference.interval_active_proposal_notifications {
+               corrected_preference.interval_active_proposal_notifications != admin_preference.interval_active_proposal_notifications ||
+               corrected_preference.default_dao_token != admin_preference.default_dao_token {
                 if let Err(e) = self.set_dao_admin_preferences(group_id.clone(), corrected_preference.clone()) {
                     log::error!("Failed to save corrected DAO preferences: {}", e);
                 }
