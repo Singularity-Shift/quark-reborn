@@ -33,16 +33,17 @@ impl Dao {
 
                     let mut admin_preferences = admin_preferences_result.unwrap();
 
-                    let admin_preference = admin_preferences
+                    let admin_preference_index = admin_preferences
                         .iter()
-                        .find(|preference| preference.group_id == group_id);
+                        .position(|preference| preference.group_id == group_id);
 
-                    if let Some(admin_preference) = admin_preference {
-                        let mut admin_preference = admin_preference.clone();
-                        admin_preference.expiration_time = preferences.expiration_time;
-                        admin_preference.interval_active_dao_notifications =
-                            preferences.interval_active_dao_notifications.clone();
+                    if let Some(index) = admin_preference_index {
+                        // Update existing preference
+                        admin_preferences[index].expiration_time = preferences.expiration_time;
+                        admin_preferences[index].interval_active_dao_notifications =
+                            preferences.interval_active_dao_notifications;
                     } else {
+                        // Add new preference
                         admin_preferences.push(preferences.clone());
                     }
 

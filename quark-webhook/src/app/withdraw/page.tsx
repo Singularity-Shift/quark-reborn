@@ -220,7 +220,18 @@ export default function WithdrawPage() {
       await delayAction(1500);
     } finally {
       setWithdrawing(false);
-      closeMiniApp();
+      try {
+        if (closeMiniApp.isAvailable()) {
+          closeMiniApp();
+        }
+      } catch (e) {
+        console.log("Could not close mini app:", e);
+        // Fallback: show a message to user that they can close manually
+        showMessage(
+          "Transaction completed! You can close this tab.",
+          "success"
+        );
+      }
     }
   };
 

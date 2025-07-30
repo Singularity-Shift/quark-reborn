@@ -1,6 +1,7 @@
 use std::env;
 
 use chrono::Utc;
+use reqwest::Url;
 use teloxide::{Bot, prelude::*, types::{ChatId, InlineKeyboardButton, InlineKeyboardMarkup, ParseMode}};
 use tokio_cron_scheduler::Job;
 use aptos_rust_sdk_types::api_types::view::ViewRequest;
@@ -70,7 +71,7 @@ pub fn job_active_daos(dao: Dao, bot: Bot) -> Job {
         Ok(url) => url,
         Err(e) => {
             log::error!("Failed to get APP_URL environment variable: {}", e);
-            return Job::new_async("0 */2 * * * *", move |_uuid, _l| {
+            return Job::new_async("0 */5 * * * *", move |_uuid, _l| {
                 Box::pin(async move {
                     log::error!("Cannot run active DAOs job - APP_URL not configured");
                 })
@@ -78,7 +79,7 @@ pub fn job_active_daos(dao: Dao, bot: Bot) -> Job {
         }
     };
     
-    Job::new_async("0 */2 * * * *", move |_uuid, _l| {
+    Job::new_async("0 */5 * * * *", move |_uuid, _l| {
         let base_url = base_url.clone();
         let dao = dao.clone();
         let bot = bot.clone();
@@ -113,17 +114,24 @@ pub fn job_active_daos(dao: Dao, bot: Bot) -> Job {
                     }
                 };
                 let now = Utc::now().timestamp() as u64;
+                let time_since_last_notification = now - dao_entry.last_active_notification;
+                let interval_seconds = admin_preferences.interval_active_dao_notifications;
 
-                if dao_entry.last_active_notification
-                    + admin_preferences.interval_active_dao_notifications
-                    < now
-                {
+                log::info!(
+                    "DAO {}: Last notification was {} seconds ago, interval is {} seconds ({} hours)",
+                    dao_entry.dao_id,
+                    time_since_last_notification,
+                    interval_seconds,
+                    interval_seconds / 3600
+                );
+
+                if time_since_last_notification >= interval_seconds {
                     // Create inline keyboard with voting options
                     let mut keyboard_buttons = Vec::new();
                     
                     for (index, option) in dao_entry.options.iter().enumerate() {
                         let base_url = format!(
-                            "{}/dao?group_id={}&dao_id={}&choice_id={}&coin_type={}&coin_version={}",
+                            "{}/dao?group_id={}&dao_id={}&choice_id={}&coin_type={}&coin_version={}&dao_name={}&dao_description={}",
                             base_url,
                             group_id,
                             dao_entry.dao_id,
@@ -132,11 +140,13 @@ pub fn job_active_daos(dao: Dao, bot: Bot) -> Job {
                             match dao_entry.version {
                                 CoinVersion::V1 => "V1",
                                 CoinVersion::V2 => "V2",
-                            }
+                            },
+                            dao_entry.name,
+                            dao_entry.description
                         );
                         
                         // Parse URL with error handling
-                        let parsed_url: reqwest::Url = match base_url.parse() {
+                        let parsed_url = match Url::parse(&base_url) {
                             Ok(url) => url,
                             Err(e) => {
                                 log::error!("Failed to parse URL for DAO {}: {}", dao_entry.dao_id, e);
@@ -144,16 +154,11 @@ pub fn job_active_daos(dao: Dao, bot: Bot) -> Job {
                             }
                         };
                         
-                        // Create a row with both mini app and browser buttons for each option
+                        // Create a row with URL button for each option
+                        // Note: WebApp buttons are not supported in group chats, only in private chats
                         let option_row = vec![
-                            // Mini App button
-                            InlineKeyboardButton::web_app(
-                                format!("📱 {}", option),
-                                teloxide::types::WebAppInfo { url: parsed_url.clone() }
-                            ),
-                            // External browser button
                             InlineKeyboardButton::url(
-                                format!("🌐 {}", option),
+                                format!("🗳️ Vote: {}", option),
                                 parsed_url
                             ),
                         ];
@@ -173,7 +178,7 @@ pub fn job_active_daos(dao: Dao, bot: Bot) -> Job {
 
                     // Create rich message text
                     let message_text = format!(
-                        "🏛️ {}\n\n📝 {}\n\n⏰ Voting ends at timestamp: {}\n\n👆 Choose your preferred way to vote:\n📱 Mini App (opens in Telegram)\n🌐 Browser (opens externally)",
+                        "🏛️ {}\n\n📝 {}\n\n⏰ Voting ends at timestamp: {}\n\n🗳️ Click on your preferred option below to vote:",
                         dao_entry.name,
                         dao_entry.description,
                         dao_entry.end_date
@@ -200,6 +205,13 @@ pub fn job_active_daos(dao: Dao, bot: Bot) -> Job {
                     if let Err(e) = dao.update_last_active_notification(dao_entry.dao_id.clone()) {
                         log::error!("Failed to update last active notification for DAO {}: {}", dao_entry.dao_id, e);
                     }
+                } else {
+                    log::info!(
+                        "DAO {}: Skipping notification - {} seconds remaining until next notification (interval: {} hours)",
+                        dao_entry.dao_id,
+                        interval_seconds - time_since_last_notification,
+                        interval_seconds / 3600
+                    );
                 }
             }
         })
