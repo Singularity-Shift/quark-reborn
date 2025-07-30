@@ -14,7 +14,4 @@ cargo-check.log
 *.asc
 *.gpg
 
-review_key
-privkey.asc
-pubkey.asc
-review_key.gpg
+
