@@ -1,21 +1,21 @@
 use chrono::Utc;
-use quark_core::helpers::dto::{CoinVersion, CreateDaoRequest};
+use quark_core::helpers::dto::{CoinVersion, CreateProposalRequest};
 use teloxide::{
     prelude::*,
     types::{InlineKeyboardButton, InlineKeyboardButtonKind, InlineKeyboardMarkup, Message},
 };
 use uuid::Uuid;
 
-use crate::{dao::dto::DaoEntry, dependencies::BotDependencies};
+use crate::{dao::dto::ProposalEntry, dependencies::BotDependencies};
 
-pub async fn execute_create_dao(
+pub async fn execute_create_proposal(
     arguments: &serde_json::Value,
     bot: Bot,
     msg: Message,
     group_id: Option<String>,
     bot_deps: BotDependencies,
 ) -> String {
-    log::info!("execute_create_dao called with arguments: {}", arguments);
+    log::info!("execute_create_proposal called with arguments: {}", arguments);
 
     if group_id.is_none() {
         log::error!("Group ID is missing");
@@ -174,16 +174,16 @@ pub async fn execute_create_dao(
         CoinVersion::V2
     };
 
-    let dao_id = Uuid::new_v4().to_string();
+    let proposal_id = Uuid::new_v4().to_string();
 
-    let request = CreateDaoRequest {
+    let request = CreateProposalRequest {
         name: name.unwrap().to_string(),
         description: description.unwrap().to_string(),
         options,
         start_date,
         end_date,
         group_id,
-        dao_id,
+        proposal_id,
         version,
         currency: if token.token_address.is_some() {
             token.token_address.unwrap()
@@ -192,26 +192,26 @@ pub async fn execute_create_dao(
         },
     };
 
-    log::info!("Creating DAO with request: {:?}", request);
+    log::info!("Creating proposal with request: {:?}", request);
 
-    let dao_entry = DaoEntry::from(&request);
+    let proposal_entry = ProposalEntry::from(&request);
 
-    let response = bot_deps.service.create_dao(auth.jwt, request).await;
+    let response = bot_deps.service.create_proposal(auth.jwt, request).await;
 
     if response.is_err() {
-        return "❌ Error creating DAO".to_string();
+        return "❌ Error creating proposal".to_string();
     }
 
-    let dao_result = bot_deps.dao.create_dao(dao_entry);
+    let proposal_result = bot_deps.dao.create_proposal(proposal_entry);
 
-    if dao_result.is_err() {
-        return "❌ Error creating DAO".to_string();
+    if proposal_result.is_err() {
+        return "❌ Error creating proposal".to_string();
     }
 
-    return format!("DAO created successfully: {}", response.unwrap().hash);
+    return format!("Proposal created successfully: {}", response.unwrap().hash);
 }
 
-pub async fn handle_dao_preferences(
+pub async fn handle_proposal_preferences(
     bot: Bot,
     msg: Message,
     bot_deps: BotDependencies,
@@ -231,7 +231,7 @@ pub async fn handle_dao_preferences(
     if !is_admin {
         bot.send_message(
             msg.chat.id,
-            "❌ Only group admins can manage DAO preferences.",
+            "❌ Only group admins can manage proposal preferences.",
         )
         .await?;
         return Ok(());
@@ -239,26 +239,26 @@ pub async fn handle_dao_preferences(
 
     let group_id = msg.chat.id.to_string();
 
-    // Get current DAO admin preferences
-    let dao_admin_preferences = bot_deps.dao.get_dao_admin_preferences(group_id.clone());
+    // Get current proposal admin preferences
+    let proposal_admin_preferences = bot_deps.dao.get_proposal_admin_preferences(group_id.clone());
 
-    let current_prefs = match dao_admin_preferences {
+    let current_prefs = match proposal_admin_preferences {
         Ok(prefs) => prefs,
         Err(_) => {
             // Create default preferences if none exist
-            use crate::dao::dto::DaoAdminPreferences;
-            let default_prefs = DaoAdminPreferences {
+            use crate::dao::dto::ProposalAdminPreferences;
+            let default_prefs = ProposalAdminPreferences {
                 group_id: group_id.clone(),
                 expiration_time: 24 * 60 * 60, // 24 hours in seconds
-                interval_active_dao_notifications: 60 * 60, // 1 hour in seconds
+                interval_active_proposal_notifications: 60 * 60, // 1 hour in seconds
             };
 
             // Save default preferences
             if let Err(_e) = bot_deps
                 .dao
-                .set_dao_admin_preferences(group_id.clone(), default_prefs.clone())
+                .set_proposal_admin_preferences(group_id.clone(), default_prefs.clone())
             {
-                bot.send_message(msg.chat.id, "❌ Error creating default DAO preferences.")
+                bot.send_message(msg.chat.id, "❌ Error creating default proposal preferences.")
                     .await?;
                 return Ok(());
             }
@@ -278,7 +278,7 @@ pub async fn handle_dao_preferences(
         vec![InlineKeyboardButton::new(
             format!(
                 "🔔 Notification Interval: {}h",
-                current_prefs.interval_active_dao_notifications / 3600
+                current_prefs.interval_active_proposal_notifications / 3600
             ),
             InlineKeyboardButtonKind::CallbackData(format!("dao_set_notifications_{}", group_id)),
         )],
@@ -289,13 +289,13 @@ pub async fn handle_dao_preferences(
     ]);
 
     let message_text = format!(
-        "🏛️ <b>DAO Admin Preferences</b>\n\n\
+        "🏛️ <b>Proposal Admin Preferences</b>\n\n\
         📊 <b>Current Settings:</b>\n\
         ⏰ <b>Expiration Time:</b> {} hours\n\
         🔔 <b>Notification Interval:</b> {} hours\n\n\
         💡 <i>Click the buttons below to modify these settings</i>",
         current_prefs.expiration_time / 3600,
-        current_prefs.interval_active_dao_notifications / 3600
+        current_prefs.interval_active_proposal_notifications / 3600
     );
 
     bot.send_message(msg.chat.id, message_text)
@@ -481,11 +481,11 @@ pub async fn handle_dao_preference_callback(
             let expiration_time: u64 = parts[3].parse().unwrap_or(24 * 3600);
 
             // Update expiration time
-            if let Ok(mut prefs) = bot_deps.dao.get_dao_admin_preferences(group_id.to_string()) {
+            if let Ok(mut prefs) = bot_deps.dao.get_proposal_admin_preferences(group_id.to_string()) {
                 prefs.expiration_time = expiration_time;
                 if let Err(_) = bot_deps
                     .dao
-                    .set_dao_admin_preferences(group_id.to_string(), prefs)
+                    .set_proposal_admin_preferences(group_id.to_string(), prefs)
                 {
                     bot.answer_callback_query(query.id)
                         .text("❌ Error updating preferences")
@@ -512,11 +512,11 @@ pub async fn handle_dao_preference_callback(
             let notification_interval: u64 = parts[3].parse().unwrap_or(60 * 60);
 
             // Update notification interval
-            if let Ok(mut prefs) = bot_deps.dao.get_dao_admin_preferences(group_id.to_string()) {
-                prefs.interval_active_dao_notifications = notification_interval;
+            if let Ok(mut prefs) = bot_deps.dao.get_proposal_admin_preferences(group_id.to_string()) {
+                prefs.interval_active_proposal_notifications = notification_interval;
                 if let Err(_) = bot_deps
                     .dao
-                    .set_dao_admin_preferences(group_id.to_string(), prefs)
+                    .set_proposal_admin_preferences(group_id.to_string(), prefs)
                 {
                     bot.answer_callback_query(query.id)
                         .text("❌ Error updating preferences")
@@ -539,7 +539,7 @@ pub async fn handle_dao_preference_callback(
     } else if data == "dao_preferences_back" {
         // Go back to main preferences menu - just edit the message back to the main menu
         let group_id = msg.chat.id.to_string();
-        let current_prefs = match bot_deps.dao.get_dao_admin_preferences(group_id.clone()) {
+        let current_prefs = match bot_deps.dao.get_proposal_admin_preferences(group_id.clone()) {
             Ok(prefs) => prefs,
             Err(_) => return Ok(()),
         };
@@ -555,7 +555,7 @@ pub async fn handle_dao_preference_callback(
             vec![InlineKeyboardButton::new(
                 format!(
                     "🔔 Notification Interval: {}h",
-                    current_prefs.interval_active_dao_notifications / 3600
+                    current_prefs.interval_active_proposal_notifications / 3600
                 ),
                 InlineKeyboardButtonKind::CallbackData(format!(
                     "dao_set_notifications_{}",
@@ -575,7 +575,7 @@ pub async fn handle_dao_preference_callback(
             🔔 <b>Notification Interval:</b> {} hours\n\n\
             💡 <i>Click the buttons below to modify these settings</i>",
             current_prefs.expiration_time / 3600,
-            current_prefs.interval_active_dao_notifications / 3600
+            current_prefs.interval_active_proposal_notifications / 3600
         );
 
         bot.edit_message_text(msg.chat.id, msg.id, message_text)
