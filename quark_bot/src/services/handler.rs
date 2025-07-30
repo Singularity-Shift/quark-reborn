@@ -3,7 +3,7 @@ use reqwest::Client;
 
 use log::{debug, error, info, warn};
 use quark_core::helpers::dto::{
-    CreateDaoRequest, CreateGroupRequest, Endpoints, PayUsersRequest, PurchaseRequest,
+    CreateProposalRequest, CreateGroupRequest, Endpoints, PayUsersRequest, PurchaseRequest,
     TransactionResponse,
 };
 
@@ -331,13 +331,13 @@ impl Services {
         }
     }
 
-    pub async fn create_dao(
+    pub async fn create_proposal(
         &self,
         token: String,
-        request: CreateDaoRequest,
+        request: CreateProposalRequest,
     ) -> Result<TransactionResponse> {
-        let url = Endpoints::CreateDao.to_string();
-        debug!("🌐 Making dao service request to: {}", url);
+        let url = Endpoints::CreateProposal.to_string();
+        debug!("🌐 Making proposal service request to: {}", url);
 
         let response = self
             .client
@@ -354,12 +354,12 @@ impl Services {
                 debug!("📡 Server response headers: {:?}", resp.headers());
 
                 if resp.status().is_success() {
-                    info!("✅ Dao service call successful - Status: {}", status);
+                    info!("✅ Proposal service call successful - Status: {}", status);
                     let digest = resp.json::<TransactionResponse>().await;
 
                     if digest.is_err() {
-                        error!("❌ Failed to parse dao response: {:?}", digest.err());
-                        Err(anyhow!("Failed to parse dao response"))
+                        error!("❌ Failed to parse proposal response: {:?}", digest.err());
+                        Err(anyhow!("Failed to parse proposal response"))
                     } else {
                         Ok(digest.unwrap())
                     }
@@ -374,7 +374,7 @@ impl Services {
                     error!("❌ Request URL: {}", url);
 
                     Err(anyhow!(
-                        "Dao service failed with status {}: {}",
+                        "Proposal service failed with status {}: {}",
                         status,
                         error_body
                     ))
@@ -382,7 +382,7 @@ impl Services {
             }
             Err(network_error) => {
                 error!(
-                    "❌ Network error during dao service call: {:?}",
+                    "❌ Network error during proposal service call: {:?}",
                     network_error
                 );
                 error!("❌ Failed to connect to: {}", url);

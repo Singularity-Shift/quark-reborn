@@ -7,7 +7,7 @@ use aptos_rust_sdk_types::api_types::{
     type_tag::TypeTag,
 };
 use axum::{Json, extract::State, http::StatusCode};
-use quark_core::helpers::dto::{CoinVersion, CreateDaoRequest, TransactionResponse};
+use quark_core::helpers::dto::{CoinVersion, CreateProposalRequest, TransactionResponse};
 
 use crate::{
     admin::handler::{get_admin, get_reviewer_priv_acc},
@@ -20,17 +20,17 @@ use chrono::Utc;
 
 #[utoipa::path(
     post,
-    path = "/dao",
-    request_body = [CreateDaoRequest],
-    description = "Create a new DAO",
+    path = "/proposal",
+    request_body = [CreateProposalRequest],
+    description = "Create a new proposal",
     responses(
         (status = 200, description = "Success"),
         (status = 400, description = "Bad Request"),
     )
 )]
-pub async fn create_dao(
+pub async fn create_proposal(
     State(server_state): State<Arc<ServerState>>,
-    Json(request): Json<CreateDaoRequest>,
+    Json(request): Json<CreateProposalRequest>,
 ) -> Result<Json<TransactionResponse>, ErrorServer> {
     let (admin, signer) = get_admin().map_err(|e| ErrorServer {
         status: StatusCode::INTERNAL_SERVER_ERROR.into(),
@@ -72,7 +72,7 @@ pub async fn create_dao(
         });
     }
 
-    let dao_id = request.dao_id;
+    let proposal_id = request.proposal_id;
 
     let version = request.version;
 
@@ -96,7 +96,7 @@ pub async fn create_dao(
                         status: StatusCode::INTERNAL_SERVER_ERROR.into(),
                         message: e.to_string(),
                     })?,
-                    bcs::to_bytes(&dao_id).map_err(|e| ErrorServer {
+                    bcs::to_bytes(&proposal_id).map_err(|e| ErrorServer {
                         status: StatusCode::INTERNAL_SERVER_ERROR.into(),
                         message: e.to_string(),
                     })?,
@@ -118,7 +118,7 @@ pub async fn create_dao(
                     status: StatusCode::INTERNAL_SERVER_ERROR.into(),
                     message: e.to_string(),
                 })?,
-                bcs::to_bytes(&dao_id).map_err(|e| ErrorServer {
+                bcs::to_bytes(&proposal_id).map_err(|e| ErrorServer {
                     status: StatusCode::INTERNAL_SERVER_ERROR.into(),
                     message: e.to_string(),
                 })?,

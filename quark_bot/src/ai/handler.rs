@@ -394,7 +394,7 @@ impl AI {
                         || tc.name == "get_current_time"
                         || tc.name == "get_fear_and_greed_index"
                         || tc.name == "get_pay_users"
-                        || tc.name == "create_dao"
+                        || tc.name == "create_proposal"
                         || tc.name == "get_recent_messages"
                 })
                 .collect();

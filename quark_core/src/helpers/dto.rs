@@ -10,7 +10,7 @@ pub enum Endpoints {
     Purchase,
     PayMembers,
     GroupPurchase,
-    CreateDao,
+    CreateProposal,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -121,14 +121,14 @@ pub struct PriceCoin {
 }
 
 #[derive(Deserialize, Serialize, Debug, ToSchema)]
-pub struct CreateDaoRequest {
+pub struct CreateProposalRequest {
     pub name: String,
     pub description: String,
     pub options: Vec<String>,
     pub start_date: u64,
     pub end_date: u64,
     pub group_id: String,
-    pub dao_id: String,
+    pub proposal_id: String,
     pub version: CoinVersion,
     pub currency: String,
 }
@@ -145,7 +145,7 @@ impl fmt::Display for Endpoints {
             &Endpoints::PayMembers => write!(f, "{}/pay-members", backend_url),
             &Endpoints::CreateGroup => write!(f, "{}/create-group", backend_url),
             &Endpoints::GroupPurchase => write!(f, "{}/group-purchase", backend_url),
-            &Endpoints::CreateDao => write!(f, "{}/dao", backend_url),
+            &Endpoints::CreateProposal => write!(f, "{}/proposal", backend_url),
         }
     }
 }
