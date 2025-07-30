@@ -211,7 +211,7 @@ pub async fn execute_create_proposal(
     return format!("Proposal created successfully: {}", response.unwrap().hash);
 }
 
-pub async fn handle_proposal_preferences(
+pub async fn handle_dao_preferences(
     bot: Bot,
     msg: Message,
     bot_deps: BotDependencies,
@@ -240,14 +240,14 @@ pub async fn handle_proposal_preferences(
     let group_id = msg.chat.id.to_string();
 
     // Get current DAO admin preferences
-    let proposal_admin_preferences = bot_deps.dao.get_proposal_admin_preferences(group_id.clone());
+    let dao_admin_preferences = bot_deps.dao.get_dao_admin_preferences(group_id.clone());
 
-    let current_prefs = match proposal_admin_preferences {
+    let current_prefs = match dao_admin_preferences {
         Ok(prefs) => prefs,
         Err(_) => {
             // Create default preferences if none exist
-            use crate::dao::dto::ProposalAdminPreferences;
-            let default_prefs = ProposalAdminPreferences {
+            use crate::dao::dto::DaoAdminPreferences;
+            let default_prefs = DaoAdminPreferences {
                 group_id: group_id.clone(),
                 expiration_time: 24 * 60 * 60, // 24 hours in seconds
                 interval_active_proposal_notifications: 60 * 60, // 1 hour in seconds
@@ -256,7 +256,7 @@ pub async fn handle_proposal_preferences(
             // Save default preferences
             if let Err(_e) = bot_deps
                 .dao
-                .set_proposal_admin_preferences(group_id.clone(), default_prefs.clone())
+                .set_dao_admin_preferences(group_id.clone(), default_prefs.clone())
             {
                 bot.send_message(msg.chat.id, "❌ Error creating default DAO preferences.")
                     .await?;
@@ -481,11 +481,11 @@ pub async fn handle_dao_preference_callback(
             let expiration_time: u64 = parts[3].parse().unwrap_or(24 * 3600);
 
             // Update expiration time
-            if let Ok(mut prefs) = bot_deps.dao.get_proposal_admin_preferences(group_id.to_string()) {
+            if let Ok(mut prefs) = bot_deps.dao.get_dao_admin_preferences(group_id.to_string()) {
                 prefs.expiration_time = expiration_time;
                 if let Err(_) = bot_deps
                     .dao
-                    .set_proposal_admin_preferences(group_id.to_string(), prefs)
+                    .set_dao_admin_preferences(group_id.to_string(), prefs)
                 {
                     bot.answer_callback_query(query.id)
                         .text("❌ Error updating preferences")
@@ -512,11 +512,11 @@ pub async fn handle_dao_preference_callback(
             let notification_interval: u64 = parts[3].parse().unwrap_or(60 * 60);
 
             // Update notification interval
-            if let Ok(mut prefs) = bot_deps.dao.get_proposal_admin_preferences(group_id.to_string()) {
+            if let Ok(mut prefs) = bot_deps.dao.get_dao_admin_preferences(group_id.to_string()) {
                 prefs.interval_active_proposal_notifications = notification_interval;
                 if let Err(_) = bot_deps
                     .dao
-                    .set_proposal_admin_preferences(group_id.to_string(), prefs)
+                    .set_dao_admin_preferences(group_id.to_string(), prefs)
                 {
                     bot.answer_callback_query(query.id)
                         .text("❌ Error updating preferences")
@@ -539,7 +539,7 @@ pub async fn handle_dao_preference_callback(
     } else if data == "dao_preferences_back" {
         // Go back to main preferences menu - just edit the message back to the main menu
         let group_id = msg.chat.id.to_string();
-        let current_prefs = match bot_deps.dao.get_proposal_admin_preferences(group_id.clone()) {
+        let current_prefs = match bot_deps.dao.get_dao_admin_preferences(group_id.clone()) {
             Ok(prefs) => prefs,
             Err(_) => return Ok(()),
         };

@@ -2,7 +2,7 @@ use anyhow::Result;
 use chrono::Utc;
 use sled::Tree;
 
-use crate::dao::dto::{ProposalAdminPreferences, ProposalEntry, ProposalStatus};
+use crate::dao::dto::{DaoAdminPreferences, ProposalEntry, ProposalStatus};
 
 #[derive(Clone)]
 pub struct Dao {
@@ -14,16 +14,16 @@ impl Dao {
         Self { db }
     }
 
-    pub fn set_proposal_admin_preferences(
+    pub fn set_dao_admin_preferences(
         &self,
         group_id: String,
-        preferences: ProposalAdminPreferences,
+        preferences: DaoAdminPreferences,
     ) -> Result<()> {
         self.db
-            .fetch_and_update("proposal_admin_preferences", |entries| {
+            .fetch_and_update("dao_admin_preferences", |entries| {
                 if let Some(admin_preferences) = entries {
                     let admin_preferences_result: Result<
-                        Vec<ProposalAdminPreferences>,
+                        Vec<DaoAdminPreferences>,
                         serde_json::Error,
                     > = serde_json::from_slice(admin_preferences);
 
@@ -55,18 +55,18 @@ impl Dao {
         Ok(())
     }
 
-    pub fn get_proposal_admin_preferences(&self, group_id: String) -> Result<ProposalAdminPreferences> {
-        let admin_preferences = self.db.get("proposal_admin_preferences")?;
+    pub fn get_dao_admin_preferences(&self, group_id: String) -> Result<DaoAdminPreferences> {
+        let admin_preferences = self.db.get("dao_admin_preferences")?;
 
         if admin_preferences.is_none() {
-            return Ok(ProposalAdminPreferences {
+            return Ok(DaoAdminPreferences {
                 group_id,
                 expiration_time: Utc::now().timestamp() as u64 + 7 * 24 * 60 * 60,
                 interval_active_proposal_notifications: 3600,
             });
         }
 
-        let admin_preferences_result: Result<Vec<ProposalAdminPreferences>, serde_json::Error> =
+        let admin_preferences_result: Result<Vec<DaoAdminPreferences>, serde_json::Error> =
             serde_json::from_slice(admin_preferences.unwrap().as_ref());
 
         if admin_preferences_result.is_err() {
@@ -86,14 +86,14 @@ impl Dao {
         }
     }
 
-    pub fn get_all_proposal_admin_preferences(&self) -> Result<Vec<ProposalAdminPreferences>> {
-        let admin_preferences = self.db.get("proposal_admin_preferences")?;
+    pub fn get_all_dao_admin_preferences(&self) -> Result<Vec<DaoAdminPreferences>> {
+        let admin_preferences = self.db.get("dao_admin_preferences")?;
 
         if admin_preferences.is_none() {
             return Ok(vec![]);
         }
 
-        let admin_preferences_result: Result<Vec<ProposalAdminPreferences>, serde_json::Error> =
+        let admin_preferences_result: Result<Vec<DaoAdminPreferences>, serde_json::Error> =
             serde_json::from_slice(admin_preferences.unwrap().as_ref());
 
         if admin_preferences_result.is_err() {
@@ -190,7 +190,7 @@ impl Dao {
     pub fn remove_expired_proposals(&self) -> Result<()> {
         let now = Utc::now().timestamp() as u64;
 
-        let admin_preferences = self.get_all_proposal_admin_preferences()?;
+        let admin_preferences = self.get_all_dao_admin_preferences()?;
 
         self.db.fetch_and_update("proposals", |entries| {
             if let Some(proposals) = entries {

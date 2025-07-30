@@ -105,7 +105,7 @@ pub fn job_active_daos(dao: Dao, bot: Bot) -> Job {
                 };
                 
                 // Get admin preferences with error handling
-                let admin_preferences = match dao.get_proposal_admin_preferences(group_id.clone()) {
+                let admin_preferences = match dao.get_dao_admin_preferences(group_id.clone()) {
                     Ok(prefs) => prefs,
                     Err(e) => {
                         log::error!("Failed to get admin preferences for group {}: {}", group_id, e);
