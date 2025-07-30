@@ -12,7 +12,7 @@ use crate::bot::handler::{
     handle_aptos_connect, handle_balance, handle_group_balance, handle_group_wallet_address,
     handle_wallet_address,
 };
-use crate::dao::handler::handle_dao_preferences;
+use crate::dao::handler::handle_proposal_preferences;
 use crate::dependencies::BotDependencies;
 use crate::user_model_preferences::handler::{
     handle_my_settings, handle_select_model, handle_select_reasoning_model,
@@ -141,8 +141,8 @@ pub async fn answers(
         Command::GroupBalance(symbol) => {
             handle_group_balance(bot, msg, bot_deps.clone(), &symbol).await?;
         }
-        Command::DaoPreferences => {
-            handle_dao_preferences(bot, msg, bot_deps.clone()).await?;
+        Command::ProposalPreferences => {
+            handle_proposal_preferences(bot, msg, bot_deps.clone()).await?;
         }
     };
     Ok(())

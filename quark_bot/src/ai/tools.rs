@@ -5,7 +5,7 @@ use super::actions::{
 };
 use crate::{
     ai::actions::{execute_fund_account, execute_get_balance, execute_withdraw_funds},
-    dao::handler::execute_create_dao,
+    dao::handler::execute_create_proposal,
     dependencies::BotDependencies,
 };
 use open_ai_rust_responses_by_sshift::types::Tool;
@@ -261,28 +261,28 @@ pub fn get_pay_users_tool() -> Tool {
     )
 }
 
-pub fn create_dao() -> Tool {
+pub fn create_proposal() -> Tool {
     Tool::function(
-        "create_dao",
-        "Create a new DAO with the given name, description, start date, end date, currency and options to vote for. CRITICAL: You MUST use get_current_time tool with timezone 'UTC' FIRST to get the current time before calling this tool. All dates must be calculated from the current UTC time and converted to seconds since epoch.",
+        "create_proposal",
+        "Create a new voting proposal for the with the given name, description, start date, end date, currency and options to vote for. CRITICAL: You MUST use get_current_time tool with timezone 'UTC' FIRST to get the current time before calling this tool. All dates must be calculated from the current UTC time and converted to seconds since epoch.",
         json!({
             "type": "object",
             "properties": {
                 "name": {
                     "type": "string",
-                    "description": "The name of the DAO"
+                    "description": "The name of the proposal"
                 },
                 "description": {
                     "type": "string",
-                    "description": "The description of the DAO"
+                    "description": "The description of the proposal"
                 },
                 "start_date": {
                     "type": "string",
-                    "description": "The start date of the DAO in seconds since epoch (UTC+0). MUST be calculated from current UTC time obtained from get_current_time tool. Examples: 'in 5 minutes' = current_utc_epoch + 300, 'in 1 hour' = current_utc_epoch + 3600, 'tomorrow' = current_utc_epoch + 86400. For conflicting times like 'in 5 minutes 29th July 2025', use the relative time (5 minutes from now)."
+                    "description": "The start date of the proposal in seconds since epoch (UTC+0). MUST be calculated from current UTC time obtained from get_current_time tool. Examples: 'in 5 minutes' = current_utc_epoch + 300, 'in 1 hour' = current_utc_epoch + 3600, 'tomorrow' = current_utc_epoch + 86400. For conflicting times like 'in 5 minutes 29th July 2025', use the relative time (5 minutes from now)."
                 },
                 "end_date": {
                     "type": "string",
-                    "description": "The end date of the DAO in seconds since epoch (UTC+0). Calculate duration from start_date, not from current time. Example: 'end in 3 days' = start_date + 259200 seconds."
+                    "description": "The end date of the proposal in seconds since epoch (UTC+0). Calculate duration from start_date, not from current time. Example: 'end in 3 days' = start_date + 259200 seconds."
                 },
                 "options": {
                     "type": "array",
@@ -293,7 +293,7 @@ pub fn create_dao() -> Tool {
                 },
                 "symbol": {
                     "type": "string",
-                    "description": "The symbol of the currency of the DAO"
+                    "description": "The symbol of the currency of the proposal"
                 }
             },
             "required": ["name", "description", "start_date", "end_date", "options", "symbol"],
@@ -337,7 +337,7 @@ pub async fn execute_custom_tool(
         "get_current_time" => execute_get_time(arguments).await,
         "get_fear_and_greed_index" => execute_fear_and_greed_index(arguments).await,
         "get_pay_users" => execute_pay_users(arguments, msg, bot_deps.clone(), group_id).await,
-        "create_dao" => execute_create_dao(arguments, bot, msg, group_id, bot_deps.clone()).await,
+        "create_proposal" => execute_create_proposal(arguments, bot, msg, group_id, bot_deps.clone()).await,
         "get_recent_messages" => execute_get_recent_messages(msg, bot_deps).await,
         _ => {
             format!("Error: Unknown custom tool '{}'", tool_name)
@@ -374,7 +374,7 @@ pub fn get_all_custom_tools() -> Vec<Tool> {
         get_time_tool(),
         get_fear_and_greed_index_tool(),
         get_pay_users_tool(),
-        create_dao(),
+        create_proposal(),
         get_recent_messages_tool(),
     ]
 }
