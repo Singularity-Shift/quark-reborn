@@ -14,6 +14,7 @@ pub struct DaoAdminPreferences {
     pub group_id: String,
     pub expiration_time: u64,
     pub interval_active_proposal_notifications: u64,
+    pub interval_dao_results_notifications: u64,
     pub default_dao_token: Option<String>,
 }
 
@@ -30,6 +31,7 @@ pub struct ProposalEntry {
     pub coin_type: String,
     pub status: ProposalStatus,
     pub last_active_notification: u64,
+    pub last_result_notification: u64,
     pub result_notified: bool,
 }
 
@@ -49,6 +51,7 @@ impl From<&CreateProposalRequest> for ProposalEntry {
             coin_type: request.currency.clone(),
             status: ProposalStatus::Pending,
             last_active_notification: now,
+            last_result_notification: now,
             result_notified: false,
         }
     }

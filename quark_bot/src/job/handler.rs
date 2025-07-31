@@ -71,7 +71,7 @@ pub fn job_active_daos(dao: Dao, bot: Bot) -> Job {
         Ok(url) => url,
         Err(e) => {
             log::error!("Failed to get APP_URL environment variable: {}", e);
-            return Job::new_async("0 */5 * * * *", move |_uuid, _l| {
+            return Job::new_async("0 */2 * * * *", move |_uuid, _l| {
                 Box::pin(async move {
                     log::error!("Cannot run active DAOs job - APP_URL not configured");
                 })
@@ -79,7 +79,7 @@ pub fn job_active_daos(dao: Dao, bot: Bot) -> Job {
         }
     };
     
-    Job::new_async("0 */5 * * * *", move |_uuid, _l| {
+    Job::new_async("0 */2 * * * *", move |_uuid, _l| {
         let base_url = base_url.clone();
         let dao = dao.clone();
         let bot = bot.clone();
@@ -179,15 +179,18 @@ pub fn job_active_daos(dao: Dao, bot: Bot) -> Job {
                     let keyboard = InlineKeyboardMarkup::new(keyboard_buttons);
 
                     // Create rich message text
+                    let end_date = chrono::DateTime::from_timestamp(proposal_entry.end_date as i64, 0)
+                        .map(|dt| dt.format("%Y-%m-%d %H:%M:%S").to_string())
+                        .unwrap_or_else(|| proposal_entry.end_date.to_string());
+                    
                     let message_text = format!(
-                        "🏛️ {}\n\n📝 {}\n\n⏰ Voting ends at timestamp: {}\n\n🗳️ Click on your preferred option below to vote:",
+                        "🏛️ {}\n\n📝 {}\n\n⏰ Voting ends at: {}\n\n🗳️ Click on your preferred option below to vote:",
                         proposal_entry.name,
                         proposal_entry.description,
-                        proposal_entry.end_date
+                        end_date
                     );
 
                     log::info!("Sending active proposals notification for: {}", proposal_entry.proposal_id);
-                    log::info!("Message text: {}", message_text);
 
                     // Send message with error handling
                     match bot.send_message(chat_group_id, message_text)
@@ -222,7 +225,7 @@ pub fn job_active_daos(dao: Dao, bot: Bot) -> Job {
 }
 
 pub fn job_daos_results(panora: Panora, bot: Bot, dao: Dao) -> Job {
-    Job::new_async("0 0 * * * *", move |_uuid, _l| {
+    Job::new_async("0 */3 * * * *", move |_uuid, _l| {
         let panora = panora.clone();
         let bot = bot.clone();
         let dao = dao.clone();
@@ -239,20 +242,39 @@ pub fn job_daos_results(panora: Panora, bot: Bot, dao: Dao) -> Job {
             };
 
             for proposal_entry in daos {
-                // Check if DAO has ended and results haven't been sent
-                log::info!("Processing finished DAO: {}", proposal_entry.proposal_id);
-                
-                match fetch_and_send_dao_results(&panora, &bot, &dao, &proposal_entry).await {
-                    Ok(_) => {
-                        log::info!("Successfully sent DAO results for: {}", proposal_entry.proposal_id);
-                        if let Err(e) = dao.update_result_notified(proposal_entry.proposal_id.clone()) {
-                            log::error!("Failed to update result_notified for DAO {}: {}", proposal_entry.proposal_id, e);
-                        }
-                    }
+                let group_id = proposal_entry.group_id.clone();
+
+                let admin_preferences = match dao.get_dao_admin_preferences(group_id.clone()) {
+                    Ok(prefs) => prefs,
                     Err(e) => {
-                        log::error!("Failed to send DAO results for {}: {}", proposal_entry.proposal_id, e);
+                        log::error!("Failed to get admin preferences for group {}: {}", group_id, e);
+                        continue;
                     }
+                };
+
+                let interval_seconds = admin_preferences.interval_dao_results_notifications;
+                let now = Utc::now().timestamp() as u64;
+
+                let time_since_last_notification = now - proposal_entry.last_result_notification;
+
+                
+                if time_since_last_notification >= interval_seconds {
+                // Check if DAO has ended and results haven't been sent
+                    log::info!("Processing finished DAO: {}", proposal_entry.proposal_id);
+                    
+                    match fetch_and_send_dao_results(&panora, &bot, &proposal_entry).await {
+                        Ok(_) => {
+                            log::info!("Successfully sent DAO results for: {}", proposal_entry.proposal_id);
+                            if let Err(e) = dao.update_result_notified(proposal_entry.proposal_id.clone()) {
+                                log::error!("Failed to update result_notified for DAO {}: {}", proposal_entry.proposal_id, e);
+                            }
+                        }
+                        Err(e) => {
+                            log::error!("Failed to send DAO results for {}: {}", proposal_entry.proposal_id, e);
+                            }
+                        }
                 }
+            
             }
         })
     })
@@ -262,7 +284,6 @@ pub fn job_daos_results(panora: Panora, bot: Bot, dao: Dao) -> Job {
 async fn fetch_and_send_dao_results(
     panora: &Panora,
     bot: &Bot,
-    _dao: &Dao,
     proposal_entry: &ProposalEntry,
 ) -> anyhow::Result<()> {
     let group_id = proposal_entry.group_id.clone();
@@ -311,21 +332,47 @@ async fn fetch_and_send_dao_results(
             let empty_vec = vec![];
             let choices = dao_info["choices"].as_array().unwrap_or(&empty_vec);
             let choices_weights = dao_info["choices_weights"].as_array().unwrap_or(&empty_vec);
-        
-        // Find the winning option
-        let mut max_votes = 0u64;
-        let mut winning_index = 0;
-        let mut total_votes = 0u64;
-        
-        for (index, weight) in choices_weights.iter().enumerate() {
-            let votes = weight.as_u64().unwrap_or(0);
-            total_votes += votes;
-            if votes > max_votes {
-                max_votes = votes;
-                winning_index = index;
+            let mut coin_type = dao_info["coin_type"].as_str().unwrap_or("Unknown");
+
+            if coin_type == "0x1" {
+                coin_type = "0x1::aptos_coin::AptosCoin"
             }
-        }
+
+            let coin_data = panora.get_panora_token_list().await;
+
+            if coin_data.is_err() {
+                log::error!("Failed to get Panora token list: {}", coin_data.err().unwrap());
+                return Err(anyhow::anyhow!("Failed to get Panora token list"));
+            }
+
+            let coin_data = coin_data.unwrap();
+
+            let coin = coin_data.iter().find(|coin| coin.token_address.as_ref().unwrap_or(&"".to_string()).to_lowercase() == coin_type.to_lowercase() || coin.fa_address.to_lowercase() == coin_type.to_lowercase());
+
+            if coin.is_none() {
+                log::error!("Failed to find coin data for DAO {}: {}", proposal_entry.proposal_id, coin_type);
+                return Err(anyhow::anyhow!("Failed to find coin data for DAO"));
+            }
+
+            let coin = coin.unwrap();
+            
+            let decimals = coin.decimals;
         
+            // Find the winning option
+            let mut max_votes = 0.0f64;
+            let mut winning_index = 0;
+            let mut total_votes = 0.0f64;
+            
+            for (index, weight) in choices_weights.iter().enumerate() {
+                let votes = weight.as_str().unwrap_or("0").parse::<u64>().unwrap_or(0);
+                let votes = votes as f64 / 10_f64.powi(decimals as i32);
+                total_votes += votes;
+                if votes > max_votes {
+                    max_votes = votes;
+                    winning_index = index;
+                }
+            }
+            
             // Create results message (using MarkdownV2 formatting)
             let mut results_text = format!(
                 "🏆 *DAO VOTING RESULTS*\n\n🏛️ *{}*\n📝 {}\n\n📊 *Results:*\n",
@@ -335,26 +382,27 @@ async fn fetch_and_send_dao_results(
             
             for (index, choice) in choices.iter().enumerate() {
                 let choice_name = choice.as_str().unwrap_or("Unknown");
-                let votes = choices_weights[index].as_u64().unwrap_or(0);
-                let percentage = if total_votes > 0 {
-                    (votes as f64 / total_votes as f64 * 100.0).round() as u64
+                let votes = choices_weights[index].as_str().unwrap_or("0").parse::<u64>().unwrap_or(0);
+                let votes = votes as f64 / 10_f64.powi(decimals as i32);
+                let percentage = if total_votes > 0.0f64 {
+                    (votes as f64 / total_votes as f64 * 100.0) as f64
                 } else {
-                    0
+                    0.0f64
                 };
                 
                 let emoji = if index == winning_index { "🥇" } else { "📊" };
                 results_text.push_str(&format!(
-                    "{} *{}*: {} votes \\({}%\\)\n",
-                    emoji, escape_markdown_v2(choice_name), votes, percentage
-                ));
+                    "{} *{}*: {} {:.2} votes \\({:.2}%\\)\n",
+                    emoji, escape_markdown_v2(choice_name), coin.symbol, votes, percentage
+                ).replace(".", "\\."));
             }
             
-            if total_votes > 0 {
+            if total_votes > 0.0f64 {
                 let winning_choice = choices[winning_index].as_str().unwrap_or("Unknown");
                 results_text.push_str(&format!(
-                    "\n🎉 *Winner: {}* with {} votes\\!\n📈 Total votes cast: {}",
-                    escape_markdown_v2(winning_choice), max_votes, total_votes
-                ));
+                    "\n🎉 *Winner: {}* with {:.2} {} votes\\!\n📈 Total votes cast: {:.2} {}",
+                    escape_markdown_v2(winning_choice), max_votes, coin.symbol, total_votes, coin.symbol
+                ).replace(".", "\\."));
             } else {
                 results_text.push_str("\n❌ No votes were cast for this DAO\\.");
             }
