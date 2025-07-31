@@ -93,6 +93,8 @@ pub fn job_active_daos(dao: Dao, bot: Bot) -> Job {
                 }
             };
 
+            log::info!("Active DAOs: {}", daos.len());
+
             for proposal_entry in daos {
                 let group_id = proposal_entry.group_id.clone();
 

@@ -230,3 +230,9 @@ export interface IDAOProposal {
   coin_type: string;
   coin_version: CoinVersion;
 }
+
+export interface ICoinData {
+  symbol: string;
+  decimals: number;
+  logo?: string;
+}
