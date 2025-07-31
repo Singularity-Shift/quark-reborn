@@ -81,6 +81,7 @@ impl Dao {
                 group_id,
                 expiration_time: 7 * 24 * 60 * 60,
                 interval_active_proposal_notifications: 3600,
+                interval_dao_results_notifications: 3600,
                 default_dao_token: None,
             });
         }
@@ -187,8 +188,6 @@ impl Dao {
             }
         })?;
 
-        log::info!("DAOs: {:?}", daos);
-
         if daos.is_none() {
             return Ok(vec![]);
         }
@@ -202,19 +201,9 @@ impl Dao {
 
         let daos = daos_result.unwrap();
 
-        log::info!("DAOs: {:?}", daos);
-
         Ok(daos
             .into_iter()
-            .filter(|dao| {
-                log::info!("DAO: {:?}", dao);
-                log::info!("Now: {}", now);
-                log::info!("Start date: {}", dao.start_date);
-                log::info!("End date: {}", dao.end_date);
-                log::info!("Start date <= now: {}", dao.start_date <= now);
-                log::info!("End date >= now: {}", dao.end_date >= now);
-                dao.start_date <= now && dao.end_date >= now
-            })
+            .filter(|dao| dao.start_date <= now && dao.end_date >= now)
             .collect())
     }
 
@@ -256,7 +245,7 @@ impl Dao {
     pub fn get_dao_results(&self) -> Result<Vec<ProposalEntry>> {
         let now = Utc::now().timestamp() as u64;
 
-        let dao_results = self.db.update_and_fetch("dao_results", |entries| {
+        let dao_results = self.db.update_and_fetch("daos", |entries| {
             if let Some(dao_results) = entries {
                 let dao_results_result: Result<Vec<ProposalEntry>, serde_json::Error> =
                     serde_json::from_slice(dao_results);

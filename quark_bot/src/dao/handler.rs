@@ -286,6 +286,7 @@ pub async fn handle_dao_preferences(
                 group_id: group_id.clone(),
                 expiration_time: 7 * 24 * 60 * 60, // 7 days in seconds
                 interval_active_proposal_notifications: 60 * 60, // 1 hour in seconds
+                interval_dao_results_notifications: 3600,
                 default_dao_token: None,
             };
 
@@ -322,6 +323,16 @@ pub async fn handle_dao_preferences(
         )],
         vec![InlineKeyboardButton::new(
             format!(
+                "🔔 Results Notification Interval: {}",
+                format_time_duration(current_prefs.interval_dao_results_notifications)
+            ),
+            InlineKeyboardButtonKind::CallbackData(format!(
+                "dao_set_results_notifications_{}",
+                group_id
+            )),
+        )],
+        vec![InlineKeyboardButton::new(
+            format!(
                 "💰 DAO Token: {}",
                 current_prefs
                     .default_dao_token
@@ -341,14 +352,14 @@ pub async fn handle_dao_preferences(
         📊 <b>Current Settings:</b>\n\
         ⏰ <b>Expiration Time:</b> {}\n\
         🔔 <b>Notification Interval:</b> {}\n\
+        🔔 <b>Results Notification Interval:</b> {}\n\
         💰 <b>DAO Token:</b> {}\n\n\
         💡 <i>Click the buttons below to modify these settings</i>",
         format_time_duration(current_prefs.expiration_time),
         format_time_duration(current_prefs.interval_active_proposal_notifications),
+        format_time_duration(current_prefs.interval_dao_results_notifications),
         current_prefs.default_dao_token.unwrap_or("".to_string())
     );
-
-    log::info!("Message text: {}", message_text);
 
     bot.send_message(msg.chat.id, message_text)
         .parse_mode(teloxide::types::ParseMode::Html)
@@ -559,6 +570,104 @@ pub async fn handle_dao_preference_callback(
         .parse_mode(teloxide::types::ParseMode::Html)
         .reply_markup(keyboard)
         .await?;
+    } else if data.starts_with("dao_set_results_notifications_") {
+        let group_id = data.strip_prefix("dao_set_results_notifications_").unwrap();
+
+        // Show options for results notification interval
+        let keyboard = InlineKeyboardMarkup::new(vec![
+            vec![
+                InlineKeyboardButton::new(
+                    "5min",
+                    InlineKeyboardButtonKind::CallbackData(format!(
+                        "dao_res_notif_{}_{}",
+                        group_id,
+                        5 * 60
+                    )),
+                ),
+                InlineKeyboardButton::new(
+                    "15min",
+                    InlineKeyboardButtonKind::CallbackData(format!(
+                        "dao_res_notif_{}_{}",
+                        group_id,
+                        15 * 60
+                    )),
+                ),
+                InlineKeyboardButton::new(
+                    "30min",
+                    InlineKeyboardButtonKind::CallbackData(format!(
+                        "dao_res_notif_{}_{}",
+                        group_id,
+                        30 * 60
+                    )),
+                ),
+            ],
+            vec![
+                InlineKeyboardButton::new(
+                    "1h",
+                    InlineKeyboardButtonKind::CallbackData(format!(
+                        "dao_res_notif_{}_{}",
+                        group_id,
+                        60 * 60
+                    )),
+                ),
+                InlineKeyboardButton::new(
+                    "3h",
+                    InlineKeyboardButtonKind::CallbackData(format!(
+                        "dao_res_notif_{}_{}",
+                        group_id,
+                        3 * 60 * 60
+                    )),
+                ),
+                InlineKeyboardButton::new(
+                    "6h",
+                    InlineKeyboardButtonKind::CallbackData(format!(
+                        "dao_res_notif_{}_{}",
+                        group_id,
+                        6 * 60 * 60
+                    )),
+                ),
+            ],
+            vec![
+                InlineKeyboardButton::new(
+                    "1d",
+                    InlineKeyboardButtonKind::CallbackData(format!(
+                        "dao_res_notif_{}_{}",
+                        group_id,
+                        24 * 60 * 60
+                    )),
+                ),
+                InlineKeyboardButton::new(
+                    "2d",
+                    InlineKeyboardButtonKind::CallbackData(format!(
+                        "dao_res_notif_{}_{}",
+                        group_id,
+                        2 * 24 * 60 * 60
+                    )),
+                ),
+                InlineKeyboardButton::new(
+                    "5d",
+                    InlineKeyboardButtonKind::CallbackData(format!(
+                        "dao_res_notif_{}_{}",
+                        group_id,
+                        5 * 24 * 60 * 60
+                    )),
+                ),
+            ],
+            vec![InlineKeyboardButton::new(
+                "🔙 Back",
+                InlineKeyboardButtonKind::CallbackData("dao_preferences_back".to_string()),
+            )],
+        ]);
+
+        bot.edit_message_text(
+            msg.chat.id,
+            msg.id,
+            "🔔 <b>Select Results Notification Interval</b>\n\n\
+            Choose how often to send notifications for DAO results:",
+        )
+        .parse_mode(teloxide::types::ParseMode::Html)
+        .reply_markup(keyboard)
+        .await?;
     } else if data.starts_with("dao_set_token_") {
         let group_id = data.strip_prefix("dao_set_token_").unwrap();
         let user_id = query.from.id.0.to_string();
@@ -669,6 +778,45 @@ pub async fn handle_dao_preference_callback(
             .parse_mode(teloxide::types::ParseMode::Html)
             .await?;
         }
+    } else if data.starts_with("dao_res_notif_") {
+        let parts: Vec<&str> = data.split('_').collect();
+        if parts.len() >= 5 {
+            let group_id = parts[3];
+            let results_notification_interval: u64 = parts[4].parse().unwrap_or(60 * 60);
+
+            // Update results notification interval
+            match bot_deps.dao.get_dao_admin_preferences(group_id.to_string()) {
+                Ok(mut prefs) => {
+                    prefs.interval_dao_results_notifications = results_notification_interval;
+                    if let Err(_) = bot_deps
+                        .dao
+                        .set_dao_admin_preferences(group_id.to_string(), prefs)
+                    {
+                        bot.answer_callback_query(query.id)
+                            .text("❌ Error updating preferences")
+                            .await?;
+                        return Ok(());
+                    }
+                }
+                Err(_) => {
+                    bot.answer_callback_query(query.id)
+                        .text("❌ Error: No admin preferences found for this group")
+                        .await?;
+                    return Ok(());
+                }
+            }
+
+            bot.edit_message_text(
+                msg.chat.id,
+                msg.id,
+                format!(
+                    "✅ <b>Results notification interval updated to {}</b>",
+                    format_time_duration(results_notification_interval)
+                ),
+            )
+            .parse_mode(teloxide::types::ParseMode::Html)
+            .await?;
+        }
     } else if data == "dao_preferences_back" {
         // Go back to main preferences menu - just edit the message back to the main menu
         let group_id = msg.chat.id.to_string();
@@ -698,6 +846,16 @@ pub async fn handle_dao_preference_callback(
                 ),
                 InlineKeyboardButtonKind::CallbackData(format!(
                     "dao_set_notifications_{}",
+                    group_id
+                )),
+            )],
+            vec![InlineKeyboardButton::new(
+                format!(
+                    "🔔 Results Notification Interval: {}",
+                    format_time_duration(current_prefs.interval_dao_results_notifications)
+                ),
+                InlineKeyboardButtonKind::CallbackData(format!(
+                    "dao_set_results_notifications_{}",
                     group_id
                 )),
             )],
