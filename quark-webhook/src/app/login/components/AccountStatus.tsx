@@ -2,7 +2,7 @@
 "use client";
 import { useState } from "react";
 import { truncateAddress, useWallet } from "@aptos-labs/wallet-adapter-react";
-import { closeMiniApp, hapticFeedback } from "@telegram-apps/sdk-react";
+import { hapticFeedback } from "@telegram-apps/sdk-react";
 import { Message } from "@/components/Message/Message";
 import { useMessage } from "@/hooks/useMessage";
 import {
