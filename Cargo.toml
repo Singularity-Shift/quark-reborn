@@ -35,3 +35,5 @@ ron= {version = "0.10.1"}
 bincode = "2.0.1"
 hex = "0.4.3"
 bcs = "0.1.6"
+chrono = "0.4.41"
+uuid = {version = "1.17.0", features = ["v4"]}

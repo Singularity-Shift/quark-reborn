@@ -1,4 +1,5 @@
 use super::dto::{ChatModel, ModelPreferences, ReasoningModel};
+use crate::dependencies::BotDependencies;
 use anyhow::Result;
 use open_ai_rust_responses_by_sshift::types::Effort;
 use serde_json;
@@ -61,11 +62,7 @@ impl UserModelPreferences {
     }
 }
 
-pub async fn handle_select_model(
-    bot: Bot,
-    msg: Message,
-    _user_model_prefs: UserModelPreferences,
-) -> Result<()> {
+pub async fn handle_select_model(bot: Bot, msg: Message) -> Result<()> {
     let user = msg.from.as_ref();
     if user.is_none() {
         bot.send_message(msg.chat.id, "❌ Unable to verify user.")
@@ -107,11 +104,7 @@ pub async fn handle_select_model(
     Ok(())
 }
 
-pub async fn handle_select_reasoning_model(
-    bot: Bot,
-    msg: Message,
-    _user_model_prefs: UserModelPreferences,
-) -> Result<()> {
+pub async fn handle_select_reasoning_model(bot: Bot, msg: Message) -> Result<()> {
     let user = msg.from.as_ref();
     if user.is_none() {
         bot.send_message(msg.chat.id, "❌ Unable to verify user.")
@@ -149,11 +142,7 @@ pub async fn handle_select_reasoning_model(
     Ok(())
 }
 
-pub async fn handle_my_settings(
-    bot: Bot,
-    msg: Message,
-    user_model_prefs: UserModelPreferences,
-) -> Result<()> {
+pub async fn handle_my_settings(bot: Bot, msg: Message, bot_deps: BotDependencies) -> Result<()> {
     let user = msg.from.as_ref();
     if user.is_none() {
         bot.send_message(msg.chat.id, "❌ Unable to verify user.")
@@ -172,7 +161,7 @@ pub async fn handle_my_settings(
     }
 
     // Get user's current preferences
-    let preferences = user_model_prefs.get_preferences(username.unwrap());
+    let preferences = bot_deps.user_model_prefs.get_preferences(username.unwrap());
 
     // Format the settings message
     let settings_text = format!(

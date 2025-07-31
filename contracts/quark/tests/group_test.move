@@ -703,7 +703,10 @@ module quark::group_test {
         group::create_group(quark, quark, group_id);
         
         let choices = get_test_choices();
-        let from = timestamp::now_seconds() + 86400; // Future time
+        let from = timestamp::now_seconds();
+
+        timestamp::update_global_time_for_test_secs(86300);
+
         let to = from + 86400;
         
         group::create_group_dao_v1<AptosCoin>(quark, quark, group_id, dao_id, choices, from, to);

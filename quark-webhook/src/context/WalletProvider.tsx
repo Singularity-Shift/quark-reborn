@@ -9,12 +9,6 @@ import { useChain } from "./ChainProvider";
 export const WalletProvider = ({ children }: PropsWithChildren) => {
   const { aptos } = useChain();
 
-  const dappInfo = {
-    aptosConnect: {
-      dappName: "Quark",
-    },
-  };
-
   return (
     <AptosWalletAdapterProvider
       dappConfig={{
@@ -31,7 +25,14 @@ export const WalletProvider = ({ children }: PropsWithChildren) => {
       onError={(error) => {
         console.error("Error in wallet adapter:", error);
       }}
-      optInWallets={["Continue with Google"]}
+      optInWallets={[
+        "Continue with Google",
+        "Continue with Apple",
+        "Petra",
+        "Pontem Wallet",
+        "Nightly",
+        "OKX Wallet",
+      ]}
       autoConnect
     >
       {children}

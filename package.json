@@ -1,0 +1,6 @@
+{
+	"dependencies": {
+		"@aptos-labs/wallet-adapter-core": "^7.1.0",
+		"tailwindcss": "^4.1.11"
+	}
+}

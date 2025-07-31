@@ -49,6 +49,8 @@ pub enum Command {
     GroupWalletAddress,
     #[command(description = "Get the group's balance of a token.")]
     GroupBalance(String),
+    #[command(description = "Set dao preferences.")]
+    DaoPreferences,
     #[command(description = "Display model pricing information.")]
     Prices,
 }

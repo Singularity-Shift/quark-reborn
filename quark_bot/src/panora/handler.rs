@@ -38,6 +38,38 @@ impl Panora {
     }
 
     pub async fn set_panora_token_list(&self) -> Result<()> {
+        const MAX_RETRIES: u32 = 3;
+        const BASE_DELAY_MS: u64 = 2000; // 2 seconds base delay
+
+        for attempt in 1..=MAX_RETRIES {
+            match self.set_panora_token_list_internal().await {
+                Ok(_) => return Ok(()),
+                Err(e) => {
+                    let error_msg = e.to_string();
+                    if error_msg.contains("429") && attempt < MAX_RETRIES {
+                        // Exponential backoff: 2s, 4s, 8s
+                        let delay_ms = BASE_DELAY_MS * (2_u64.pow(attempt - 1));
+                        log::warn!(
+                            "Rate limited when updating token list (attempt {}/{}), waiting {}ms before retry",
+                            attempt,
+                            MAX_RETRIES,
+                            delay_ms
+                        );
+                        tokio::time::sleep(tokio::time::Duration::from_millis(delay_ms)).await;
+                    } else {
+                        return Err(e);
+                    }
+                }
+            }
+        }
+
+        Err(anyhow::anyhow!(
+            "Failed to update Panora token list after {} retries",
+            MAX_RETRIES
+        ))
+    }
+
+    async fn set_panora_token_list_internal(&self) -> Result<()> {
         let response = self
             .client
             .get(format!("{}/tokenlist", self.panora_url))
@@ -100,6 +132,38 @@ impl Panora {
     }
 
     pub async fn set_token_ai_fees(&self, token_address: &str) -> Result<()> {
+        const MAX_RETRIES: u32 = 3;
+        const BASE_DELAY_MS: u64 = 2000; // 2 seconds base delay
+
+        for attempt in 1..=MAX_RETRIES {
+            match self.set_token_ai_fees_internal(token_address).await {
+                Ok(_) => return Ok(()),
+                Err(e) => {
+                    let error_msg = e.to_string();
+                    if error_msg.contains("429") && attempt < MAX_RETRIES {
+                        // Exponential backoff: 2s, 4s, 8s
+                        let delay_ms = BASE_DELAY_MS * (2_u64.pow(attempt - 1));
+                        log::warn!(
+                            "Rate limited when updating token AI fees (attempt {}/{}), waiting {}ms before retry",
+                            attempt,
+                            MAX_RETRIES,
+                            delay_ms
+                        );
+                        tokio::time::sleep(tokio::time::Duration::from_millis(delay_ms)).await;
+                    } else {
+                        return Err(e);
+                    }
+                }
+            }
+        }
+
+        Err(anyhow::anyhow!(
+            "Failed to update token AI fees after {} retries",
+            MAX_RETRIES
+        ))
+    }
+
+    async fn set_token_ai_fees_internal(&self, token_address: &str) -> Result<()> {
         let price_coins_response = self
             .client
             .get(format!("{}/prices", self.panora_url))

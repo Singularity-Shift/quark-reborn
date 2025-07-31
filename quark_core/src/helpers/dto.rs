@@ -10,6 +10,7 @@ pub enum Endpoints {
     Purchase,
     PayMembers,
     GroupPurchase,
+    CreateProposal,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -70,8 +71,8 @@ pub enum AITool {
     WebSearchPreview,
 }
 
-#[derive(Debug, Serialize, Deserialize, ToSchema)]
-pub enum PayUsersVersion {
+#[derive(Debug, Serialize, Deserialize, ToSchema, Clone)]
+pub enum CoinVersion {
     V1,
     V2,
 }
@@ -81,7 +82,7 @@ pub struct PayUsersRequest {
     pub amount: u64,
     pub users: Vec<String>,
     pub coin_type: String,
-    pub version: PayUsersVersion,
+    pub version: CoinVersion,
 }
 
 #[derive(Deserialize, Serialize, Debug, ToSchema)]
@@ -119,6 +120,19 @@ pub struct PriceCoin {
     pub native_price: Option<String>,
 }
 
+#[derive(Deserialize, Serialize, Debug, ToSchema)]
+pub struct CreateProposalRequest {
+    pub name: String,
+    pub description: String,
+    pub options: Vec<String>,
+    pub start_date: u64,
+    pub end_date: u64,
+    pub group_id: String,
+    pub proposal_id: String,
+    pub version: CoinVersion,
+    pub currency: String,
+}
+
 impl fmt::Display for Endpoints {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let backend_host =
@@ -131,6 +145,7 @@ impl fmt::Display for Endpoints {
             &Endpoints::PayMembers => write!(f, "{}/pay-members", backend_url),
             &Endpoints::CreateGroup => write!(f, "{}/create-group", backend_url),
             &Endpoints::GroupPurchase => write!(f, "{}/group-purchase", backend_url),
+            &Endpoints::CreateProposal => write!(f, "{}/proposal", backend_url),
         }
     }
 }

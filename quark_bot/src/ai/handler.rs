@@ -2,10 +2,7 @@ use crate::ai::dto::AIResponse;
 use crate::ai::gcs::GcsImageUploader;
 use crate::ai::prompt::get_prompt;
 use crate::ai::tools::{execute_custom_tool, get_all_custom_tools};
-use crate::credentials::handler::Auth;
-use crate::group::handler::Group;
-use crate::panora::handler::Panora;
-use crate::services::handler::Services;
+use crate::dependencies::BotDependencies;
 use crate::user_conversation::handler::UserConversations;
 use base64::{Engine as _, engine::general_purpose};
 use open_ai_rust_responses_by_sshift::types::{
@@ -15,7 +12,7 @@ use open_ai_rust_responses_by_sshift::{
     Client as OAIClient, FunctionCallInfo, Model, RecoveryPolicy, Request,
 };
 use serde_json;
-use sled::Db;
+use teloxide::Bot;
 use teloxide::types::Message;
 
 #[derive(Clone)]
@@ -23,18 +20,10 @@ pub struct AI {
     openai_client: OAIClient,
     system_prompt: String,
     cloud: GcsImageUploader,
-    panora: Panora,
-    service: Services,
-    history: crate::message_history::HistoryStorage,
 }
 
 impl AI {
-    pub fn new(
-        openai_api_key: String,
-        cloud: GcsImageUploader,
-        panora: Panora,
-        history: crate::message_history::HistoryStorage,
-    ) -> Self {
+    pub fn new(openai_api_key: String, cloud: GcsImageUploader) -> Self {
         let system_prompt = get_prompt();
 
         // Use default recovery policy for API error handling
@@ -43,15 +32,10 @@ impl AI {
         let openai_client = OAIClient::new_with_recovery(&openai_api_key, recovery_policy)
             .expect("Failed to create OpenAI client with recovery policy");
 
-        let service = Services::new();
-
         Self {
             openai_client,
             system_prompt,
             cloud,
-            panora,
-            service,
-            history,
         }
     }
 
@@ -88,20 +72,19 @@ impl AI {
 
     pub async fn generate_response(
         &self,
+        bot: Bot,
         msg: Message,
         input: &str,
-        db: &Db,
-        auth: Auth,
         image_url_from_reply: Option<String>,
         user_uploaded_image_urls: Vec<String>,
         model: Model,
         max_tokens: u32,
         temperature: Option<f32>,
         reasoning: Option<ReasoningParams>,
-        group: Group,
+        bot_deps: BotDependencies,
         group_id: Option<String>,
     ) -> Result<AIResponse, anyhow::Error> {
-        let user = msg.from.clone();
+        let user: Option<teloxide::types::User> = msg.from.clone();
 
         if user.is_none() {
             return Err(anyhow::anyhow!("User not found"));
@@ -117,7 +100,7 @@ impl AI {
         );
 
         let address = if group_id.is_some() {
-            let group_credentials = group.get_credentials(&msg.chat.id);
+            let group_credentials = bot_deps.group.get_credentials(&msg.chat.id);
 
             if group_credentials.is_none() {
                 return Err(anyhow::anyhow!("Group credentials not found"));
@@ -135,7 +118,7 @@ impl AI {
 
             let username = username.unwrap();
 
-            let user_credentials = auth.clone().get_credentials(&username);
+            let user_credentials = bot_deps.auth.get_credentials(&username);
 
             if user_credentials.is_none() {
                 return Err(anyhow::anyhow!("User credentials not found"));
@@ -146,7 +129,7 @@ impl AI {
             user_credentials.resource_account_address
         };
 
-        let coin_address = self.panora.aptos.get_token_address().await;
+        let coin_address = bot_deps.panora.aptos.get_token_address().await;
 
         if coin_address.is_err() {
             return Err(anyhow::anyhow!("Coin address not found"));
@@ -154,13 +137,25 @@ impl AI {
 
         let coin_address = coin_address.unwrap();
 
-        let user_balance = self
+        let user_balance = bot_deps
             .panora
             .aptos
             .get_account_balance(&address, &coin_address)
-            .await?;
+            .await;
 
-        let token = self.panora.get_token_ai_fees().await?;
+        if user_balance.is_err() {
+            return Err(anyhow::anyhow!("User balance not found"));
+        }
+
+        let user_balance = user_balance.unwrap();
+
+        let token = bot_deps.panora.get_token_ai_fees().await;
+
+        if token.is_err() {
+            return Err(anyhow::anyhow!("Token not found"));
+        }
+
+        let token = token.unwrap();
 
         let token_price = token.usd_price;
 
@@ -186,7 +181,7 @@ impl AI {
 
         let token_decimals = token_decimals.unwrap();
 
-        let min_deposit = self.panora.min_deposit / token_price;
+        let min_deposit = bot_deps.panora.min_deposit / token_price;
 
         let min_deposit = (min_deposit as f64 * 10_f64.powi(token_decimals as i32)) as u64;
 
@@ -212,7 +207,7 @@ impl AI {
             )));
         }
 
-        let user_convos = UserConversations::new(db)?;
+        let user_convos = UserConversations::new(&bot_deps.db)?;
         let previous_response_id = user_convos.get_response_id(user_id);
         let mut tool_called: Vec<FunctionCallInfo> = Vec::new();
 
@@ -399,6 +394,7 @@ impl AI {
                         || tc.name == "get_current_time"
                         || tc.name == "get_fear_and_greed_index"
                         || tc.name == "get_pay_users"
+                        || tc.name == "create_proposal"
                         || tc.name == "get_recent_messages"
                 })
                 .collect();
@@ -431,13 +427,10 @@ impl AI {
                     let result = execute_custom_tool(
                         &tool_call.name,
                         &args_value,
+                        bot.clone(),
                         msg.clone(),
-                        self.service.clone(),
-                        auth.clone(),
-                        self.panora.clone(),
-                        group.clone(),
                         group_id.clone(),
-                        self.history.clone(),
+                        bot_deps.clone(),
                     )
                     .await;
 

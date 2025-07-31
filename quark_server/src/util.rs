@@ -105,6 +105,8 @@ pub async fn execute_transaction(
             message: e.to_string(),
         })?;
 
+    println!("Simulate transaction: {:?}", simulate_transaction);
+
     let simulate_transaction_inner = simulate_transaction.into_inner();
 
     let simulate_transaction_success = if simulate_transaction_inner.is_array() {

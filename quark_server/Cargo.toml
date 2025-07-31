@@ -22,3 +22,5 @@ aptos-crypto-derive = { workspace = true }
 bcs = { workspace = true }
 redis = { workspace = true }
 hex = { workspace = true }
+chrono = { workspace = true }
+uuid = { workspace = true }

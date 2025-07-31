@@ -18,9 +18,7 @@ use crate::{
     state::ServerState,
     util::execute_transaction,
 };
-use quark_core::helpers::dto::{
-    GroupPayload, PayUsersRequest, PayUsersVersion, TransactionResponse,
-};
+use quark_core::helpers::dto::{CoinVersion, GroupPayload, PayUsersRequest, TransactionResponse};
 
 #[utoipa::path(
     post,
@@ -73,7 +71,7 @@ pub async fn pay_members(
         .collect::<Result<Vec<_>, _>>()?;
 
     let payload = match version {
-        PayUsersVersion::V1 => {
+        CoinVersion::V1 => {
             let token_type = TypeTag::from_str(&coin_type).map_err(|e| ErrorServer {
                 status: StatusCode::INTERNAL_SERVER_ERROR.into(),
                 message: e.to_string(),
@@ -96,9 +94,9 @@ pub async fn pay_members(
                 ],
             ))
         }
-        PayUsersVersion::V2 => TransactionPayload::EntryFunction(EntryFunction::new(
+        CoinVersion::V2 => TransactionPayload::EntryFunction(EntryFunction::new(
             ModuleId::new(contract_address, "group".to_string()),
-            "pay_users_v1".to_string(),
+            "pay_users_v2".to_string(),
             vec![],
             vec![
                 bcs::to_bytes(&group_id.0.to_string()).map_err(|e| ErrorServer {

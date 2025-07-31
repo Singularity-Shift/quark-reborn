@@ -1,15 +1,14 @@
-use dashmap::DashMap;
-use std::sync::Arc;
-use std::time::Duration;
-use teloxide::prelude::*;
-use teloxide::types::ChatAction;
-use teloxide::net::Download;
-use open_ai_rust_responses_by_sshift::types::ReasoningParams;
 use crate::ai::handler::AI;
 use crate::credentials::handler::Auth;
-use crate::group::handler::Group;
+use crate::dependencies::BotDependencies;
 use crate::user_model_preferences::handler::UserModelPreferences;
-use sled::Db;
+use dashmap::DashMap;
+use open_ai_rust_responses_by_sshift::types::ReasoningParams;
+use std::sync::Arc;
+use std::time::Duration;
+use teloxide::net::Download;
+use teloxide::prelude::*;
+use teloxide::types::ChatAction;
 
 pub struct MediaGroupAggregator {
     // Key: media_group_id
@@ -18,32 +17,21 @@ pub struct MediaGroupAggregator {
     bot: Bot,
     ai: AI,
     auth: Auth,
-    group: Group,
     user_model_prefs: UserModelPreferences,
-    db: Db,
 }
 
 impl MediaGroupAggregator {
-    pub fn new(
-        bot: Bot,
-        ai: AI,
-        auth: Auth,
-        group: Group,
-        user_model_prefs: UserModelPreferences,
-        db: Db,
-    ) -> Self {
+    pub fn new(bot: Bot, ai: AI, auth: Auth, user_model_prefs: UserModelPreferences) -> Self {
         Self {
             groups: DashMap::new(),
             bot,
             ai,
             auth,
-            group,
             user_model_prefs,
-            db,
         }
     }
 
-    pub async fn add_message(self: Arc<Self>, msg: Message) {
+    pub async fn add_message(self: Arc<Self>, msg: Message, bot_deps: BotDependencies) {
         let media_group_id = if let Some(id) = msg.media_group_id() {
             id.to_string()
         } else {
@@ -71,7 +59,9 @@ impl MediaGroupAggregator {
 
             // The timer has elapsed, so we can now process the group.
             if let Some((_, (messages, _))) = aggregator_clone.groups.remove(&media_group_id) {
-                aggregator_clone.process_media_group(messages).await;
+                aggregator_clone
+                    .process_media_group(messages, bot_deps)
+                    .await;
             }
         });
 
@@ -79,14 +69,14 @@ impl MediaGroupAggregator {
         entry.value_mut().1 = handle;
     }
 
-    async fn process_media_group(&self, messages: Vec<Message>) {
+    async fn process_media_group(&self, messages: Vec<Message>, bot_deps: BotDependencies) {
         if messages.is_empty() {
             return;
         }
 
         // Find the message with caption (the command)
         let command_msg = messages.iter().find(|msg| msg.caption().is_some());
-        
+
         if let Some(cmd_msg) = command_msg {
             // Determine prompt & command type
             let text = cmd_msg.caption().unwrap_or("");
@@ -103,7 +93,10 @@ impl MediaGroupAggregator {
             let chat_id = cmd_msg.chat.id;
             let typing_indicator_handle = tokio::spawn(async move {
                 loop {
-                    if let Err(e) = bot_clone.send_chat_action(chat_id, ChatAction::Typing).await {
+                    if let Err(e) = bot_clone
+                        .send_chat_action(chat_id, ChatAction::Typing)
+                        .await
+                    {
                         log::warn!("Failed to send typing action: {}", e);
                         break;
                     }
@@ -112,29 +105,47 @@ impl MediaGroupAggregator {
             });
 
             // --- Auth & prefs ---
-            let user = if let Some(u) = cmd_msg.from.as_ref() { u } else {
+            let user = if let Some(u) = cmd_msg.from.as_ref() {
+                u
+            } else {
                 typing_indicator_handle.abort();
                 return;
             };
 
-            let username = if let Some(u) = &user.username { u } else {
+            let username = if let Some(u) = &user.username {
+                u
+            } else {
                 typing_indicator_handle.abort();
-                let _ = self.bot.send_message(chat_id, "❌ Unable to verify permissions.").await;
+                let _ = self
+                    .bot
+                    .send_message(chat_id, "❌ Unable to verify permissions.")
+                    .await;
                 return;
             };
 
             if self.auth.get_credentials(username).is_none() {
                 typing_indicator_handle.abort();
-                let _ = self.bot.send_message(chat_id, "❌ Please login first.").await;
+                let _ = self
+                    .bot
+                    .send_message(chat_id, "❌ Please login first.")
+                    .await;
                 return;
             }
 
             // Load model prefs
             let prefs = self.user_model_prefs.get_preferences(username);
             let (model, temperature, reasoning_params) = if is_reasoning_command {
-                (prefs.reasoning_model.to_openai_model(), None, Some(ReasoningParams::new().with_effort(prefs.effort)))
+                (
+                    prefs.reasoning_model.to_openai_model(),
+                    None,
+                    Some(ReasoningParams::new().with_effort(prefs.effort)),
+                )
             } else {
-                (prefs.chat_model.to_openai_model(), Some(prefs.temperature), None)
+                (
+                    prefs.chat_model.to_openai_model(),
+                    Some(prefs.temperature),
+                    None,
+                )
             };
 
             // --- Gather photos: take largest variant from each message ---
@@ -145,10 +156,23 @@ impl MediaGroupAggregator {
                         let file_id = &photo.file.id;
                         match self.bot.get_file(file_id.clone()).await {
                             Ok(file_info) => {
-                                let extension = file_info.path.split('.').last().unwrap_or("jpg").to_string();
-                                let tmp_path = format!("/tmp/{}_{}.{}", user.id.0, photo.file.unique_id, extension);
+                                let extension = file_info
+                                    .path
+                                    .split('.')
+                                    .last()
+                                    .unwrap_or("jpg")
+                                    .to_string();
+                                let tmp_path = format!(
+                                    "/tmp/{}_{}.{}",
+                                    user.id.0, photo.file.unique_id, extension
+                                );
                                 if let Ok(mut f) = tokio::fs::File::create(&tmp_path).await {
-                                    if self.bot.download_file(&file_info.path, &mut f).await.is_ok() {
+                                    if self
+                                        .bot
+                                        .download_file(&file_info.path, &mut f)
+                                        .await
+                                        .is_ok()
+                                    {
                                         image_paths.push((tmp_path, extension));
                                     }
                                 }
@@ -164,27 +188,32 @@ impl MediaGroupAggregator {
                 Ok(urls) => urls,
                 Err(e) => {
                     typing_indicator_handle.abort();
-                    let _ = self.bot.send_message(chat_id, "Failed to upload images.").await;
+                    let _ = self
+                        .bot
+                        .send_message(chat_id, "Failed to upload images.")
+                        .await;
                     log::error!("upload_user_images failed: {}", e);
                     return;
                 }
             };
 
             // Generate response
-            let response_result = self.ai.generate_response(
-                cmd_msg.clone(),
-                text,
-                &self.db,
-                self.auth.clone(),
-                None,
-                uploaded_urls,
-                model,
-                8192,
-                temperature,
-                reasoning_params,
-                self.group.clone(),
-                group_id.clone(),
-            ).await;
+            let response_result = self
+                .ai
+                .generate_response(
+                    self.bot.clone(),
+                    cmd_msg.clone(),
+                    text,
+                    None,
+                    uploaded_urls,
+                    model,
+                    8192,
+                    temperature,
+                    reasoning_params,
+                    bot_deps.clone(),
+                    group_id.clone(),
+                )
+                .await;
 
             typing_indicator_handle.abort();
 
@@ -192,10 +221,17 @@ impl MediaGroupAggregator {
                 Ok(ai_response) => {
                     if let Some(image_data) = ai_response.image_data {
                         let photo = teloxide::types::InputFile::memory(image_data);
-                        let caption = if ai_response.text.len() > 1024 { &ai_response.text[..1024] } else { &ai_response.text };
+                        let caption = if ai_response.text.len() > 1024 {
+                            &ai_response.text[..1024]
+                        } else {
+                            &ai_response.text
+                        };
                         let _ = self.bot.send_photo(chat_id, photo).caption(caption).await;
                         if ai_response.text.len() > 1024 {
-                            let _ = self.bot.send_message(chat_id, &ai_response.text[1024..]).await;
+                            let _ = self
+                                .bot
+                                .send_message(chat_id, &ai_response.text[1024..])
+                                .await;
                         }
                     } else {
                         let _ = self.bot.send_message(chat_id, ai_response.text).await;
@@ -203,7 +239,10 @@ impl MediaGroupAggregator {
                 }
                 Err(e) => {
                     log::error!("AI generate_response failed: {}", e);
-                    let _ = self.bot.send_message(chat_id, "Sorry, I couldn't process your request.").await;
+                    let _ = self
+                        .bot
+                        .send_message(chat_id, "Sorry, I couldn't process your request.")
+                        .await;
                 }
             }
         } else {

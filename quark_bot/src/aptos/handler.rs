@@ -12,7 +12,7 @@ pub struct Aptos {
 }
 
 impl Aptos {
-    pub fn new(network: String, contract_address: String) -> Self {
+    pub fn new(network: String, contract_address: String, api_key: String) -> Self {
         let (builder, _chain_id) = match network.as_str() {
             "mainnet" => (
                 AptosClientBuilder::new(AptosNetwork::mainnet()),
@@ -32,7 +32,13 @@ impl Aptos {
             ),
         };
 
-        let node = builder.build();
+        let node = if api_key.is_empty() {
+            log::info!("Building node without API key");
+            builder.build()
+        } else {
+            log::info!("Building node with API key");
+            builder.api_key(api_key.as_str()).unwrap().build()
+        };
 
         Self {
             node,
@@ -41,6 +47,38 @@ impl Aptos {
     }
 
     pub async fn get_token_address(&self) -> Result<String> {
+        const MAX_RETRIES: u32 = 3;
+        const BASE_DELAY_MS: u64 = 2000; // 2 seconds base delay
+
+        for attempt in 1..=MAX_RETRIES {
+            match self.get_token_address_internal().await {
+                Ok(address) => return Ok(address),
+                Err(e) => {
+                    let error_msg = e.to_string();
+                    if error_msg.contains("429") && attempt < MAX_RETRIES {
+                        // Exponential backoff: 2s, 4s, 8s
+                        let delay_ms = BASE_DELAY_MS * (2_u64.pow(attempt - 1));
+                        log::warn!(
+                            "Rate limited when getting token address (attempt {}/{}), waiting {}ms before retry",
+                            attempt,
+                            MAX_RETRIES,
+                            delay_ms
+                        );
+                        tokio::time::sleep(tokio::time::Duration::from_millis(delay_ms)).await;
+                    } else {
+                        return Err(e);
+                    }
+                }
+            }
+        }
+
+        Err(anyhow::anyhow!(
+            "Failed to get token address after {} retries",
+            MAX_RETRIES
+        ))
+    }
+
+    async fn get_token_address_internal(&self) -> Result<String> {
         let coin_address_value = self
             .node
             .view_function(ViewRequest {

@@ -1,18 +1,16 @@
 use super::actions::{
-    execute_fear_and_greed_index, execute_get_time, execute_get_wallet_address, execute_new_pools,
-    execute_pay_users, execute_search_pools, execute_trending_pools, execute_get_recent_messages,
+    execute_fear_and_greed_index, execute_get_recent_messages, execute_get_time,
+    execute_get_wallet_address, execute_new_pools, execute_pay_users, execute_search_pools,
+    execute_trending_pools,
 };
 use crate::{
     ai::actions::{execute_fund_account, execute_get_balance, execute_withdraw_funds},
-    credentials::handler::Auth,
-    group::handler::Group,
-    panora::handler::Panora,
-    services::handler::Services,
+    dao::handler::execute_create_proposal,
+    dependencies::BotDependencies,
 };
 use open_ai_rust_responses_by_sshift::types::Tool;
 use serde_json::json;
-use teloxide::types::Message;
-use crate::message_history::HistoryStorage;
+use teloxide::{Bot, types::Message};
 
 /// Get account balance tool - returns a Tool for checking user balance
 pub fn get_balance_tool() -> Tool {
@@ -181,16 +179,16 @@ pub fn get_new_pools_tool() -> Tool {
 pub fn get_time_tool() -> Tool {
     Tool::function(
         "get_current_time",
-        "Get the current time for a specified timezone. Defaults to 'Europe/London' if not provided.",
+        "Get the current time for a specified timezone. CRITICAL: MUST be used before creating any DAO to get the current UTC time for date calculations. Always use timezone 'UTC' for DAO creation.",
         json!({
             "type": "object",
             "properties": {
                 "timezone": {
                     "type": "string",
-                    "description": "The timezone to get the current time for, in IANA format (e.g., 'America/New_York', 'Europe/London', 'Asia/Tokyo').",
-                    "default": "Europe/London"
-                }
-            },
+                    "description": "The timezone to get the current time for, in IANA format (e.g., 'America/New_York', 'Europe/London', 'Asia/Tokyo'). Use 'UTC' for DAO creation to ensure consistent time calculations.",
+                    "default": "UTC"
+                    }
+                },
             "required": []
         }),
     )
@@ -263,6 +261,47 @@ pub fn get_pay_users_tool() -> Tool {
     )
 }
 
+pub fn create_proposal() -> Tool {
+    Tool::function(
+        "create_proposal",
+        "Create a new voting proposal for the with the given name, description, start date, end date, currency and options to vote for. CRITICAL: You MUST use get_current_time tool with timezone 'UTC' FIRST to get the current time before calling this tool. All dates must be calculated from the current UTC time and converted to seconds since epoch. The symbol parameter is optional - if not provided, the tool will use the saved DAO token preference for the group. If no specific vote duration is mentioned, you can use the saved vote duration preference for the group. If no start time is provided the proposal should start 5 mins from the current time, apply this same rule if the user says to start now, immediately of similar.",
+        json!({
+            "type": "object",
+            "properties": {
+                "name": {
+                    "type": "string",
+                    "description": "The name of the proposal"
+                },
+                "description": {
+                    "type": "string",
+                    "description": "The description of the proposal"
+                },
+                "start_date": {
+                    "type": "string",
+                    "description": "The start date of the proposal in seconds since epoch (UTC+0). MUST be calculated from current UTC time obtained from get_current_time tool. CRITICAL TIME PARSING: Be extremely careful with numbers - '3 minutes' = 180 seconds, '30 minutes' = 1800 seconds. Examples: 'in 1 minute' = current_utc_epoch + 60, 'in 3 minutes' = current_utc_epoch + 180, 'in 5 minutes' = current_utc_epoch + 300, 'in 30 minutes' = current_utc_epoch + 1800, 'in 1 hour' = current_utc_epoch + 3600, 'tomorrow' = current_utc_epoch + 86400. For conflicting times like 'in 5 minutes 29th July 2025', use the relative time (5 minutes from now)."
+                },
+                "end_date": {
+                    "type": "string",
+                    "description": "The end date of the proposal in seconds since epoch (UTC+0). Calculate duration from start_date, not from current time. Example: 'end in 3 days' = start_date + 259200 seconds. If no specific duration is mentioned, you can use the saved vote duration preference for this group."
+                },
+                "options": {
+                    "type": "array",
+                    "description": "The options to vote for",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "symbol": {
+                    "type": "string",
+                    "description": "The symbol of the currency of the proposal. Optional - if not provided, will use the saved DAO token preference for this group."
+                }
+            },
+            "required": ["name", "description", "start_date", "end_date", "options"],
+            "additionalProperties": false
+        }),
+    )
+}
+
 /// Get recent group messages – returns last ≈20 lines
 pub fn get_recent_messages_tool() -> Tool {
     Tool::function(
@@ -276,13 +315,10 @@ pub fn get_recent_messages_tool() -> Tool {
 pub async fn execute_custom_tool(
     tool_name: &str,
     arguments: &serde_json::Value,
+    bot: Bot,
     msg: Message,
-    service: Services,
-    auth: Auth,
-    panora: Panora,
-    group: Group,
     group_id: Option<String>,
-    history: HistoryStorage,
+    bot_deps: BotDependencies,
 ) -> String {
     log::info!(
         "Executing tool: {} with arguments: {}",
@@ -291,19 +327,18 @@ pub async fn execute_custom_tool(
     );
 
     let result = match tool_name {
-        "get_balance" => execute_get_balance(arguments, msg, auth, panora, group, group_id).await,
-        "get_wallet_address" => execute_get_wallet_address(msg, auth, group, group_id).await,
-        "withdraw_funds" => execute_withdraw_funds(arguments, msg, auth, panora).await,
-        "fund_account" => execute_fund_account(arguments, msg, auth, panora).await,
+        "get_balance" => execute_get_balance(arguments, msg, group_id, bot_deps.clone()).await,
+        "get_wallet_address" => execute_get_wallet_address(msg, bot_deps.clone(), group_id).await,
+        "withdraw_funds" => execute_withdraw_funds(arguments, msg, bot_deps.clone()).await,
+        "fund_account" => execute_fund_account(arguments, msg, bot_deps.clone()).await,
         "get_trending_pools" => execute_trending_pools(arguments).await,
         "search_pools" => execute_search_pools(arguments).await,
         "get_new_pools" => execute_new_pools(arguments).await,
         "get_current_time" => execute_get_time(arguments).await,
         "get_fear_and_greed_index" => execute_fear_and_greed_index(arguments).await,
-        "get_pay_users" => {
-            execute_pay_users(arguments, msg, service, auth, panora, group, group_id).await
-        }
-        "get_recent_messages" => execute_get_recent_messages(msg, history).await,
+        "get_pay_users" => execute_pay_users(arguments, msg, bot_deps.clone(), group_id).await,
+        "create_proposal" => execute_create_proposal(arguments, bot, msg, group_id, bot_deps.clone()).await,
+        "get_recent_messages" => execute_get_recent_messages(msg, bot_deps).await,
         _ => {
             format!("Error: Unknown custom tool '{}'", tool_name)
         }
@@ -339,6 +374,7 @@ pub fn get_all_custom_tools() -> Vec<Tool> {
         get_time_tool(),
         get_fear_and_greed_index_tool(),
         get_pay_users_tool(),
+        create_proposal(),
         get_recent_messages_tool(),
     ]
 }
