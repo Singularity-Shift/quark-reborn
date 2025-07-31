@@ -5,23 +5,12 @@ import { useAbiClient } from "@/context/AbiProvider";
 import { QuarkGroupAbi } from "@/aptos";
 import { useWalletClient } from "@thalalabs/surf/hooks";
 import { useWallet } from "@aptos-labs/wallet-adapter-react";
-import {
-  Section,
-  Cell,
-  List,
-  Button,
-  Card,
-  Title,
-  Text,
-  Caption,
-  Badge,
-  Spinner,
-} from "@telegram-apps/telegram-ui";
 import { Page } from "@/components/Page";
 import { useMessage } from "@/hooks/useMessage";
 import { useActionDelay } from "@/hooks/useActionDelay";
 import { useSearchParams } from "next/navigation";
 import { closeMiniApp } from "@telegram-apps/sdk-react";
+import { IDAOProposal } from "@/helpers";
 
 interface DaoInfo {
   name: string;
@@ -42,6 +31,7 @@ export default function DaoPage() {
   const [loading, setLoading] = useState(true);
   const [voting, setVoting] = useState(false);
   const [hasVoted, setHasVoted] = useState(false);
+  const [paramError, setParamError] = useState<string | null>(null);
   const { message, showMessage } = useMessage();
   const { isDelaying, delayAction } = useActionDelay(1500);
   const searchParams = useSearchParams();
@@ -52,10 +42,53 @@ export default function DaoPage() {
   const choiceId = searchParams.get("choice_id");
   const coinType = searchParams.get("coin_type");
   const coinVersion = searchParams.get("coin_version");
+  const daoName = searchParams.get("dao_name");
+  const daoDescription = searchParams.get("dao_description");
+
+  // Check for required parameters
+  useEffect(() => {
+    if (!groupId || !daoId) {
+      setParamError(
+        "Missing required parameters. Please access this page through a valid DAO voting link."
+      );
+      setLoading(false);
+    } else {
+      setParamError(null);
+    }
+  }, [groupId, daoId]);
 
   // Detect if opened in external browser vs mini app
-  const isExternalBrowser =
-    typeof window !== "undefined" && !(window as any).Telegram?.WebApp;
+  const isExternalBrowser = (() => {
+    if (typeof window === "undefined") return false;
+
+    // Check for Telegram WebApp object
+    const hasWebApp = !!(window as any).Telegram?.WebApp;
+    if (!hasWebApp) return true;
+
+    // Additional check: see if we have proper launch parameters
+    try {
+      const webApp = (window as any).Telegram.WebApp;
+      // If WebApp exists but initData is empty/invalid, we might be in a problematic context
+      const hasValidInitData = webApp.initData && webApp.initData.length > 0;
+      const hasValidPlatform = webApp.platform && webApp.platform !== "unknown";
+
+      // If we have WebApp but no valid data, treat as external browser for better UX
+      if (!hasValidInitData && !hasValidPlatform) {
+        console.log(
+          "Telegram WebApp detected but with invalid/empty data, treating as external browser"
+        );
+        return true;
+      }
+
+      return false; // Valid Telegram Mini App context
+    } catch (e) {
+      console.log(
+        "Error checking Telegram context, treating as external browser:",
+        e
+      );
+      return true;
+    }
+  })();
 
   useEffect(() => {
     if (!groupId || !daoId || !abi || !connected) return;
@@ -90,10 +123,10 @@ export default function DaoPage() {
       });
 
       if (daoData && Array.isArray(daoData) && daoData[0]) {
-        const dao = daoData[0] as any;
+        const dao = daoData[0] as IDAOProposal;
         setDaoInfo({
-          name: dao.dao_id, // Using dao_id as name for now
-          description: `DAO: ${dao.dao_id}`,
+          name: daoName || "",
+          description: daoDescription || "",
           choices: dao.choices,
           choices_weights: dao.choices_weights,
           from: dao.from,
@@ -184,8 +217,17 @@ export default function DaoPage() {
         // Close mini app after successful vote (only in mini app mode)
         if (!isExternalBrowser) {
           setTimeout(() => {
-            if (closeMiniApp.isAvailable()) {
-              closeMiniApp();
+            try {
+              if (closeMiniApp.isAvailable()) {
+                closeMiniApp();
+              }
+            } catch (e) {
+              console.log("Could not close mini app:", e);
+              // Fallback: show a message to user that they can close manually
+              showMessage(
+                "Vote submitted successfully! You can close this tab.",
+                "success"
+              );
             }
           }, 3000);
         }
@@ -212,21 +254,46 @@ export default function DaoPage() {
     return total > 0 ? ((votes / total) * 100).toFixed(1) : "0";
   };
 
+  // Show parameter error if required parameters are missing
+  if (paramError) {
+    return (
+      <Page>
+        <div
+          className={`max-w-4xl mx-auto p-4 ${
+            isExternalBrowser ? "min-h-screen bg-gray-50" : ""
+          }`}
+        >
+          <div className="bg-white rounded-lg shadow-lg p-6">
+            <h2 className="text-2xl font-bold text-gray-900 mb-4">
+              ⚠️ Invalid Access
+            </h2>
+            <p className="text-gray-700 mb-4">{paramError}</p>
+            {isExternalBrowser && (
+              <p className="text-gray-600">
+                Make sure you&apos;re accessing this page through a valid DAO
+                voting link from your Telegram group.
+              </p>
+            )}
+          </div>
+        </div>
+      </Page>
+    );
+  }
+
   if (loading) {
     return (
       <Page>
         <div
-          style={{
-            display: "flex",
-            justifyContent: "center",
-            alignItems: "center",
-            height: "200px",
-            flexDirection: "column",
-            gap: "16px",
-          }}
+          className={`max-w-4xl mx-auto p-4 ${
+            isExternalBrowser ? "min-h-screen bg-gray-50" : ""
+          }`}
         >
-          <Spinner size="l" />
-          <Text>Loading DAO information...</Text>
+          <div className="bg-white rounded-lg shadow-lg p-6">
+            <div className="flex flex-col items-center py-12">
+              <div className="w-10 h-10 border-4 border-gray-200 border-t-blue-600 rounded-full animate-spin mb-4"></div>
+              <p className="text-gray-700">Loading DAO information...</p>
+            </div>
+          </div>
         </div>
       </Page>
     );
@@ -235,9 +302,22 @@ export default function DaoPage() {
   if (!daoInfo) {
     return (
       <Page>
-        <Card>
-          <Text>❌ DAO not found or failed to load</Text>
-        </Card>
+        <div
+          className={`max-w-4xl mx-auto p-4 ${
+            isExternalBrowser ? "min-h-screen bg-gray-50" : ""
+          }`}
+        >
+          <div className="bg-white rounded-lg shadow-lg p-6">
+            <div className="text-center">
+              <h2 className="text-2xl font-bold text-gray-900 mb-4">
+                ❌ DAO not found or failed to load
+              </h2>
+              <p className="text-gray-600">
+                Please check the URL and try again.
+              </p>
+            </div>
+          </div>
+        </div>
       </Page>
     );
   }
@@ -266,218 +346,155 @@ export default function DaoPage() {
         {isExternalBrowser ? "🌐 Browser" : "📱 Mini App"}
       </div>
 
-      <List>
+      <div
+        className={`max-w-4xl mx-auto p-4 ${
+          isExternalBrowser ? "min-h-screen bg-gray-50" : ""
+        }`}
+      >
         {/* DAO Header */}
-        <Section>
-          <Card style={{ padding: "16px", marginBottom: "16px" }}>
-            <div style={{ textAlign: "center", marginBottom: "16px" }}>
-              <Title
-                level="1"
-                style={{ fontSize: "24px", marginBottom: "8px" }}
-              >
-                🏛️ {daoInfo.name}
-              </Title>
-              <Text style={{ fontSize: "16px", opacity: 0.8 }}>
-                {daoInfo.description}
-              </Text>
-            </div>
+        <div className="bg-white rounded-lg shadow-lg p-6 mb-6">
+          <div className="text-center mb-6">
+            <h1 className="text-3xl font-bold text-gray-900 mb-3">
+              🏛️ {daoInfo.name}
+            </h1>
+            <p className="text-lg text-gray-600 leading-relaxed">
+              {daoInfo.description}
+            </p>
+          </div>
 
-            <div
-              style={{
-                display: "flex",
-                justifyContent: "space-between",
-                marginBottom: "16px",
-              }}
+          <div className="grid grid-cols-2 gap-4 mb-6">
+            <div className="text-center p-4 bg-gray-50 rounded-lg">
+              <p className="text-sm font-medium text-gray-500 mb-2">
+                Voting Period
+              </p>
+              <p className="text-sm text-gray-900">
+                {formatTimestamp(daoInfo.from)} - {formatTimestamp(daoInfo.to)}
+              </p>
+            </div>
+            <div className="text-center p-4 bg-gray-50 rounded-lg">
+              <p className="text-sm font-medium text-gray-500 mb-2">
+                Total Votes
+              </p>
+              <p className="text-lg font-bold text-gray-900">
+                {getTotalVotes()}
+              </p>
+            </div>
+          </div>
+
+          <div className="text-center">
+            <span
+              className={`inline-flex items-center px-4 py-2 rounded-full text-sm font-medium ${
+                isVotingActive
+                  ? "bg-green-100 text-green-800"
+                  : "bg-red-100 text-red-800"
+              }`}
             >
-              <div style={{ textAlign: "center" }}>
-                <Caption style={{ display: "block", marginBottom: "4px" }}>
-                  Voting Period
-                </Caption>
-                <Text style={{ fontSize: "12px" }}>
-                  {formatTimestamp(daoInfo.from)} -{" "}
-                  {formatTimestamp(daoInfo.to)}
-                </Text>
-              </div>
-              <div style={{ textAlign: "center" }}>
-                <Caption style={{ display: "block", marginBottom: "4px" }}>
-                  Total Votes
-                </Caption>
-                <Text style={{ fontSize: "14px", fontWeight: "bold" }}>
-                  {getTotalVotes()}
-                </Text>
-              </div>
-            </div>
-
-            <div style={{ textAlign: "center" }}>
-              <Badge
-                type="number"
-                style={{
-                  backgroundColor: isVotingActive ? "#4CAF50" : "#f44336",
-                  color: "white",
-                }}
-              >
-                {isVotingActive ? "🟢 Voting Active" : "🔴 Voting Ended"}
-              </Badge>
-            </div>
-          </Card>
-        </Section>
+              {isVotingActive ? "🟢 Voting Active" : "🔴 Voting Ended"}
+            </span>
+          </div>
+        </div>
 
         {/* Voting Options */}
         {isVotingActive && !hasVoted && (
-          <Section header="Choose Your Option">
-            {daoInfo.choices.map((choice, index) => (
-              <Cell
-                key={index}
-                onClick={() => setSelectedChoice(index)}
-                style={{
-                  cursor: "pointer",
-                  backgroundColor:
-                    selectedChoice === index
-                      ? "var(--tg-theme-button-color)"
-                      : "transparent",
-                  color:
-                    selectedChoice === index
-                      ? "var(--tg-theme-button-text-color)"
-                      : "inherit",
-                  borderRadius: "8px",
-                  margin: "4px 0",
-                  padding: "12px",
-                  border:
-                    selectedChoice === index
-                      ? "2px solid var(--tg-theme-button-color)"
-                      : "1px solid var(--tg-theme-secondary-bg-color)",
-                }}
-              >
+          <div className="bg-white rounded-lg shadow-lg p-6 mb-6">
+            <h2 className="text-xl font-bold text-gray-900 mb-4">
+              Choose Your Option
+            </h2>
+            <div className="space-y-3">
+              {daoInfo.choices.map((choice, index) => (
                 <div
-                  style={{ display: "flex", alignItems: "center", gap: "12px" }}
+                  key={index}
+                  onClick={() => setSelectedChoice(index)}
+                  className={`p-4 rounded-lg border-2 cursor-pointer transition-all duration-200 ${
+                    selectedChoice === index
+                      ? "border-blue-500 bg-blue-50"
+                      : "border-gray-200 hover:border-gray-300"
+                  }`}
                 >
-                  <div
-                    style={{
-                      width: "24px",
-                      height: "24px",
-                      borderRadius: "50%",
-                      backgroundColor:
-                        selectedChoice === index ? "white" : "transparent",
-                      border: "2px solid",
-                      borderColor:
+                  <div className="flex items-center space-x-3">
+                    <div
+                      className={`w-6 h-6 rounded-full border-2 flex items-center justify-center ${
                         selectedChoice === index
-                          ? "white"
-                          : "var(--tg-theme-text-color)",
-                      display: "flex",
-                      alignItems: "center",
-                      justifyContent: "center",
-                    }}
-                  >
-                    {selectedChoice === index && (
-                      <div
-                        style={{
-                          width: "12px",
-                          height: "12px",
-                          borderRadius: "50%",
-                          backgroundColor: "var(--tg-theme-button-color)",
-                        }}
-                      />
-                    )}
+                          ? "border-blue-500 bg-blue-500"
+                          : "border-gray-300"
+                      }`}
+                    >
+                      {selectedChoice === index && (
+                        <div className="w-3 h-3 rounded-full bg-white" />
+                      )}
+                    </div>
+                    <span
+                      className={`text-lg ${
+                        selectedChoice === index
+                          ? "font-semibold text-blue-900"
+                          : "text-gray-700"
+                      }`}
+                    >
+                      {choice}
+                    </span>
                   </div>
-                  <Text
-                    style={{
-                      fontSize: "16px",
-                      fontWeight: selectedChoice === index ? "bold" : "normal",
-                    }}
-                  >
-                    {choice}
-                  </Text>
                 </div>
-              </Cell>
-            ))}
-          </Section>
+              ))}
+            </div>
+          </div>
         )}
 
         {/* Vote Results */}
-        <Section header="Current Results">
-          {daoInfo.choices.map((choice, index) => (
-            <Cell key={index}>
-              <div style={{ width: "100%" }}>
-                <div
-                  style={{
-                    display: "flex",
-                    justifyContent: "space-between",
-                    marginBottom: "8px",
-                  }}
-                >
-                  <Text style={{ fontWeight: "bold" }}>{choice}</Text>
-                  <Text>
+        <div className="bg-white rounded-lg shadow-lg p-6 mb-6">
+          <h2 className="text-xl font-bold text-gray-900 mb-4">
+            Current Results
+          </h2>
+          <div className="space-y-4">
+            {daoInfo.choices.map((choice, index) => (
+              <div key={index} className="w-full">
+                <div className="flex justify-between items-center mb-2">
+                  <span className="font-semibold text-gray-900">{choice}</span>
+                  <span className="text-sm text-gray-600">
                     {daoInfo.choices_weights[index]} votes (
                     {getVotePercentage(daoInfo.choices_weights[index])}%)
-                  </Text>
+                  </span>
                 </div>
-                <div
-                  style={{
-                    width: "100%",
-                    height: "8px",
-                    backgroundColor: "var(--tg-theme-secondary-bg-color)",
-                    borderRadius: "4px",
-                    overflow: "hidden",
-                  }}
-                >
+                <div className="w-full h-3 bg-gray-200 rounded-full overflow-hidden">
                   <div
+                    className="h-full bg-blue-500 transition-all duration-300 ease-in-out"
                     style={{
                       width: `${getVotePercentage(
                         daoInfo.choices_weights[index]
                       )}%`,
-                      height: "100%",
-                      backgroundColor: "var(--tg-theme-button-color)",
-                      transition: "width 0.3s ease",
                     }}
                   />
                 </div>
               </div>
-            </Cell>
-          ))}
-        </Section>
+            ))}
+          </div>
+        </div>
 
         {/* Vote Button */}
         {isVotingActive && !hasVoted && (
-          <Section>
+          <div className="bg-white rounded-lg shadow-lg p-6 mb-6">
             {/* Platform-specific instructions */}
             {isExternalBrowser && (
-              <Card
-                style={{
-                  padding: "12px",
-                  marginBottom: "16px",
-                  backgroundColor: "rgba(33, 150, 243, 0.1)",
-                  border: "1px solid rgba(33, 150, 243, 0.2)",
-                }}
-              >
-                <Text style={{ fontSize: "14px", textAlign: "center" }}>
+              <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-4">
+                <p className="text-sm text-blue-800 text-center">
                   🌐 <strong>Browser Mode:</strong> Make sure your wallet is
                   connected to vote
-                </Text>
-              </Card>
+                </p>
+              </div>
             )}
 
-            <Button
-              size="l"
+            <button
               onClick={handleVote}
               disabled={selectedChoice === null || voting || isDelaying}
-              style={{
-                width: "100%",
-                backgroundColor:
-                  selectedChoice !== null
-                    ? "var(--tg-theme-button-color)"
-                    : "var(--tg-theme-secondary-bg-color)",
-                color:
-                  selectedChoice !== null
-                    ? "var(--tg-theme-button-text-color)"
-                    : "var(--tg-theme-hint-color)",
-              }}
+              className={`w-full py-3 px-6 rounded-lg font-medium transition-all duration-200 ${
+                selectedChoice !== null && !voting && !isDelaying
+                  ? "bg-blue-600 hover:bg-blue-700 text-white"
+                  : "bg-gray-300 text-gray-500 cursor-not-allowed"
+              }`}
             >
               {voting || isDelaying ? (
-                <div
-                  style={{ display: "flex", alignItems: "center", gap: "8px" }}
-                >
-                  <Spinner size="s" />
-                  Submitting Vote...
+                <div className="flex items-center justify-center space-x-2">
+                  <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                  <span>Submitting Vote...</span>
                 </div>
               ) : (
                 `🗳️ Vote for: ${
@@ -486,77 +503,52 @@ export default function DaoPage() {
                     : "Select an option"
                 }`
               )}
-            </Button>
+            </button>
 
             {!isExternalBrowser && (
-              <Text
-                style={{
-                  fontSize: "12px",
-                  textAlign: "center",
-                  marginTop: "8px",
-                  opacity: 0.7,
-                }}
-              >
+              <p className="text-xs text-gray-500 text-center mt-3">
                 📱 Mini app will close automatically after voting
-              </Text>
+              </p>
             )}
-          </Section>
+          </div>
         )}
 
         {/* Already Voted Message */}
         {hasVoted && (
-          <Section>
-            <Card
-              style={{
-                padding: "16px",
-                textAlign: "center",
-                backgroundColor: "var(--tg-theme-secondary-bg-color)",
-              }}
-            >
-              <Text style={{ fontSize: "18px", marginBottom: "8px" }}>
+          <div className="bg-white rounded-lg shadow-lg p-6 mb-6">
+            <div className="text-center">
+              <h3 className="text-xl font-semibold text-gray-900 mb-2">
                 ✅ You have already voted!
-              </Text>
-              <Caption>Thank you for participating in this DAO vote.</Caption>
-            </Card>
-          </Section>
+              </h3>
+              <p className="text-gray-600">
+                Thank you for participating in this DAO vote.
+              </p>
+            </div>
+          </div>
         )}
 
         {/* Voting Ended Message */}
         {!isVotingActive && (
-          <Section>
-            <Card
-              style={{
-                padding: "16px",
-                textAlign: "center",
-                backgroundColor: "var(--tg-theme-secondary-bg-color)",
-              }}
-            >
-              <Text style={{ fontSize: "18px", marginBottom: "8px" }}>
+          <div className="bg-white rounded-lg shadow-lg p-6 mb-6">
+            <div className="text-center">
+              <h3 className="text-xl font-semibold text-gray-900 mb-2">
                 🔒 Voting has ended
-              </Text>
-              <Caption>
+              </h3>
+              <p className="text-gray-600">
                 The voting period for this DAO has concluded. Results are shown
                 above.
-              </Caption>
-            </Card>
-          </Section>
+              </p>
+            </div>
+          </div>
         )}
-      </List>
+      </div>
 
       {/* Message Component */}
       {message?.text && (
         <div
-          style={{
-            position: "fixed",
-            top: "20px",
-            left: "50%",
-            transform: "translateX(-50%)",
-            padding: "12px 16px",
-            backgroundColor: message.type === "error" ? "#f44336" : "#4CAF50",
-            color: "white",
-            borderRadius: "8px",
-            zIndex: 1000,
-          }}
+          className={`fixed top-5 left-1/2 transform -translate-x-1/2 px-4 py-3 rounded-lg text-white font-medium z-50 ${
+            message.type === "error" ? "bg-red-500" : "bg-green-500"
+          }`}
         >
           {message.text}
         </div>

@@ -1138,7 +1138,7 @@ pub async fn handle_message(bot: Bot, msg: Message, bot_deps: BotDependencies) -
             let current_group_id = msg.chat.id.to_string();
             let dao_token_input_tree = bot_deps.db.open_tree("dao_token_input_pending").unwrap();
             let key = format!("{}_{}", user_id, current_group_id);
-            
+
             if let Ok(Some(_)) = dao_token_input_tree.get(key.as_bytes()) {
                 // User is in token input mode
                 if let Some(text) = msg.text() {
@@ -1154,12 +1154,18 @@ pub async fn handle_message(bot: Bot, msg: Message, bot_deps: BotDependencies) -
                         };
 
                         // Update DAO token preference
-                        if let Ok(mut prefs) = bot_deps.dao.get_dao_admin_preferences(current_group_id.clone()) {
-                            prefs.default_dao_token = processed_token.clone();
-                            if let Ok(_) = bot_deps.dao.set_dao_admin_preferences(current_group_id.clone(), prefs) {
+                        if let Ok(mut prefs) = bot_deps
+                            .dao
+                            .get_dao_admin_preferences(current_group_id.clone())
+                        {
+                            prefs.default_dao_token = Some(processed_token.clone());
+                            if let Ok(_) = bot_deps
+                                .dao
+                                .set_dao_admin_preferences(current_group_id.clone(), prefs)
+                            {
                                 // Clear the pending state
                                 dao_token_input_tree.remove(key.as_bytes()).unwrap();
-                                
+
                                 bot.send_message(
                                     msg.chat.id,
                                     format!("✅ <b>DAO token updated to {}</b>", processed_token),
@@ -1169,7 +1175,7 @@ pub async fn handle_message(bot: Bot, msg: Message, bot_deps: BotDependencies) -
                                 return Ok(());
                             }
                         }
-                        
+
                         // If we get here, there was an error
                         dao_token_input_tree.remove(key.as_bytes()).unwrap();
                         bot.send_message(msg.chat.id, "❌ Error updating DAO token preference")
@@ -1177,11 +1183,11 @@ pub async fn handle_message(bot: Bot, msg: Message, bot_deps: BotDependencies) -
                         return Ok(());
                     }
                 }
-                
+
                 // Invalid input, ask again
                 bot.send_message(
                     msg.chat.id,
-                    "❌ Please send a valid token ticker or emojicoin. Example: APT, USDC, or 📒"
+                    "❌ Please send a valid token ticker or emojicoin. Example: APT, USDC, or 📒",
                 )
                 .await?;
                 return Ok(());

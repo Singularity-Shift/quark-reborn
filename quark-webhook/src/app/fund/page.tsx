@@ -214,7 +214,18 @@ export default function FundPage() {
     } finally {
       setFunding(false);
       await delayAction(2500);
-      closeMiniApp();
+      try {
+        if (closeMiniApp.isAvailable()) {
+          closeMiniApp();
+        }
+      } catch (e) {
+        console.log("Could not close mini app:", e);
+        // Fallback: show a message to user that they can close manually
+        showMessage(
+          "Transaction completed! You can close this tab.",
+          "success"
+        );
+      }
     }
   };
 
