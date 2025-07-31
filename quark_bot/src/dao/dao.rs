@@ -47,6 +47,7 @@ impl Dao {
                             } else {
                                 admin_preferences[index].default_dao_token.clone()
                             };
+                        admin_preferences[index].vote_duration = preferences.vote_duration;
                     } else {
                         // Add new preference with uppercase token
                         let mut new_prefs = preferences.clone();
@@ -83,6 +84,7 @@ impl Dao {
                 interval_active_proposal_notifications: 3600,
                 interval_dao_results_notifications: 3600,
                 default_dao_token: None,
+                vote_duration: Some(24 * 60 * 60), // Default to 24 hours
             });
         }
 
