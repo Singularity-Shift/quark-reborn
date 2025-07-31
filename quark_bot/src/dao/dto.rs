@@ -16,6 +16,7 @@ pub struct DaoAdminPreferences {
     pub interval_active_proposal_notifications: u64,
     pub interval_dao_results_notifications: u64,
     pub default_dao_token: Option<String>,
+    pub vote_duration: Option<u64>, // Duration in seconds for how long votes are open
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
