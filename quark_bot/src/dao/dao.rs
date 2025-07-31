@@ -41,6 +41,8 @@ impl Dao {
                         admin_preferences[index].expiration_time = preferences.expiration_time;
                         admin_preferences[index].interval_active_proposal_notifications =
                             preferences.interval_active_proposal_notifications;
+                        admin_preferences[index].interval_dao_results_notifications =
+                            preferences.interval_dao_results_notifications;
                         admin_preferences[index].default_dao_token =
                             if let Some(token) = preferences.default_dao_token.as_ref() {
                                 Some(token.to_uppercase())
@@ -324,7 +326,9 @@ impl Dao {
         Ok(())
     }
 
-    pub fn update_result_notified(&self, proposal_id: String) -> Result<()> {
+    pub fn update_last_result_notification(&self, proposal_id: String) -> Result<()> {
+        let now = Utc::now().timestamp() as u64;
+
         self.db.fetch_and_update("daos", |entries| {
             if let Some(daos) = entries {
                 let daos_result: Result<Vec<ProposalEntry>, serde_json::Error> =
@@ -339,7 +343,7 @@ impl Dao {
                 let dao = daos.iter_mut().find(|dao| dao.proposal_id == proposal_id);
 
                 if let Some(dao) = dao {
-                    dao.result_notified = true;
+                    dao.last_result_notification = now;
                 }
 
                 Some(serde_json::to_vec(&daos).unwrap())
