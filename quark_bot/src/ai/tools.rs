@@ -264,7 +264,7 @@ pub fn get_pay_users_tool() -> Tool {
 pub fn create_proposal() -> Tool {
     Tool::function(
         "create_proposal",
-        "Create a new voting proposal for the with the given name, description, start date, end date, currency and options to vote for. CRITICAL: You MUST use get_current_time tool with timezone 'UTC' FIRST to get the current time before calling this tool. All dates must be calculated from the current UTC time and converted to seconds since epoch. The symbol parameter is optional - if not provided, the tool will use the saved DAO token preference for the group.",
+        "Create a new voting proposal for the with the given name, description, start date, end date, currency and options to vote for. CRITICAL: You MUST use get_current_time tool with timezone 'UTC' FIRST to get the current time before calling this tool. All dates must be calculated from the current UTC time and converted to seconds since epoch. The symbol parameter is optional - if not provided, the tool will use the saved DAO token preference for the group. If no start time is provided the proposal should start 5 mins from the current time, apply this same rule if the user says to start now, immediately of similar.",
         json!({
             "type": "object",
             "properties": {
@@ -278,7 +278,7 @@ pub fn create_proposal() -> Tool {
                 },
                 "start_date": {
                     "type": "string",
-                    "description": "The start date of the proposal in seconds since epoch (UTC+0). MUST be calculated from current UTC time obtained from get_current_time tool. Examples: 'in 5 minutes' = current_utc_epoch + 300, 'in 1 hour' = current_utc_epoch + 3600, 'tomorrow' = current_utc_epoch + 86400. For conflicting times like 'in 5 minutes 29th July 2025', use the relative time (5 minutes from now)."
+                    "description": "The start date of the proposal in seconds since epoch (UTC+0). MUST be calculated from current UTC time obtained from get_current_time tool. CRITICAL TIME PARSING: Be extremely careful with numbers - '3 minutes' = 180 seconds, '30 minutes' = 1800 seconds. Examples: 'in 1 minute' = current_utc_epoch + 60, 'in 3 minutes' = current_utc_epoch + 180, 'in 5 minutes' = current_utc_epoch + 300, 'in 30 minutes' = current_utc_epoch + 1800, 'in 1 hour' = current_utc_epoch + 3600, 'tomorrow' = current_utc_epoch + 86400. For conflicting times like 'in 5 minutes 29th July 2025', use the relative time (5 minutes from now)."
                 },
                 "end_date": {
                     "type": "string",

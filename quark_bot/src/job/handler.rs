@@ -9,6 +9,7 @@ use aptos_rust_sdk_types::api_types::view::ViewRequest;
 use crate::{
     dao::{dao::Dao, dto::ProposalEntry},
     panora::handler::Panora,
+    utils::format_timestamp,
 };
 use quark_core::helpers::dto::CoinVersion;
 
@@ -180,10 +181,10 @@ pub fn job_active_daos(dao: Dao, bot: Bot) -> Job {
 
                     // Create rich message text
                     let message_text = format!(
-                        "🏛️ {}\n\n📝 {}\n\n⏰ Voting ends at timestamp: {}\n\n🗳️ Click on your preferred option below to vote:",
+                        "🏛️ {}\n\n📝 {}\n\n⏰ Voting ends: {}\n\n🗳️ Click on your preferred option below to vote:",
                         proposal_entry.name,
                         proposal_entry.description,
-                        proposal_entry.end_date
+                        format_timestamp(proposal_entry.end_date)
                     );
 
                     log::info!("Sending active proposals notification for: {}", proposal_entry.proposal_id);

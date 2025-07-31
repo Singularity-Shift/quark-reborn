@@ -6,25 +6,7 @@ use teloxide::{
 };
 use uuid::Uuid;
 
-use crate::{dao::dto::ProposalEntry, dependencies::BotDependencies};
-
-// Helper function to format time duration in a human-readable way
-fn format_time_duration(seconds: u64) -> String {
-    let hours = seconds / 3600;
-    let minutes = (seconds % 3600) / 60;
-
-    if hours == 0 {
-        // Less than 1 hour, show in minutes
-        format!("{} minute{}", minutes, if minutes == 1 { "" } else { "s" })
-    } else if hours < 24 {
-        // 1-23 hours, show in hours
-        format!("{} hour{}", hours, if hours == 1 { "" } else { "s" })
-    } else {
-        // 24+ hours, show in days
-        let days = hours / 24;
-        format!("{} day{}", days, if days == 1 { "" } else { "s" })
-    }
-}
+use crate::{dao::dto::ProposalEntry, dependencies::BotDependencies, utils::format_time_duration};
 
 pub async fn execute_create_proposal(
     arguments: &serde_json::Value,
@@ -308,7 +290,7 @@ pub async fn handle_dao_preferences(
     let keyboard = InlineKeyboardMarkup::new(vec![
         vec![InlineKeyboardButton::new(
             format!(
-                "⏰ Expiration Time: {}",
+                "🗑️ Deletion After Conclusion Duration: {}",
                 format_time_duration(current_prefs.expiration_time)
             ),
             InlineKeyboardButtonKind::CallbackData(format!("dao_set_expiration_{}", group_id)),
@@ -339,7 +321,7 @@ pub async fn handle_dao_preferences(
     let message_text = format!(
         "🏛️ <b>DAO Admin Preferences</b>\n\n\
         📊 <b>Current Settings:</b>\n\
-        ⏰ <b>Expiration Time:</b> {}\n\
+        🗑️ <b>Deletion After Conclusion Duration:</b> {}\n\
         🔔 <b>Notification Interval:</b> {}\n\
         💰 <b>DAO Token:</b> {}\n\n\
         💡 <i>Click the buttons below to modify these settings</i>",
@@ -396,22 +378,6 @@ pub async fn handle_dao_preference_callback(
         let keyboard = InlineKeyboardMarkup::new(vec![
             vec![
                 InlineKeyboardButton::new(
-                    "6h",
-                    InlineKeyboardButtonKind::CallbackData(format!(
-                        "dao_exp_{}_{}",
-                        group_id,
-                        6 * 3600
-                    )),
-                ),
-                InlineKeyboardButton::new(
-                    "12h",
-                    InlineKeyboardButtonKind::CallbackData(format!(
-                        "dao_exp_{}_{}",
-                        group_id,
-                        12 * 3600
-                    )),
-                ),
-                InlineKeyboardButton::new(
                     "24h",
                     InlineKeyboardButtonKind::CallbackData(format!(
                         "dao_exp_{}_{}",
@@ -419,8 +385,6 @@ pub async fn handle_dao_preference_callback(
                         24 * 3600
                     )),
                 ),
-            ],
-            vec![
                 InlineKeyboardButton::new(
                     "48h",
                     InlineKeyboardButtonKind::CallbackData(format!(
@@ -437,12 +401,30 @@ pub async fn handle_dao_preference_callback(
                         72 * 3600
                     )),
                 ),
+            ],
+            vec![
                 InlineKeyboardButton::new(
                     "1 week",
                     InlineKeyboardButtonKind::CallbackData(format!(
                         "dao_exp_{}_{}",
                         group_id,
                         7 * 24 * 3600
+                    )),
+                ),
+                InlineKeyboardButton::new(
+                    "2 weeks",
+                    InlineKeyboardButtonKind::CallbackData(format!(
+                        "dao_exp_{}_{}",
+                        group_id,
+                        14 * 24 * 3600
+                    )),
+                ),
+                InlineKeyboardButton::new(
+                    "4 weeks",
+                    InlineKeyboardButtonKind::CallbackData(format!(
+                        "dao_exp_{}_{}",
+                        group_id,
+                        28 * 24 * 3600
                     )),
                 ),
             ],
@@ -455,8 +437,8 @@ pub async fn handle_dao_preference_callback(
         bot.edit_message_text(
             msg.chat.id,
             msg.id,
-            "⏰ <b>Select Expiration Time</b>\n\n\
-            Choose how long proposals should remain active before expiring:",
+            "🗑️ <b>Select Deletion After Conclusion Duration</b>\n\n\
+            Choose how long voting results are stored after voting concludes:",
         )
         .parse_mode(teloxide::types::ParseMode::Html)
         .reply_markup(keyboard)
@@ -623,7 +605,7 @@ pub async fn handle_dao_preference_callback(
                 msg.chat.id,
                 msg.id,
                 format!(
-                    "✅ <b>Expiration time updated to {}</b>",
+                    "✅ <b>Deletion after conclusion duration updated to {}</b>",
                     format_time_duration(expiration_time)
                 ),
             )
@@ -686,7 +668,7 @@ pub async fn handle_dao_preference_callback(
         let keyboard = InlineKeyboardMarkup::new(vec![
             vec![InlineKeyboardButton::new(
                 format!(
-                    "⏰ Expiration Time: {}",
+                    "🗑️ Deletion After Conclusion Duration: {}",
                     format_time_duration(current_prefs.expiration_time)
                 ),
                 InlineKeyboardButtonKind::CallbackData(format!("dao_set_expiration_{}", group_id)),
@@ -720,7 +702,7 @@ pub async fn handle_dao_preference_callback(
         let message_text = format!(
             "🏛️ <b>DAO Admin Preferences</b>\n\n\
             📊 <b>Current Settings:</b>\n\
-            ⏰ <b>Expiration Time:</b> {}\n\
+            🗑️ <b>Deletion After Conclusion Duration:</b> {}\n\
             🔔 <b>Notification Interval:</b> {}\n\
             💰 <b>DAO Token:</b> {}\n\n\
             💡 <i>Click the buttons below to modify these settings</i>",
