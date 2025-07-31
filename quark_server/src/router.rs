@@ -12,6 +12,7 @@ use utoipa_redoc::{Redoc, Servable};
 
 use crate::{
     create_group::handler::create_group,
+    dao::handler::create_proposal,
     docs::{dto::ApiDoc, handler::api_docs},
     info::handler::info,
     middlewares::handler::{auth, auth_group},
@@ -71,6 +72,7 @@ pub async fn router() -> Router {
     let contract_address =
         env::var("CONTRACT_ADDRESS").expect("CONTRACT_ADDRESS environment variable not set");
     let redis_url = env::var("REDIS_URL").expect("REDIS_URL environment variable not set");
+    let aptos_api_key = env::var("APTOS_API_KEY").unwrap_or_default();
 
     println!("Attempting to connect to Redis");
     let redis_connection = connect_to_redis_with_retry(&redis_url).await;
@@ -94,7 +96,11 @@ pub async fn router() -> Router {
         ),
     };
 
-    let node = builder.build();
+    let node = if aptos_api_key.is_empty() {
+        builder.build()
+    } else {
+        builder.api_key(aptos_api_key.as_str()).unwrap().build()
+    };
 
     let contract_address = AccountAddress::from_str(&contract_address)
         .expect("CONTRACT_ADDRESS is not a valid account address");
@@ -116,6 +122,7 @@ pub async fn router() -> Router {
     let auth_group_router = Router::new()
         .route("/pay-members", post(pay_members))
         .route("/group-purchase", post(group_purchase))
+        .route("/proposal", post(create_proposal))
         .route_layer(middleware::from_fn(auth_group));
 
     Router::new()

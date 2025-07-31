@@ -603,7 +603,7 @@ module quark::group {
 
         let now = timestamp::now_seconds();
 
-        assert!(now >= from && now <= to, ENOT_IN_TIME);
+        assert!(now <= from && from <= to, ENOT_IN_TIME);
 
         let choices_weights = vector::map<String, u64>(choices, |_| 0);
 
@@ -664,7 +664,7 @@ module quark::group {
 
         let now = timestamp::now_seconds();
 
-        assert!(now >= from && now <= to, ENOT_IN_TIME);
+        assert!(now <= from && from <= to, ENOT_IN_TIME);
 
         let choices_weights = vector::map<String, u64>(choices, |_| 0);
 

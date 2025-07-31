@@ -1,8 +1,7 @@
 //! File upload and processing logic for quark_bot.
 
-use crate::ai::handler::AI;
 use crate::ai::vector_store::upload_files_to_vector_store;
-use sled::Db;
+use crate::dependencies::BotDependencies;
 use std::time::Duration;
 use teloxide::net::Download;
 use teloxide::prelude::*;
@@ -12,8 +11,7 @@ use tokio::time::sleep;
 pub async fn handle_file_upload(
     bot: Bot,
     msg: Message,
-    db: Db,
-    ai: AI,
+    bot_deps: BotDependencies,
 ) -> Result<(), teloxide::RequestError> {
     use tokio::fs::File;
     let user_id = msg.from.as_ref().map(|u| u.id.0).unwrap_or(0) as i64;
@@ -103,7 +101,7 @@ pub async fn handle_file_upload(
         });
 
         let upload_result =
-            upload_files_to_vector_store(user_id, &db, ai, file_paths.clone()).await;
+            upload_files_to_vector_store(user_id, bot_deps.clone(), file_paths.clone()).await;
 
         // Stop the typing indicator task
         typing_indicator_handle.abort();

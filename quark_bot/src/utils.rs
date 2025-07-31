@@ -1,11 +1,37 @@
 //! Utility functions for quark_bot.
 
+use chrono::{DateTime, Utc};
 use open_ai_rust_responses_by_sshift::Model;
 use quark_core::helpers::dto::{AITool, PurchaseRequest, ToolUsage};
 use regex::Regex;
 use std::collections::HashMap;
 
 use crate::services::handler::Services;
+
+/// Helper function to format Unix timestamp into readable date and time
+pub fn format_timestamp(timestamp: u64) -> String {
+    let datetime = DateTime::from_timestamp(timestamp as i64, 0)
+        .unwrap_or_else(|| Utc::now());
+    datetime.format("%Y-%m-%d at %H:%M UTC").to_string()
+}
+
+/// Helper function to format time duration in a human-readable way
+pub fn format_time_duration(seconds: u64) -> String {
+    let hours = seconds / 3600;
+    let minutes = (seconds % 3600) / 60;
+
+    if hours == 0 {
+        // Less than 1 hour, show in minutes
+        format!("{} minute{}", minutes, if minutes == 1 { "" } else { "s" })
+    } else if hours < 24 {
+        // 1-23 hours, show in hours
+        format!("{} hour{}", hours, if hours == 1 { "" } else { "s" })
+    } else {
+        // 24+ hours, show in days
+        let days = hours / 24;
+        format!("{} day{}", days, if days == 1 { "" } else { "s" })
+    }
+}
 
 /// Get emoji icon based on file extension
 pub fn get_file_icon(filename: &str) -> &'static str {

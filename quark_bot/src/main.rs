@@ -4,8 +4,10 @@ mod assets;
 mod bot;
 mod callbacks;
 mod credentials;
+mod dao;
 mod db;
 mod group;
+mod job;
 mod message_history;
 mod panora;
 mod services;
@@ -13,11 +15,17 @@ mod user_conversation;
 mod user_model_preferences;
 mod utils;
 
+mod dependencies;
+
 use crate::{
     ai::{gcs::GcsImageUploader, handler::AI},
     aptos::handler::Aptos,
     credentials::handler::Auth,
+    dao::dao::Dao,
+    dependencies::BotDependencies,
     group::handler::Group,
+    job::job_scheduler::schedule_jobs,
+    message_history::handler::MessageHistory,
     panora::handler::Panora,
     services::handler::Services,
     user_conversation::handler::UserConversations,
@@ -29,7 +37,6 @@ use std::sync::Arc;
 use teloxide::dispatching::dialogue::InMemStorage;
 use teloxide::prelude::*;
 use teloxide::types::BotCommand;
-use tokio_cron_scheduler::{Job, JobScheduler};
 
 use crate::assets::command_image_collector;
 use crate::assets::media_aggregator;
@@ -50,12 +57,13 @@ async fn main() {
     let bucket_name = env::var("GCS_BUCKET_NAME").expect("GCS_BUCKET_NAME not set");
     let aptos_network = env::var("APTOS_NETWORK").expect("APTOS_NETWORK not set");
     let contract_address = env::var("CONTRACT_ADDRESS").expect("CONTRACT_ADDRESS not set");
+    let aptos_api_key = env::var("APTOS_API_KEY").unwrap_or_default();
 
     let google_cloud = GcsImageUploader::new(&gcs_creds, bucket_name)
         .await
         .expect("Failed to create GCS image uploader");
 
-    let aptos = Aptos::new(aptos_network, contract_address);
+    let aptos = Aptos::new(aptos_network, contract_address, aptos_api_key);
 
     let min_deposit = env::var("MIN_DEPOSIT")
         .expect("MIN_DEPOSIT not set")
@@ -80,78 +88,37 @@ async fn main() {
 
     // Execute token AI fees update immediately on startup
     let panora_startup2 = panora.clone();
-    let token_address = panora_startup2.aptos.get_token_address().await.unwrap();
-    match panora_startup2.set_token_ai_fees(&token_address).await {
-        Ok(_) => log::info!("Successfully updated Panora token AI fees on startup"),
-        Err(e) => log::error!("Failed to update Panora token AI fees on startup: {}", e),
+    let token_address = panora_startup2.aptos.get_token_address().await;
+    match token_address {
+        Ok(token_address) => match panora_startup2.set_token_ai_fees(&token_address).await {
+            Ok(_) => log::info!("Successfully updated Panora token AI fees on startup"),
+            Err(e) => log::error!("Failed to update Panora token AI fees on startup: {}", e),
+        },
+        Err(e) => log::error!("Failed to get token address: {}", e),
     }
 
-    // Set up cron job for Panora token list updates (runs every hour)
-    let panora_clone1 = panora.clone();
-    let panora_clone2 = panora.clone();
-    let scheduler = JobScheduler::new()
+    let dao_db = db.open_tree("dao").expect("Failed to open dao tree");
+    let dao = Dao::new(dao_db);
+
+    schedule_jobs(panora.clone(), bot.clone(), dao.clone())
         .await
-        .expect("Failed to create job scheduler");
+        .expect("Failed to schedule jobs");
 
-    let job_token_list = Job::new_async("0 0 * * * *", move |_uuid, _l| {
-        let panora_inner = panora_clone1.clone();
-        Box::pin(async move {
-            match panora_inner.set_panora_token_list().await {
-                Ok(_) => log::info!("Successfully updated Panora token list"),
-                Err(e) => log::error!("Failed to update Panora token list: {}", e),
-            }
-        })
-    })
-    .expect("Failed to create cron job");
-
-    let job_token_ai_fees = Job::new_async("0 * * * * *", move |_uuid, _l| {
-        let panora_inner = panora_clone2.clone();
-
-        Box::pin(async move {
-            let token_address = panora_inner.aptos.get_token_address().await.unwrap();
-            match panora_inner.set_token_ai_fees(&token_address).await {
-                Ok(_) => log::info!("Successfully updated Panora token AI fees"),
-                Err(e) => log::error!("Failed to update Panora token AI fees: {}", e),
-            }
-        })
-    })
-    .expect("Failed to create cron job");
-
-    scheduler
-        .add(job_token_list)
-        .await
-        .expect("Failed to add job to scheduler");
-
-    scheduler
-        .add(job_token_ai_fees)
-        .await
-        .expect("Failed to add job to scheduler");
-
-    scheduler.start().await.expect("Failed to start scheduler");
-
-    log::info!("Panora token list cron job started (runs every hour)");
-
-    let history_storage = teloxide::dispatching::dialogue::InMemStorage::<crate::message_history::MessageHistory>::new();
-
-    let ai = AI::new(openai_api_key.clone(), google_cloud, panora.clone(), history_storage.clone());
+    let ai = AI::new(openai_api_key.clone(), google_cloud);
 
     let user_convos = UserConversations::new(&db).unwrap();
     let user_model_prefs = UserModelPreferences::new(&db).unwrap();
     let service = Services::new();
+
     let cmd_collector = Arc::new(command_image_collector::CommandImageCollector::new(
         bot.clone(),
-        db.clone(),
-        service.clone(),
-        user_model_prefs.clone(),
     ));
 
     let media_aggregator = Arc::new(media_aggregator::MediaGroupAggregator::new(
         bot.clone(),
         ai.clone(),
         auth.clone(),
-        group.clone(),
         user_model_prefs.clone(),
-        db.clone(),
     ));
 
     let commands = vec![
@@ -190,26 +157,31 @@ async fn main() {
         BotCommand::new("balance", "Get your balance of a token."),
         BotCommand::new("groupwalletaddress", "Get the group's wallet address."),
         BotCommand::new("groupbalance", "Get the group's balance of a token."),
+        BotCommand::new("daopreferences", "Set dao preferences."),
         BotCommand::new("prices", "Display model pricing information."),
     ];
 
+    let history_storage = InMemStorage::<MessageHistory>::new();
+
     bot.set_my_commands(commands).await.unwrap();
 
+    let bot_deps = BotDependencies {
+        db: db.clone(),
+        auth: auth.clone(),
+        service: service.clone(),
+        user_convos: user_convos.clone(),
+        user_model_prefs: user_model_prefs.clone(),
+        ai: ai.clone(),
+        cmd_collector: cmd_collector.clone(),
+        panora: panora_for_dispatcher.clone(),
+        group: group.clone(),
+        dao: dao.clone(),
+        media_aggregator: media_aggregator.clone(),
+        history_storage: history_storage.clone(),
+    };
+
     Dispatcher::builder(bot.clone(), handler_tree())
-        .dependencies(dptree::deps![
-            InMemStorage::<QuarkState>::new(),
-            history_storage.clone(),
-            auth,
-            group,
-            db,
-            service,
-            user_convos,
-            user_model_prefs,
-            ai,
-            media_aggregator,
-            cmd_collector,
-            panora_for_dispatcher
-        ])
+        .dependencies(dptree::deps![InMemStorage::<QuarkState>::new(), bot_deps])
         .enable_ctrlc_handler()
         .build()
         .dispatch()

@@ -210,3 +210,29 @@ export interface ICurrency {
 export interface IBalance extends ICurrency {
   balance: number;
 }
+
+export enum CoinVersion {
+  V1 = "V1",
+  V2 = "V2",
+}
+
+export interface IDAOProposal {
+  options: string[];
+  start_date: number;
+  end_date: number;
+  group_id: string;
+  dao_id: string;
+  choices: string[];
+  choices_weights: number[];
+  from: number;
+  to: number;
+  currency: string;
+  coin_type: string;
+  coin_version: CoinVersion;
+}
+
+export interface ICoinData {
+  symbol: string;
+  decimals: number;
+  logo?: string;
+}

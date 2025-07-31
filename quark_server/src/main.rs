@@ -1,5 +1,6 @@
 mod admin;
 mod create_group;
+mod dao;
 mod docs;
 mod error;
 mod info;
