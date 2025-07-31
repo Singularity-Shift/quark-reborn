@@ -598,14 +598,22 @@ pub async fn handle_dao_preference_callback(
             let expiration_time: u64 = parts[3].parse().unwrap_or(24 * 3600);
 
             // Update expiration time
-            if let Ok(mut prefs) = bot_deps.dao.get_dao_admin_preferences(group_id.to_string()) {
-                prefs.expiration_time = expiration_time;
-                if let Err(_) = bot_deps
-                    .dao
-                    .set_dao_admin_preferences(group_id.to_string(), prefs)
-                {
+            match bot_deps.dao.get_dao_admin_preferences(group_id.to_string()) {
+                Ok(mut prefs) => {
+                    prefs.expiration_time = expiration_time;
+                    if let Err(_) = bot_deps
+                        .dao
+                        .set_dao_admin_preferences(group_id.to_string(), prefs)
+                    {
+                        bot.answer_callback_query(query.id)
+                            .text("❌ Error updating preferences")
+                            .await?;
+                        return Ok(());
+                    }
+                }
+                Err(_) => {
                     bot.answer_callback_query(query.id)
-                        .text("❌ Error updating preferences")
+                        .text("❌ Error: No admin preferences found for this group")
                         .await?;
                     return Ok(());
                 }
@@ -629,14 +637,22 @@ pub async fn handle_dao_preference_callback(
             let notification_interval: u64 = parts[3].parse().unwrap_or(60 * 60);
 
             // Update notification interval
-            if let Ok(mut prefs) = bot_deps.dao.get_dao_admin_preferences(group_id.to_string()) {
-                prefs.interval_active_proposal_notifications = notification_interval;
-                if let Err(_) = bot_deps
-                    .dao
-                    .set_dao_admin_preferences(group_id.to_string(), prefs)
-                {
+            match bot_deps.dao.get_dao_admin_preferences(group_id.to_string()) {
+                Ok(mut prefs) => {
+                    prefs.interval_active_proposal_notifications = notification_interval;
+                    if let Err(_) = bot_deps
+                        .dao
+                        .set_dao_admin_preferences(group_id.to_string(), prefs)
+                    {
+                        bot.answer_callback_query(query.id)
+                            .text("❌ Error updating preferences")
+                            .await?;
+                        return Ok(());
+                    }
+                }
+                Err(_) => {
                     bot.answer_callback_query(query.id)
-                        .text("❌ Error updating preferences")
+                        .text("❌ Error: No admin preferences found for this group")
                         .await?;
                     return Ok(());
                 }

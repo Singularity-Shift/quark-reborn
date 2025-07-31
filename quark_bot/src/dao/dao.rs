@@ -41,13 +41,12 @@ impl Dao {
                         admin_preferences[index].expiration_time = preferences.expiration_time;
                         admin_preferences[index].interval_active_proposal_notifications =
                             preferences.interval_active_proposal_notifications;
-                        admin_preferences[index].default_dao_token = Some(
-                            preferences
-                                .default_dao_token
-                                .as_ref()
-                                .unwrap()
-                                .to_uppercase(),
-                        );
+                        admin_preferences[index].default_dao_token =
+                            if let Some(token) = preferences.default_dao_token.as_ref() {
+                                Some(token.to_uppercase())
+                            } else {
+                                admin_preferences[index].default_dao_token.clone()
+                            };
                     } else {
                         // Add new preference with uppercase token
                         let mut new_prefs = preferences.clone();
@@ -80,7 +79,7 @@ impl Dao {
         if admin_preferences.is_none() {
             return Ok(DaoAdminPreferences {
                 group_id,
-                expiration_time: Utc::now().timestamp() as u64 + 7 * 24 * 60 * 60,
+                expiration_time: 7 * 24 * 60 * 60,
                 interval_active_proposal_notifications: 3600,
                 default_dao_token: None,
             });
@@ -188,6 +187,8 @@ impl Dao {
             }
         })?;
 
+        log::info!("DAOs: {:?}", daos);
+
         if daos.is_none() {
             return Ok(vec![]);
         }
@@ -201,9 +202,19 @@ impl Dao {
 
         let daos = daos_result.unwrap();
 
+        log::info!("DAOs: {:?}", daos);
+
         Ok(daos
             .into_iter()
-            .filter(|dao| dao.start_date <= now && dao.end_date >= now)
+            .filter(|dao| {
+                log::info!("DAO: {:?}", dao);
+                log::info!("Now: {}", now);
+                log::info!("Start date: {}", dao.start_date);
+                log::info!("End date: {}", dao.end_date);
+                log::info!("Start date <= now: {}", dao.start_date <= now);
+                log::info!("End date >= now: {}", dao.end_date >= now);
+                dao.start_date <= now && dao.end_date >= now
+            })
             .collect())
     }
 
