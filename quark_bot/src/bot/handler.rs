@@ -1132,6 +1132,68 @@ pub async fn handle_message(bot: Bot, msg: Message, bot_deps: BotDependencies) -
             }
         }
 
+        // Check for pending DAO token input
+        if let Some(user) = &msg.from {
+            let user_id = user.id.0.to_string();
+            let current_group_id = msg.chat.id.to_string();
+            let dao_token_input_tree = bot_deps.db.open_tree("dao_token_input_pending").unwrap();
+            let key = format!("{}_{}", user_id, current_group_id);
+
+            if let Ok(Some(_)) = dao_token_input_tree.get(key.as_bytes()) {
+                // User is in token input mode
+                if let Some(text) = msg.text() {
+                    let text = text.trim();
+                    if !text.is_empty() {
+                        // Process the token: convert to uppercase except for emojis
+                        let processed_token = if text.chars().any(|c| c.is_ascii_alphabetic()) {
+                            // Contains letters, convert to uppercase
+                            text.to_uppercase()
+                        } else {
+                            // Likely an emoji or special characters, keep as-is
+                            text.to_string()
+                        };
+
+                        // Update DAO token preference
+                        if let Ok(mut prefs) = bot_deps
+                            .dao
+                            .get_dao_admin_preferences(current_group_id.clone())
+                        {
+                            prefs.default_dao_token = Some(processed_token.clone());
+                            if let Ok(_) = bot_deps
+                                .dao
+                                .set_dao_admin_preferences(current_group_id.clone(), prefs)
+                            {
+                                // Clear the pending state
+                                dao_token_input_tree.remove(key.as_bytes()).unwrap();
+
+                                bot.send_message(
+                                    msg.chat.id,
+                                    format!("✅ <b>DAO token updated to {}</b>", processed_token),
+                                )
+                                .parse_mode(teloxide::types::ParseMode::Html)
+                                .await?;
+                                return Ok(());
+                            }
+                        }
+
+                        // If we get here, there was an error
+                        dao_token_input_tree.remove(key.as_bytes()).unwrap();
+                        bot.send_message(msg.chat.id, "❌ Error updating DAO token preference")
+                            .await?;
+                        return Ok(());
+                    }
+                }
+
+                // Invalid input, ask again
+                bot.send_message(
+                    msg.chat.id,
+                    "❌ Please send a valid token ticker or emojicoin. Example: APT, USDC, or 📒",
+                )
+                .await?;
+                return Ok(());
+            }
+        }
+
         // Check if sentinel is on for this group
         let sentinel_on = sentinel_tree
             .get(chat_id)

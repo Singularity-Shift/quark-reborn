@@ -10,7 +10,9 @@ import { useMessage } from "@/hooks/useMessage";
 import { useActionDelay } from "@/hooks/useActionDelay";
 import { useSearchParams } from "next/navigation";
 import { closeMiniApp } from "@telegram-apps/sdk-react";
-import { IDAOProposal } from "@/helpers";
+import { CoinVersion, ICoinData, IDAOProposal } from "@/helpers";
+import { useChain } from "@/context/ChainProvider";
+import { convertAmountFromOnChainToHumanReadable } from "@aptos-labs/ts-sdk";
 
 interface DaoInfo {
   name: string;
@@ -32,13 +34,16 @@ export default function DaoPage() {
   const [voting, setVoting] = useState(false);
   const [hasVoted, setHasVoted] = useState(false);
   const [paramError, setParamError] = useState<string | null>(null);
+  const [coinData, setCoinData] = useState<ICoinData | null>(null);
+  const [coinDataLoading, setCoinDataLoading] = useState(false);
   const { message, showMessage } = useMessage();
   const { isDelaying, delayAction } = useActionDelay(1500);
   const searchParams = useSearchParams();
+  const { aptos } = useChain();
 
   // Get query parameters
   const groupId = searchParams.get("group_id");
-  const daoId = searchParams.get("dao_id");
+  const daoId = searchParams.get("proposal_id");
   const choiceId = searchParams.get("choice_id");
   const coinType = searchParams.get("coin_type");
   const coinVersion = searchParams.get("coin_version");
@@ -56,6 +61,56 @@ export default function DaoPage() {
       setParamError(null);
     }
   }, [groupId, daoId]);
+
+  useEffect(() => {
+    if (aptos && coinType && account?.address) {
+      (async () => {
+        setCoinDataLoading(true);
+        try {
+          if (coinVersion === CoinVersion.V1) {
+            const data = await aptos.getAccountCoinsData({
+              accountAddress: account.address,
+              options: {
+                where: {
+                  asset_type: {
+                    _eq: coinType,
+                  },
+                },
+              },
+            });
+
+            if (data && data.length > 0 && data[0].metadata) {
+              setCoinData({
+                symbol: data[0].metadata.symbol || "",
+                decimals: data[0].metadata.decimals || 8,
+                logo: data[0].metadata.icon_uri || undefined,
+              });
+            }
+          } else {
+            const data = await aptos.getFungibleAssetMetadataByAssetType({
+              assetType: coinType,
+            });
+
+            setCoinData({
+              symbol: data.symbol,
+              decimals: data.decimals,
+              logo: data.icon_uri || undefined,
+            });
+          }
+        } catch (error) {
+          console.error("Error fetching coin data:", error);
+          // Fallback to basic coin info
+          setCoinData({
+            symbol: daoInfo?.currency || "",
+            decimals: 8,
+            logo: undefined,
+          });
+        } finally {
+          setCoinDataLoading(false);
+        }
+      })();
+    }
+  }, [aptos, coinType, account?.address, coinVersion, daoInfo?.currency]);
 
   // Detect if opened in external browser vs mini app
   const isExternalBrowser = (() => {
@@ -95,6 +150,8 @@ export default function DaoPage() {
 
     fetchDaoInfo();
     checkIfUserVoted();
+
+    // Test progress bar logic (remove in production)
   }, [groupId, daoId, abi, connected, account?.address]);
 
   // Pre-select choice if provided in URL
@@ -124,14 +181,28 @@ export default function DaoPage() {
 
       if (daoData && Array.isArray(daoData) && daoData[0]) {
         const dao = daoData[0] as IDAOProposal;
+        console.log("Raw DAO data:", dao);
+        console.log("Choices:", dao.choices);
+        console.log("Choices weights:", dao.choices_weights);
+
+        // Ensure choices_weights are numbers
+        const processedWeights = dao.choices_weights.map((weight) => {
+          const numWeight =
+            typeof weight === "string" ? parseFloat(weight) : weight;
+          return isNaN(numWeight) ? 0 : numWeight;
+        });
+
+        console.log("Processed weights:", processedWeights);
+
         setDaoInfo({
           name: daoName || "",
           description: daoDescription || "",
           choices: dao.choices,
-          choices_weights: dao.choices_weights,
+          choices_weights: processedWeights,
           from: dao.from,
           to: dao.to,
-          currency: coinVersion === "V1" ? dao.coin_type : dao.currency,
+          currency:
+            dao.coin_version === CoinVersion.V1 ? dao.coin_type : dao.currency,
         });
       }
     } catch (error) {
@@ -212,7 +283,24 @@ export default function DaoPage() {
 
         // Refresh DAO info to get updated vote counts
         await delayAction(2000);
-        await fetchDaoInfo();
+
+        // Retry fetching DAO info a few times to ensure we get the latest data
+        let retryCount = 0;
+        const maxRetries = 3;
+
+        while (retryCount < maxRetries) {
+          try {
+            await fetchDaoInfo();
+            await checkIfUserVoted();
+            break;
+          } catch (error) {
+            console.log(`Retry ${retryCount + 1} failed:`, error);
+            retryCount++;
+            if (retryCount < maxRetries) {
+              await delayAction(1000);
+            }
+          }
+        }
 
         // Close mini app after successful vote (only in mini app mode)
         if (!isExternalBrowser) {
@@ -246,12 +334,32 @@ export default function DaoPage() {
 
   const getTotalVotes = () => {
     if (!daoInfo) return 0;
-    return daoInfo.choices_weights.reduce((sum, weight) => sum + weight, 0);
+
+    // Ensure all weights are numbers and sum them up
+    const totalRaw = daoInfo.choices_weights.reduce((sum, weight) => {
+      const numWeight =
+        typeof weight === "string" ? parseFloat(weight) : weight;
+      return sum + (isNaN(numWeight) ? 0 : numWeight);
+    }, 0);
+
+    // Convert to human readable format
+    return convertAmountFromOnChainToHumanReadable(
+      totalRaw,
+      coinData?.decimals || 8
+    );
   };
 
   const getVotePercentage = (votes: number) => {
     const total = getTotalVotes();
-    return total > 0 ? ((votes / total) * 100).toFixed(1) : "0";
+    if (total === 0) return "0";
+
+    // Ensure votes is a number
+    const numVotes = typeof votes === "string" ? parseFloat(votes) : votes;
+    if (isNaN(numVotes)) return "0";
+
+    // Calculate percentage based on total votes
+    const percentage = (numVotes / total) * 100;
+    return percentage.toFixed(1);
   };
 
   // Show parameter error if required parameters are missing
@@ -362,7 +470,7 @@ export default function DaoPage() {
             </p>
           </div>
 
-          <div className="grid grid-cols-2 gap-4 mb-6">
+          <div className="grid grid-cols-3 gap-4 mb-6">
             <div className="text-center p-4 bg-gray-50 rounded-lg">
               <p className="text-sm font-medium text-gray-500 mb-2">
                 Voting Period
@@ -373,11 +481,49 @@ export default function DaoPage() {
             </div>
             <div className="text-center p-4 bg-gray-50 rounded-lg">
               <p className="text-sm font-medium text-gray-500 mb-2">
+                Voting Token
+              </p>
+              <div className="flex items-center justify-center space-x-2">
+                {coinDataLoading ? (
+                  <div className="w-4 h-4 border-2 border-gray-300 border-t-blue-600 rounded-full animate-spin" />
+                ) : (
+                  <>
+                    <p className="text-sm font-bold text-gray-900">
+                      {coinData?.symbol || daoInfo.currency || "Unknown"}
+                    </p>
+                    {coinData?.logo && coinData.logo !== "" && (
+                      <img
+                        src={coinData.logo}
+                        alt={coinData.symbol || "Token"}
+                        className="w-4 h-4 rounded-full"
+                        onError={(e) => {
+                          e.currentTarget.style.display = "none";
+                        }}
+                      />
+                    )}
+                  </>
+                )}
+              </div>
+            </div>
+            <div className="text-center p-4 bg-gray-50 rounded-lg">
+              <p className="text-sm font-medium text-gray-500 mb-2">
                 Total Votes
               </p>
-              <p className="text-lg font-bold text-gray-900">
-                {getTotalVotes()}
-              </p>
+              <div className="flex items-center justify-center space-x-2">
+                <p className="text-lg font-bold text-gray-900">
+                  {getTotalVotes()} {coinData?.symbol || ""}
+                </p>
+                {coinData?.logo && coinData.logo !== "" && (
+                  <img
+                    src={coinData.logo}
+                    alt={coinData.symbol || "Token"}
+                    className="w-5 h-5 rounded-full"
+                    onError={(e) => {
+                      e.currentTarget.style.display = "none";
+                    }}
+                  />
+                )}
+              </div>
             </div>
           </div>
 
@@ -444,28 +590,51 @@ export default function DaoPage() {
           <h2 className="text-xl font-bold text-gray-900 mb-4">
             Current Results
           </h2>
+
           <div className="space-y-4">
-            {daoInfo.choices.map((choice, index) => (
-              <div key={index} className="w-full">
-                <div className="flex justify-between items-center mb-2">
-                  <span className="font-semibold text-gray-900">{choice}</span>
-                  <span className="text-sm text-gray-600">
-                    {daoInfo.choices_weights[index]} votes (
-                    {getVotePercentage(daoInfo.choices_weights[index])}%)
-                  </span>
+            {daoInfo.choices.map((choice, index) => {
+              const votes = convertAmountFromOnChainToHumanReadable(
+                daoInfo.choices_weights[index],
+                coinData?.decimals || 8
+              );
+              const percentage = getVotePercentage(votes);
+              const percentageNum = parseFloat(percentage);
+
+              return (
+                <div key={index} className="w-full">
+                  <div className="flex justify-between items-center mb-2">
+                    <span className="font-semibold text-gray-900">
+                      {choice}
+                    </span>
+                    <div className="flex items-center space-x-2">
+                      <span className="text-sm text-gray-600">
+                        {votes} {coinData?.symbol || daoInfo.currency || ""}{" "}
+                        votes ({percentage}%)
+                      </span>
+                      {coinData?.logo && coinData.logo !== "" && (
+                        <img
+                          src={coinData.logo}
+                          alt={coinData.symbol || "Token"}
+                          className="w-4 h-4 rounded-full"
+                          onError={(e) => {
+                            // Hide image if it fails to load
+                            e.currentTarget.style.display = "none";
+                          }}
+                        />
+                      )}
+                    </div>
+                  </div>
+                  <div className="w-full h-3 bg-gray-200 rounded-full overflow-hidden">
+                    <div
+                      className="h-full bg-blue-500 transition-all duration-300 ease-in-out"
+                      style={{
+                        width: `${Math.max(0, Math.min(100, percentageNum))}%`,
+                      }}
+                    />
+                  </div>
                 </div>
-                <div className="w-full h-3 bg-gray-200 rounded-full overflow-hidden">
-                  <div
-                    className="h-full bg-blue-500 transition-all duration-300 ease-in-out"
-                    style={{
-                      width: `${getVotePercentage(
-                        daoInfo.choices_weights[index]
-                      )}%`,
-                    }}
-                  />
-                </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         </div>
 
@@ -501,7 +670,7 @@ export default function DaoPage() {
                   selectedChoice !== null
                     ? daoInfo.choices[selectedChoice]
                     : "Select an option"
-                }`
+                } ${coinData?.symbol ? `(${coinData.symbol})` : ""}`
               )}
             </button>
 

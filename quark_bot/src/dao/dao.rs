@@ -41,14 +41,33 @@ impl Dao {
                         admin_preferences[index].expiration_time = preferences.expiration_time;
                         admin_preferences[index].interval_active_proposal_notifications =
                             preferences.interval_active_proposal_notifications;
+                        admin_preferences[index].default_dao_token =
+                            if let Some(token) = preferences.default_dao_token.as_ref() {
+                                Some(token.to_uppercase())
+                            } else {
+                                admin_preferences[index].default_dao_token.clone()
+                            };
+                        admin_preferences[index].vote_duration = preferences.vote_duration;
                     } else {
-                        // Add new preference
-                        admin_preferences.push(preferences.clone());
+                        // Add new preference with uppercase token
+                        let mut new_prefs = preferences.clone();
+                        new_prefs.default_dao_token = if new_prefs.default_dao_token.is_some() {
+                            Some(new_prefs.default_dao_token.unwrap().to_uppercase())
+                        } else {
+                            None
+                        };
+                        admin_preferences.push(new_prefs);
                     }
 
                     Some(serde_json::to_vec(&admin_preferences).unwrap())
                 } else {
-                    Some(serde_json::to_vec(&vec![preferences.clone()]).unwrap())
+                    let mut new_prefs = preferences.clone();
+                    new_prefs.default_dao_token = if new_prefs.default_dao_token.is_some() {
+                        Some(new_prefs.default_dao_token.unwrap().to_uppercase())
+                    } else {
+                        None
+                    };
+                    Some(serde_json::to_vec(&vec![new_prefs]).unwrap())
                 }
             })?;
 
@@ -61,8 +80,10 @@ impl Dao {
         if admin_preferences.is_none() {
             return Ok(DaoAdminPreferences {
                 group_id,
-                expiration_time: Utc::now().timestamp() as u64 + 7 * 24 * 60 * 60,
+                expiration_time: 7 * 24 * 60 * 60,
                 interval_active_proposal_notifications: 3600,
+                default_dao_token: None,
+                vote_duration: Some(24 * 60 * 60), // Default to 24 hours
             });
         }
 
@@ -168,6 +189,8 @@ impl Dao {
             }
         })?;
 
+        log::info!("DAOs: {:?}", daos);
+
         if daos.is_none() {
             return Ok(vec![]);
         }
@@ -181,9 +204,19 @@ impl Dao {
 
         let daos = daos_result.unwrap();
 
+        log::info!("DAOs: {:?}", daos);
+
         Ok(daos
             .into_iter()
-            .filter(|dao| dao.start_date <= now && dao.end_date >= now)
+            .filter(|dao| {
+                log::info!("DAO: {:?}", dao);
+                log::info!("Now: {}", now);
+                log::info!("Start date: {}", dao.start_date);
+                log::info!("End date: {}", dao.end_date);
+                log::info!("Start date <= now: {}", dao.start_date <= now);
+                log::info!("End date >= now: {}", dao.end_date >= now);
+                dao.start_date <= now && dao.end_date >= now
+            })
             .collect())
     }
 
