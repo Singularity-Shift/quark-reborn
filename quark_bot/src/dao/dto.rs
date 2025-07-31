@@ -2,21 +2,21 @@ use chrono::Utc;
 use quark_core::helpers::dto::{CoinVersion, CreateProposalRequest};
 use serde::{Deserialize, Serialize};
 
-#[derive(Serialize, Deserialize, Clone, PartialEq)]
+#[derive(Serialize, Deserialize, Clone, PartialEq, Debug)]
 pub enum ProposalStatus {
     Pending,
     Active,
     Completed,
 }
 
-#[derive(Serialize, Deserialize, Clone)]
+#[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct DaoAdminPreferences {
     pub group_id: String,
     pub expiration_time: u64,
     pub interval_active_proposal_notifications: u64,
 }
 
-#[derive(Serialize, Deserialize, Clone)]
+#[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct ProposalEntry {
     pub name: String,
     pub description: String,

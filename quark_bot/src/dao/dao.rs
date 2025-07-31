@@ -33,18 +33,15 @@ impl Dao {
 
                     let mut admin_preferences = admin_preferences_result.unwrap();
 
-                    // Find and update existing preference or add new one
                     let existing_index = admin_preferences
                         .iter()
                         .position(|preference| preference.group_id == group_id);
 
                     if let Some(index) = existing_index {
-                        // Update existing preference
                         admin_preferences[index].expiration_time = preferences.expiration_time;
                         admin_preferences[index].interval_active_proposal_notifications =
                             preferences.interval_active_proposal_notifications;
                     } else {
-                        // Add new preference
                         admin_preferences.push(preferences.clone());
                     }
 
@@ -63,8 +60,8 @@ impl Dao {
         if admin_preferences.is_none() {
             return Ok(DaoAdminPreferences {
                 group_id,
-                expiration_time: 7 * 24 * 60 * 60, // 7 days in seconds
-                interval_active_proposal_notifications: 3600, // 1 hour in seconds
+                expiration_time: Utc::now().timestamp() as u64 + 7 * 24 * 60 * 60,
+                interval_active_proposal_notifications: 3600,
             });
         }
 
@@ -82,31 +79,7 @@ impl Dao {
             .find(|preference| preference.group_id == group_id);
 
         if let Some(admin_preference) = admin_preference {
-            let mut corrected_preference = admin_preference.clone();
-            
-            // Fix corrupted expiration_time values (detect if they're timestamps instead of durations)
-            // If expiration_time is greater than 100 years in seconds, it's likely a corrupted timestamp
-            if corrected_preference.expiration_time > 100 * 365 * 24 * 60 * 60 {
-                log::warn!("Detected corrupted expiration_time: {}, resetting to default 7 days", corrected_preference.expiration_time);
-                corrected_preference.expiration_time = 7 * 24 * 60 * 60; // 7 days in seconds
-            }
-            
-            // Ensure notification interval is reasonable (between 1 hour and 7 days)
-            if corrected_preference.interval_active_proposal_notifications < 3600 || 
-               corrected_preference.interval_active_proposal_notifications > 7 * 24 * 60 * 60 {
-                log::warn!("Detected invalid notification interval: {}, resetting to default 1 hour", corrected_preference.interval_active_proposal_notifications);
-                corrected_preference.interval_active_proposal_notifications = 3600; // 1 hour in seconds
-            }
-            
-            // If we corrected any values, save them back to the database
-            if corrected_preference.expiration_time != admin_preference.expiration_time ||
-               corrected_preference.interval_active_proposal_notifications != admin_preference.interval_active_proposal_notifications {
-                if let Err(e) = self.set_dao_admin_preferences(group_id.clone(), corrected_preference.clone()) {
-                    log::error!("Failed to save corrected DAO preferences: {}", e);
-                }
-            }
-            
-            Ok(corrected_preference)
+            Ok(admin_preference.clone())
         } else {
             Err(anyhow::anyhow!("No admin preference found"))
         }
@@ -131,48 +104,48 @@ impl Dao {
         Ok(admin_preferences)
     }
 
-    pub fn create_proposal(&self, proposal: ProposalEntry) -> Result<()> {
-        let group = self.db.fetch_and_update("proposals", |entries| {
-            if let Some(proposals) = entries {
-                let proposals_result: Result<Vec<ProposalEntry>, serde_json::Error> =
-                    serde_json::from_slice(proposals);
+    pub fn create_dao(&self, dao: ProposalEntry) -> Result<()> {
+        let group = self.db.fetch_and_update("daos", |entries| {
+            if let Some(daos) = entries {
+                let daos_result: Result<Vec<ProposalEntry>, serde_json::Error> =
+                    serde_json::from_slice(daos);
 
-                if proposals_result.is_err() {
+                if daos_result.is_err() {
                     return None;
                 }
 
-                let mut proposals = proposals_result.unwrap();
+                let mut daos = daos_result.unwrap();
 
-                proposals.push(proposal.clone());
+                daos.push(dao.clone());
 
-                Some(serde_json::to_vec(&proposals).unwrap())
+                Some(serde_json::to_vec(&daos).unwrap())
             } else {
-                Some(serde_json::to_vec(&vec![proposal.clone()]).unwrap())
+                Some(serde_json::to_vec(&vec![dao.clone()]).unwrap())
             }
         });
 
         if group.is_err() {
-            return Err(anyhow::anyhow!("Failed to create proposal"));
+            return Err(anyhow::anyhow!("Failed to create dao"));
         }
 
         Ok(())
     }
 
-    pub fn get_active_proposals(&self) -> Result<Vec<ProposalEntry>> {
+    pub fn get_active_daos(&self) -> Result<Vec<ProposalEntry>> {
         let now = Utc::now().timestamp() as u64;
 
-        let proposals = self.db.update_and_fetch("proposals", |entries| {
-            if let Some(proposals) = entries {
-                let proposals_result: Result<Vec<ProposalEntry>, serde_json::Error> =
-                    serde_json::from_slice(proposals);
+        let daos = self.db.update_and_fetch("daos", |entries| {
+            if let Some(daos) = entries {
+                let daos_result: Result<Vec<ProposalEntry>, serde_json::Error> =
+                    serde_json::from_slice(daos);
 
-                if proposals_result.is_err() {
+                if daos_result.is_err() {
                     return None;
                 }
 
-                let proposals = proposals_result.unwrap();
+                let daos = daos_result.unwrap();
 
-                let proposals = proposals
+                let daos = daos
                     .into_iter()
                     .map(|dao| {
                         if dao.start_date <= now
@@ -188,58 +161,58 @@ impl Dao {
                     })
                     .collect::<Vec<ProposalEntry>>();
 
-                Some(serde_json::to_vec(&proposals).unwrap())
+                Some(serde_json::to_vec(&daos).unwrap())
             } else {
                 None
             }
         })?;
 
-        if proposals.is_none() {
+        if daos.is_none() {
             return Ok(vec![]);
         }
 
-        let proposals_result: Result<Vec<ProposalEntry>, serde_json::Error> =
-            serde_json::from_slice(proposals.unwrap().as_ref());
+        let daos_result: Result<Vec<ProposalEntry>, serde_json::Error> =
+            serde_json::from_slice(daos.unwrap().as_ref());
 
-        if proposals_result.is_err() {
-            return Err(anyhow::anyhow!("Failed to get active proposals"));
+        if daos_result.is_err() {
+            return Err(anyhow::anyhow!("Failed to get active daos"));
         }
 
-        let proposals = proposals_result.unwrap();
+        let daos = daos_result.unwrap();
 
-        Ok(proposals
+        Ok(daos
             .into_iter()
             .filter(|dao| dao.start_date <= now && dao.end_date >= now)
             .collect())
     }
 
-    pub fn remove_expired_proposals(&self) -> Result<()> {
+    pub fn remove_expired_daos(&self) -> Result<()> {
         let now = Utc::now().timestamp() as u64;
 
         let admin_preferences = self.get_all_dao_admin_preferences()?;
 
-        self.db.fetch_and_update("proposals", |entries| {
-            if let Some(proposals) = entries {
-                let proposals_result: Result<Vec<ProposalEntry>, serde_json::Error> =
-                    serde_json::from_slice(proposals);
+        self.db.fetch_and_update("daos", |entries| {
+            if let Some(daos) = entries {
+                let daos_result: Result<Vec<ProposalEntry>, serde_json::Error> =
+                    serde_json::from_slice(daos);
 
-                if proposals_result.is_err() {
+                if daos_result.is_err() {
                     return None;
                 }
 
-                let mut proposals = proposals_result.unwrap();
+                let mut daos = daos_result.unwrap();
 
                 let admin_preference = admin_preferences
                     .iter()
-                    .find(|preference| proposals.iter().any(|dao| dao.group_id == preference.group_id));
+                    .find(|preference| daos.iter().any(|dao| dao.group_id == preference.group_id));
 
                 if let Some(admin_preference) = admin_preference {
-                    proposals.retain(|dao| dao.end_date + admin_preference.expiration_time > now);
+                    daos.retain(|dao| dao.end_date + admin_preference.expiration_time > now);
                 } else {
-                    proposals.retain(|dao| dao.end_date + 7 * 24 * 60 * 60 > now);
+                    daos.retain(|dao| dao.end_date + 7 * 24 * 60 * 60 > now);
                 }
 
-                Some(serde_json::to_vec(&proposals).unwrap())
+                Some(serde_json::to_vec(&daos).unwrap())
             } else {
                 None
             }
@@ -248,24 +221,25 @@ impl Dao {
         Ok(())
     }
 
-    pub fn get_proposal_results(&self) -> Result<Vec<ProposalEntry>> {
+    pub fn get_dao_results(&self) -> Result<Vec<ProposalEntry>> {
         let now = Utc::now().timestamp() as u64;
 
-        let proposal_results = self.db.update_and_fetch("proposal_results", |entries| {
-            if let Some(proposal_results) = entries {
-                let proposal_results_result: Result<Vec<ProposalEntry>, serde_json::Error> =
-                    serde_json::from_slice(proposal_results);
+        let dao_results = self.db.update_and_fetch("dao_results", |entries| {
+            if let Some(dao_results) = entries {
+                let dao_results_result: Result<Vec<ProposalEntry>, serde_json::Error> =
+                    serde_json::from_slice(dao_results);
 
-                if proposal_results_result.is_err() {
+                if dao_results_result.is_err() {
                     return None;
                 }
 
-                let proposal_results = proposal_results_result.unwrap();
+                let dao_results = dao_results_result.unwrap();
 
-                let proposal_results = proposal_results
+                let dao_results = dao_results
                     .into_iter()
                     .map(|dao_result| {
-                        if dao_result.end_date < now && dao_result.status == ProposalStatus::Active {
+                        if dao_result.end_date < now && dao_result.status == ProposalStatus::Active
+                        {
                             let mut dao_result = dao_result.clone();
                             dao_result.status = ProposalStatus::Completed;
                             dao_result
@@ -275,50 +249,50 @@ impl Dao {
                     })
                     .collect::<Vec<ProposalEntry>>();
 
-                Some(serde_json::to_vec(&proposal_results).unwrap())
+                Some(serde_json::to_vec(&dao_results).unwrap())
             } else {
                 None
             }
         })?;
 
-        if proposal_results.is_none() {
+        if dao_results.is_none() {
             return Ok(vec![]);
         }
 
-        let proposal_results_result: Result<Vec<ProposalEntry>, serde_json::Error> =
-            serde_json::from_slice(proposal_results.unwrap().as_ref());
+        let dao_results_result: Result<Vec<ProposalEntry>, serde_json::Error> =
+            serde_json::from_slice(dao_results.unwrap().as_ref());
 
-        let proposal_results: Vec<ProposalEntry> = proposal_results_result.unwrap();
+        let dao_results: Vec<ProposalEntry> = dao_results_result.unwrap();
 
-        let proposal_results = proposal_results
+        let dao_results = dao_results
             .into_iter()
             .filter(|dao_result| dao_result.end_date < now)
             .collect::<Vec<ProposalEntry>>();
 
-        Ok(proposal_results)
+        Ok(dao_results)
     }
 
     pub fn update_last_active_notification(&self, proposal_id: String) -> Result<()> {
         let now = Utc::now().timestamp() as u64;
 
-        self.db.fetch_and_update("proposals", |entries| {
-            if let Some(proposals) = entries {
-                let proposals_result: Result<Vec<ProposalEntry>, serde_json::Error> =
-                    serde_json::from_slice(proposals);
+        self.db.fetch_and_update("daos", |entries| {
+            if let Some(daos) = entries {
+                let daos_result: Result<Vec<ProposalEntry>, serde_json::Error> =
+                    serde_json::from_slice(daos);
 
-                if proposals_result.is_err() {
+                if daos_result.is_err() {
                     return None;
                 }
 
-                let mut proposals = proposals_result.unwrap();
+                let mut daos = daos_result.unwrap();
 
-                let dao = proposals.iter_mut().find(|dao| dao.proposal_id == proposal_id);
+                let dao = daos.iter_mut().find(|dao| dao.proposal_id == proposal_id);
 
                 if let Some(dao) = dao {
                     dao.last_active_notification = now;
                 }
 
-                Some(serde_json::to_vec(&proposals).unwrap())
+                Some(serde_json::to_vec(&daos).unwrap())
             } else {
                 None
             }
@@ -328,24 +302,24 @@ impl Dao {
     }
 
     pub fn update_result_notified(&self, proposal_id: String) -> Result<()> {
-        self.db.fetch_and_update("proposals", |entries| {
-            if let Some(proposals) = entries {
-                let proposals_result: Result<Vec<ProposalEntry>, serde_json::Error> =
-                    serde_json::from_slice(proposals);
+        self.db.fetch_and_update("daos", |entries| {
+            if let Some(daos) = entries {
+                let daos_result: Result<Vec<ProposalEntry>, serde_json::Error> =
+                    serde_json::from_slice(daos);
 
-                if proposals_result.is_err() {
+                if daos_result.is_err() {
                     return None;
                 }
 
-                let mut proposals = proposals_result.unwrap();
+                let mut daos = daos_result.unwrap();
 
-                let dao = proposals.iter_mut().find(|dao| dao.proposal_id == proposal_id);
+                let dao = daos.iter_mut().find(|dao| dao.proposal_id == proposal_id);
 
                 if let Some(dao) = dao {
                     dao.result_notified = true;
                 }
 
-                Some(serde_json::to_vec(&proposals).unwrap())
+                Some(serde_json::to_vec(&daos).unwrap())
             } else {
                 None
             }
