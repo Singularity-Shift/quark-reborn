@@ -11,7 +11,7 @@ use crate::{dao::dto::ProposalEntry, dependencies::BotDependencies};
 // Helper function to format time duration in a human-readable way
 fn format_time_duration(seconds: u64) -> String {
     let hours = seconds / 3600;
-    
+
     if hours < 24 {
         format!("{} hour{}", hours, if hours == 1 { "" } else { "s" })
     } else {
@@ -27,7 +27,10 @@ pub async fn execute_create_proposal(
     group_id: Option<String>,
     bot_deps: BotDependencies,
 ) -> String {
-    log::info!("execute_create_proposal called with arguments: {}", arguments);
+    log::info!(
+        "execute_create_proposal called with arguments: {}",
+        arguments
+    );
 
     if group_id.is_none() {
         log::error!("Group ID is missing");
@@ -214,7 +217,7 @@ pub async fn execute_create_proposal(
         return "❌ Error creating proposal".to_string();
     }
 
-    let proposal_result = bot_deps.dao.create_proposal(proposal_entry);
+    let proposal_result = bot_deps.dao.create_dao(proposal_entry);
 
     if proposal_result.is_err() {
         return "❌ Error creating proposal".to_string();
@@ -229,6 +232,8 @@ pub async fn handle_dao_preferences(
     bot_deps: BotDependencies,
 ) -> anyhow::Result<()> {
     // Check if user is admin
+
+    log::info!("handle_dao_preferences called");
     let user = msg.from.as_ref();
     if user.is_none() {
         bot.send_message(msg.chat.id, "❌ User information not available.")
@@ -264,6 +269,8 @@ pub async fn handle_dao_preferences(
                 expiration_time: 7 * 24 * 60 * 60, // 7 days in seconds
                 interval_active_proposal_notifications: 60 * 60, // 1 hour in seconds
             };
+
+            log::info!("Default preferences: {:?}", default_prefs);
 
             // Save default preferences
             if let Err(_e) = bot_deps
@@ -309,6 +316,8 @@ pub async fn handle_dao_preferences(
         format_time_duration(current_prefs.expiration_time),
         format_time_duration(current_prefs.interval_active_proposal_notifications)
     );
+
+    log::info!("Message text: {}", message_text);
 
     bot.send_message(msg.chat.id, message_text)
         .parse_mode(teloxide::types::ParseMode::Html)
