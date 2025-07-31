@@ -33,7 +33,6 @@ pub struct ProposalEntry {
     pub status: ProposalStatus,
     pub last_active_notification: u64,
     pub last_result_notification: u64,
-    pub result_notified: bool,
 }
 
 impl From<&CreateProposalRequest> for ProposalEntry {
@@ -53,7 +52,6 @@ impl From<&CreateProposalRequest> for ProposalEntry {
             status: ProposalStatus::Pending,
             last_active_notification: now,
             last_result_notification: now,
-            result_notified: false,
         }
     }
 }

@@ -222,7 +222,7 @@ pub fn job_active_daos(dao: Dao, bot: Bot) -> Job {
 }
 
 pub fn job_daos_results(panora: Panora, bot: Bot, dao: Dao) -> Job {
-    Job::new_async("0 */3 * * * *", move |_uuid, _l| {
+    Job::new_async("0 */2 * * * *", move |_uuid, _l| {
         let panora = panora.clone();
         let bot = bot.clone();
         let dao = dao.clone();
@@ -237,6 +237,8 @@ pub fn job_daos_results(panora: Panora, bot: Bot, dao: Dao) -> Job {
                     return;
                 }
             };
+
+            log::info!("Daos results list: {}", daos.len());
 
             for proposal_entry in daos {
                 let group_id = proposal_entry.group_id.clone();
@@ -253,6 +255,10 @@ pub fn job_daos_results(panora: Panora, bot: Bot, dao: Dao) -> Job {
                 let now = Utc::now().timestamp() as u64;
 
                 let time_since_last_notification = now - proposal_entry.last_result_notification;
+                
+                log::info!("Time since last notification: {}", time_since_last_notification);
+                log::info!("Interval seconds: {}", interval_seconds);
+                log::info!("Proposal id: {}", proposal_entry.proposal_id);
 
                 
                 if time_since_last_notification >= interval_seconds {
@@ -262,8 +268,8 @@ pub fn job_daos_results(panora: Panora, bot: Bot, dao: Dao) -> Job {
                     match fetch_and_send_dao_results(&panora, &bot, &proposal_entry).await {
                         Ok(_) => {
                             log::info!("Successfully sent DAO results for: {}", proposal_entry.proposal_id);
-                            if let Err(e) = dao.update_result_notified(proposal_entry.proposal_id.clone()) {
-                                log::error!("Failed to update result_notified for DAO {}: {}", proposal_entry.proposal_id, e);
+                            if let Err(e) = dao.update_last_result_notification(proposal_entry.proposal_id.clone()) {
+                                log::error!("Failed to update last result notification for DAO {}: {}", proposal_entry.proposal_id, e);
                             }
                         }
                         Err(e) => {

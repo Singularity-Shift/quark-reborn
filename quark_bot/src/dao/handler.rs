@@ -372,6 +372,18 @@ pub async fn handle_dao_preference_callback(
         _ => return Ok(()),
     };
 
+    let admins = bot.get_chat_administrators(msg.chat.id).await?;
+    let is_admin = admins
+        .iter()
+        .any(|admin| admin.user.id.to_string() == query.from.id.to_string());
+
+    if !is_admin {
+        bot.answer_callback_query(query.id)
+            .text("❌ Only group admins can manage DAO preferences.")
+            .await?;
+        return Ok(());
+    }
+
     if data == "dao_preferences_done" {
         // Clear any pending token input state
         let group_id = msg.chat.id.to_string();
