@@ -264,7 +264,7 @@ pub fn get_pay_users_tool() -> Tool {
 pub fn create_proposal() -> Tool {
     Tool::function(
         "create_proposal",
-        "Create a new voting proposal for the with the given name, description, start date, end date, currency and options to vote for. CRITICAL: You MUST use get_current_time tool with timezone 'UTC' FIRST to get the current time before calling this tool. All dates must be calculated from the current UTC time and converted to seconds since epoch. The symbol parameter is optional - if not provided, the tool will use the saved DAO token preference for the group. If no start time is provided the proposal should start 5 mins from the current time, apply this same rule if the user says to start now, immediately of similar.",
+        "Create a new voting proposal for the with the given name, description, start date, end date, currency and options to vote for. CRITICAL: You MUST use get_current_time tool with timezone 'UTC' FIRST to get the current time before calling this tool. All dates must be calculated from the current UTC time and converted to seconds since epoch. The symbol parameter is optional - if not provided, the tool will use the saved DAO token preference for the group. If no specific vote duration is mentioned, you can use the saved vote duration preference for the group. If no start time is provided the proposal should start 5 mins from the current time, apply this same rule if the user says to start now, immediately of similar.",
         json!({
             "type": "object",
             "properties": {
@@ -282,7 +282,7 @@ pub fn create_proposal() -> Tool {
                 },
                 "end_date": {
                     "type": "string",
-                    "description": "The end date of the proposal in seconds since epoch (UTC+0). Calculate duration from start_date, not from current time. Example: 'end in 3 days' = start_date + 259200 seconds."
+                    "description": "The end date of the proposal in seconds since epoch (UTC+0). Calculate duration from start_date, not from current time. Example: 'end in 3 days' = start_date + 259200 seconds. If no specific duration is mentioned, you can use the saved vote duration preference for this group."
                 },
                 "options": {
                     "type": "array",
