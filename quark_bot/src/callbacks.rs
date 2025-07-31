@@ -273,8 +273,11 @@ pub async fn handle_callback_query(
         } else if data == "dao_preferences_done"
             || data.starts_with("dao_set_expiration_")
             || data.starts_with("dao_set_notifications_")
+            || data.starts_with("dao_set_token_")
+            || data.starts_with("dao_set_vote_duration_")
             || data.starts_with("dao_exp_")
             || data.starts_with("dao_notif_")
+            || data.starts_with("dao_vote_duration_")
             || data == "dao_preferences_back"
         {
             // Handle DAO preferences callbacks
