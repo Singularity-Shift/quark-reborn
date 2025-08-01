@@ -133,6 +133,13 @@ pub struct CreateProposalRequest {
     pub currency: String,
 }
 
+#[derive(Deserialize, Serialize, Debug)]
+pub struct GasPrice {
+    pub deprioritized_gas_estimate: u64,
+    pub gas_estimate: u64,
+    pub prioritized_gas_estimate: u64,
+}
+
 impl fmt::Display for Endpoints {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let backend_host =
