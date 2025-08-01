@@ -26,6 +26,7 @@ function WalletComponent() {
 
   // Show DaoWallet on DAO page, WalletNavbar on other pages
   if (pathname === "/dao") {
+    console.log(`pathname: ${pathname}`);
     return <DaoWallet />;
   }
 
