@@ -13,7 +13,7 @@ use aptos_rust_sdk_types::{
     state::State,
 };
 use axum::http::StatusCode;
-use quark_core::helpers::dto::{SimulateTransactionResponse, TransactionResponse};
+use quark_core::helpers::dto::{GasPrice, SimulateTransactionResponse, TransactionResponse};
 
 use crate::error::ErrorServer;
 
@@ -60,8 +60,24 @@ pub async fn execute_transaction(
             message: e.to_string(),
         })?;
 
-    let max_gas_amount = 1500;
-    let gas_unit_price = 100;
+    let gas_price = node
+        .get_estimate_gas_price()
+        .await
+        .map_err(|e| ErrorServer {
+            status: StatusCode::INTERNAL_SERVER_ERROR.into(),
+            message: e.to_string(),
+        })?;
+
+    let gas_price = gas_price.into_inner();
+
+    let max_gas_amount = 100000;
+    let gas_price = serde_json::from_value::<GasPrice>(gas_price).map_err(|e| ErrorServer {
+        status: StatusCode::INTERNAL_SERVER_ERROR.into(),
+        message: e.to_string(),
+    })?;
+
+    let gas_unit_price = gas_price.gas_estimate;
+
     let expiration_timestamp_secs = state.timestamp_usecs / 1000 / 1000 + 60 * 10;
 
     let raw_transaction = RawTransactionWithData::new_multi_agent(
