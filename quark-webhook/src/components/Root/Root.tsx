@@ -24,9 +24,8 @@ import "./styles.css";
 function WalletComponent() {
   const pathname = usePathname();
 
-  // Show DaoWallet on DAO page, WalletNavbar on other pages
+  // Show DaoWallet on DAO page (only when connected), WalletNavbar on other pages
   if (pathname === "/dao") {
-    console.log(`pathname: ${pathname}`);
     return <DaoWallet />;
   }
 
