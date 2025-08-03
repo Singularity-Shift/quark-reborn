@@ -13,8 +13,9 @@ import { AbiProvider } from "@/context/AbiProvider";
 import { ChainProvider } from "@/context/ChainProvider";
 
 export const metadata: Metadata = {
-  title: "Your Application Title Goes Here",
-  description: "Your application description goes here",
+  title: "Quark AI",
+  description:
+    "Quark AI is a decentralized AI agent for the Telegram ecosystem.",
 };
 
 export default async function RootLayout({ children }: PropsWithChildren) {
