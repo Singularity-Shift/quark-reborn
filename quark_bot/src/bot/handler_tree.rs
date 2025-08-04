@@ -33,22 +33,17 @@ pub fn handler_tree() -> Handler<'static, Result<()>, DpHandlerDescription> {
         .branch(
             Update::filter_message()
                 .enter_dialogue::<Message, InMemStorage<QuarkState>, QuarkState>()
-                // Record all messages with text to message history buffer
-                .branch(
-                    dptree::entry()
-                        .filter(|msg: Message| msg.text().is_some())
-                        .endpoint(|bot_deps: BotDependencies, msg: Message| async move {
-                            if let Some(text) = msg.text() {
-                                let sender_name = msg.from.as_ref().map(|u| u.first_name.clone());
-                                let entry = MessageEntry {
-                                    sender: sender_name,
-                                    text: text.to_string(),
-                                };
-                                store_message(msg.chat.id, entry, bot_deps.history_storage.clone()).await;
-                            }
-                            Ok(())
-                        }),
-                )
+                // Record all messages with text to message history buffer (passthrough)
+                .inspect_async(|bot_deps: BotDependencies, msg: Message| async move {
+                    if let Some(text) = msg.text() {
+                        let sender_name = msg.from.as_ref().map(|u| u.first_name.clone());
+                        let entry = MessageEntry {
+                            sender: sender_name,
+                            text: text.to_string(),
+                        };
+                        store_message(msg.chat.id, entry, bot_deps.history_storage.clone()).await;
+                    }
+                })
                 .branch(
                     dptree::entry()
                         .filter(|msg: Message| {
