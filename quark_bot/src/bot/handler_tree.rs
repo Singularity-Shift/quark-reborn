@@ -33,15 +33,18 @@ pub fn handler_tree() -> Handler<'static, Result<()>, DpHandlerDescription> {
         .branch(
             Update::filter_message()
                 .enter_dialogue::<Message, InMemStorage<QuarkState>, QuarkState>()
-                // Record all messages with text to message history buffer (passthrough)
+                // Record messages with text to message history buffer (groups only, passthrough)
                 .inspect_async(|bot_deps: BotDependencies, msg: Message| async move {
                     if let Some(text) = msg.text() {
-                        let sender_name = msg.from.as_ref().map(|u| u.first_name.clone());
-                        let entry = MessageEntry {
-                            sender: sender_name,
-                            text: text.to_string(),
-                        };
-                        store_message(msg.chat.id, entry, bot_deps.history_storage.clone()).await;
+                        // Only store messages from group chats, never DMs for privacy
+                        if !msg.chat.is_private() {
+                            let sender_name = msg.from.as_ref().map(|u| u.first_name.clone());
+                            let entry = MessageEntry {
+                                sender: sender_name,
+                                text: text.to_string(),
+                            };
+                            store_message(msg.chat.id, entry, bot_deps.history_storage.clone()).await;
+                        }
                     }
                 })
                 .branch(
