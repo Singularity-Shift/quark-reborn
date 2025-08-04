@@ -3,6 +3,7 @@
 use crate::ai::vector_store::{
     delete_file_from_vector_store, delete_vector_store, list_user_files_with_names,
 };
+use crate::dao::handler::{handle_dao_preference_callback, handle_disable_notifications_callback};
 use crate::dependencies::BotDependencies;
 use crate::user_model_preferences::callbacks::handle_model_preferences_callback;
 use crate::utils;
@@ -276,6 +277,8 @@ pub async fn handle_callback_query(
             || data.starts_with("dao_set_results_notifications_")
             || data.starts_with("dao_set_token_")
             || data.starts_with("dao_set_vote_duration_")
+            || data.starts_with("dao_manage_disabled_")
+            || data.starts_with("dao_enable_notifications_")
             || data.starts_with("dao_exp_")
             || data.starts_with("dao_notif_")
             || data.starts_with("dao_res_notif_")
@@ -283,7 +286,10 @@ pub async fn handle_callback_query(
             || data == "dao_preferences_back"
         {
             // Handle DAO preferences callbacks
-            crate::dao::handler::handle_dao_preference_callback(bot, query, bot_deps).await?;
+            handle_dao_preference_callback(bot, query, bot_deps).await?;
+        } else if data == "disable_notifications" {
+            // Handle disable notifications callback
+            handle_disable_notifications_callback(bot, query, bot_deps).await?;
         } else if data == "voting_help" {
             // Handle voting help callback
             bot.answer_callback_query(query.id)
