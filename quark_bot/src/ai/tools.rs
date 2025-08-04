@@ -306,7 +306,7 @@ pub fn create_proposal() -> Tool {
 pub fn get_recent_messages_tool() -> Tool {
     Tool::function(
         "get_recent_messages",
-        "Retrieve the most recent messages (up to 20) from THIS Telegram group chat for situational awareness. Use this tool automatically when: responding to vague references ('that', 'it', 'what we discussed'), when context would improve your response, when asked about recent activity/mood/topics, or when a more contextual response would be helpful. This provides conversation flow awareness.",
+        "Retrieve the most recent messages (up to 20) from this Telegram group chat. Use this tool whenever users ask about: 'what have I missed', 'recent activity', 'what happened', 'group updates', 'catching up', 'conversation history', or use vague references like 'that', 'it', 'what we discussed'. This tool is essential for providing context-aware responses and should be called automatically for situational awareness in group chats.",
         serde_json::json!({}),
     )
 }
