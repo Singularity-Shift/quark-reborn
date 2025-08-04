@@ -1,9 +1,14 @@
 use chrono::Utc;
 use quark_core::helpers::dto::{CoinVersion, CreateProposalRequest};
+use reqwest::Url;
 use teloxide::{
     prelude::*,
-    types::{InlineKeyboardButton, InlineKeyboardButtonKind, InlineKeyboardMarkup, Message},
+    types::{
+        InlineKeyboardButton, InlineKeyboardButtonKind, InlineKeyboardMarkup,
+        MaybeInaccessibleMessage, Message, ParseMode,
+    },
 };
+
 use uuid::Uuid;
 
 use crate::{dao::dto::ProposalEntry, dependencies::BotDependencies, utils::format_time_duration};
@@ -354,7 +359,7 @@ pub async fn handle_dao_preferences(
     );
 
     bot.send_message(msg.chat.id, message_text)
-        .parse_mode(teloxide::types::ParseMode::Html)
+        .parse_mode(ParseMode::Html)
         .reply_markup(keyboard)
         .await?;
 
@@ -363,12 +368,12 @@ pub async fn handle_dao_preferences(
 
 pub async fn handle_dao_preference_callback(
     bot: Bot,
-    query: teloxide::types::CallbackQuery,
+    query: CallbackQuery,
     bot_deps: BotDependencies,
 ) -> anyhow::Result<()> {
     let data = query.data.as_ref().unwrap();
     let msg = match &query.message {
-        Some(teloxide::types::MaybeInaccessibleMessage::Regular(message)) => message,
+        Some(MaybeInaccessibleMessage::Regular(message)) => message,
         _ => return Ok(()),
     };
 
@@ -397,7 +402,7 @@ pub async fn handle_dao_preference_callback(
             msg.id,
             "✅ <b>DAO preferences saved successfully!</b>",
         )
-        .parse_mode(teloxide::types::ParseMode::Html)
+        .parse_mode(ParseMode::Html)
         .await?;
 
         bot.answer_callback_query(query.id).await?;
@@ -473,7 +478,7 @@ pub async fn handle_dao_preference_callback(
             "🗑️ <b>Select Deletion After Conclusion Duration</b>\n\n\
             Choose how long voting results are stored after voting concludes:",
         )
-        .parse_mode(teloxide::types::ParseMode::Html)
+        .parse_mode(ParseMode::Html)
         .reply_markup(keyboard)
         .await?;
     } else if data.starts_with("dao_set_notifications_") {
@@ -571,7 +576,7 @@ pub async fn handle_dao_preference_callback(
             "🔔 <b>Select Notification Interval</b>\n\n\
             Choose how often to send notifications for active proposals:",
         )
-        .parse_mode(teloxide::types::ParseMode::Html)
+        .parse_mode(ParseMode::Html)
         .reply_markup(keyboard)
         .await?;
     } else if data.starts_with("dao_set_results_notifications_") {
@@ -669,7 +674,7 @@ pub async fn handle_dao_preference_callback(
             "🔔 <b>Select Results Notification Interval</b>\n\n\
             Choose how often to send notifications for DAO results:",
         )
-        .parse_mode(teloxide::types::ParseMode::Html)
+        .parse_mode(ParseMode::Html)
         .reply_markup(keyboard)
         .await?;
     } else if data.starts_with("dao_set_token_") {
@@ -701,7 +706,7 @@ pub async fn handle_dao_preference_callback(
             • <code>eth</code> (will be converted to ETH)\n\n\
             <i>Token tickers will be automatically converted to uppercase.</i>",
         )
-        .parse_mode(teloxide::types::ParseMode::Html)
+        .parse_mode(ParseMode::Html)
         .reply_markup(keyboard)
         .await?;
     } else if data.starts_with("dao_set_vote_duration_") {
@@ -798,9 +803,167 @@ pub async fn handle_dao_preference_callback(
             "🗳️ <b>Select Vote Duration</b>\n\n\
             Choose how long votes should remain open for proposals:",
         )
-        .parse_mode(teloxide::types::ParseMode::Html)
+        .parse_mode(ParseMode::Html)
         .reply_markup(keyboard)
         .await?;
+    } else if data.starts_with("dao_manage_disabled_") {
+        let group_id = data.strip_prefix("dao_manage_disabled_").unwrap();
+
+        // Get all proposals for this group
+        let all_proposals = match bot_deps.dao.get_active_daos() {
+            Ok(proposals) => proposals,
+            Err(e) => {
+                log::error!("Failed to get proposals: {}", e);
+                bot.answer_callback_query(query.id)
+                    .text("❌ Error retrieving proposals")
+                    .await?;
+                return Ok(());
+            }
+        };
+
+        // Filter proposals for this group that have disabled notifications
+        let disabled_proposals: Vec<_> = all_proposals
+            .into_iter()
+            .filter(|p| p.group_id == group_id && p.disabled_notifications)
+            .collect();
+
+        if disabled_proposals.is_empty() {
+            bot.edit_message_text(
+                msg.chat.id,
+                msg.id,
+                "🔕 <b>No Disabled Notifications</b>\n\n\
+                All proposals in this group have notifications enabled.",
+            )
+            .parse_mode(ParseMode::Html)
+            .reply_markup(InlineKeyboardMarkup::new(vec![vec![
+                InlineKeyboardButton::new(
+                    "🔙 Back",
+                    InlineKeyboardButtonKind::CallbackData("dao_preferences_back".to_string()),
+                ),
+            ]]))
+            .await?;
+        } else {
+            // Create keyboard with disabled proposals
+            let mut keyboard_buttons = Vec::new();
+
+            for proposal in &disabled_proposals {
+                keyboard_buttons.push(vec![InlineKeyboardButton::new(
+                    format!("✅ Enable: {}", proposal.name),
+                    InlineKeyboardButtonKind::CallbackData(format!(
+                        "dao_enable_notifications_{}",
+                        proposal.proposal_id
+                    )),
+                )]);
+            }
+
+            // Add back button
+            keyboard_buttons.push(vec![InlineKeyboardButton::new(
+                "🔙 Back",
+                InlineKeyboardButtonKind::CallbackData("dao_preferences_back".to_string()),
+            )]);
+
+            let keyboard = InlineKeyboardMarkup::new(keyboard_buttons);
+
+            let message_text = format!(
+                "🔕 <b>Disabled Notifications</b>\n\n\
+                Found {} proposal(s) with disabled notifications:\n\n\
+                💡 <i>Click on a proposal to re-enable its notifications</i>",
+                disabled_proposals.len()
+            );
+
+            bot.edit_message_text(msg.chat.id, msg.id, message_text)
+                .parse_mode(ParseMode::Html)
+                .reply_markup(keyboard)
+                .await?;
+        }
+    } else if data.starts_with("dao_enable_notifications_") {
+        let proposal_id = data.strip_prefix("dao_enable_notifications_").unwrap();
+
+        // Enable notifications for this proposal
+        if let Err(e) = bot_deps
+            .dao
+            .update_disabled_notifications(proposal_id.to_string(), false)
+        {
+            log::error!(
+                "Failed to enable notifications for proposal {}: {}",
+                proposal_id,
+                e
+            );
+            bot.answer_callback_query(query.id)
+                .text("❌ Error enabling notifications")
+                .await?;
+            return Ok(());
+        }
+
+        bot.answer_callback_query(query.id.clone())
+            .text("✅ Notifications enabled for this proposal")
+            .await?;
+
+        // Go back to the manage disabled menu
+        let group_id = msg.chat.id.to_string();
+        let all_proposals = match bot_deps.dao.get_active_daos() {
+            Ok(proposals) => proposals,
+            Err(e) => {
+                log::error!("Failed to get proposals: {}", e);
+                return Ok(());
+            }
+        };
+
+        // Filter proposals for this group that have disabled notifications
+        let disabled_proposals: Vec<_> = all_proposals
+            .into_iter()
+            .filter(|p| p.group_id == group_id && p.disabled_notifications)
+            .collect();
+
+        if disabled_proposals.is_empty() {
+            bot.edit_message_text(
+                msg.chat.id,
+                msg.id,
+                "🔕 <b>No Disabled Notifications</b>\n\n\
+                All proposals in this group have notifications enabled.",
+            )
+            .parse_mode(ParseMode::Html)
+            .reply_markup(InlineKeyboardMarkup::new(vec![vec![
+                InlineKeyboardButton::new(
+                    "🔙 Back",
+                    InlineKeyboardButtonKind::CallbackData("dao_preferences_back".to_string()),
+                ),
+            ]]))
+            .await?;
+        } else {
+            // Create keyboard with remaining disabled proposals
+            let mut keyboard_buttons = Vec::new();
+
+            for proposal in &disabled_proposals {
+                keyboard_buttons.push(vec![InlineKeyboardButton::new(
+                    format!("✅ Enable: {}", proposal.name),
+                    InlineKeyboardButtonKind::CallbackData(format!(
+                        "dao_enable_notifications_{}",
+                        proposal.proposal_id
+                    )),
+                )]);
+            }
+
+            // Add back button
+            keyboard_buttons.push(vec![InlineKeyboardButton::new(
+                "🔙 Back",
+                InlineKeyboardButtonKind::CallbackData("dao_preferences_back".to_string()),
+            )]);
+
+            let keyboard = InlineKeyboardMarkup::new(keyboard_buttons);
+
+            let message_text = format!(
+                "🔕 <b>Disabled Notifications</b>\n\n\
+                Found {} proposal(s) with disabled notifications:\n\n\
+                💡 <i>Click on a proposal to re-enable its notifications</i>",
+                disabled_proposals.len()
+            );
+
+            bot.edit_message_text(msg.chat.id, msg.id, message_text)
+                .parse_mode(ParseMode::Html)
+                .reply_markup(keyboard)
+                .await?;
+        }
     } else if data.starts_with("dao_exp_") {
         let parts: Vec<&str> = data.split('_').collect();
         if parts.len() >= 4 {
@@ -837,7 +1000,7 @@ pub async fn handle_dao_preference_callback(
                     format_time_duration(expiration_time)
                 ),
             )
-            .parse_mode(teloxide::types::ParseMode::Html)
+            .parse_mode(ParseMode::Html)
             .await?;
         }
     } else if data.starts_with("dao_notif_") {
@@ -876,7 +1039,7 @@ pub async fn handle_dao_preference_callback(
                     format_time_duration(notification_interval)
                 ),
             )
-            .parse_mode(teloxide::types::ParseMode::Html)
+            .parse_mode(ParseMode::Html)
             .await?;
         }
     } else if data.starts_with("dao_res_notif_") {
@@ -915,7 +1078,7 @@ pub async fn handle_dao_preference_callback(
                     format_time_duration(results_notification_interval)
                 ),
             )
-            .parse_mode(teloxide::types::ParseMode::Html)
+            .parse_mode(ParseMode::Html)
             .await?;
         }
     } else if data.starts_with("dao_vote_duration_") {
@@ -954,7 +1117,7 @@ pub async fn handle_dao_preference_callback(
                     format_time_duration(vote_duration)
                 ),
             )
-            .parse_mode(teloxide::types::ParseMode::Html)
+            .parse_mode(ParseMode::Html)
             .await?;
         }
     } else if data == "dao_preferences_back" {
@@ -1020,6 +1183,10 @@ pub async fn handle_dao_preference_callback(
                 )),
             )],
             vec![InlineKeyboardButton::new(
+                "🔕 Manage Disabled Notifications",
+                InlineKeyboardButtonKind::CallbackData(format!("dao_manage_disabled_{}", group_id)),
+            )],
+            vec![InlineKeyboardButton::new(
                 "✅ Done",
                 InlineKeyboardButtonKind::CallbackData("dao_preferences_done".to_string()),
             )],
@@ -1040,11 +1207,133 @@ pub async fn handle_dao_preference_callback(
         );
 
         bot.edit_message_text(msg.chat.id, msg.id, message_text)
-            .parse_mode(teloxide::types::ParseMode::Html)
+            .parse_mode(ParseMode::Html)
             .reply_markup(keyboard)
             .await?;
     }
 
     bot.answer_callback_query(query.id).await?;
+    Ok(())
+}
+
+pub async fn handle_disable_notifications_callback(
+    bot: Bot,
+    query: CallbackQuery,
+    bot_deps: BotDependencies,
+) -> anyhow::Result<()> {
+    let msg = match &query.message {
+        Some(MaybeInaccessibleMessage::Regular(message)) => message,
+        _ => return Ok(()),
+    };
+
+    // Extract proposal ID from the message text
+    let message_text = msg.text().unwrap_or("");
+    let lines: Vec<&str> = message_text.lines().collect();
+
+    // Find the proposal name line (starts with 🏛️)
+    let proposal_name = lines
+        .iter()
+        .find(|line| line.starts_with("🏛️"))
+        .map(|line| line.trim_start_matches("🏛️ ").trim())
+        .unwrap_or("");
+
+    if proposal_name.is_empty() {
+        bot.answer_callback_query(query.id)
+            .text("❌ Could not identify the proposal")
+            .await?;
+        return Ok(());
+    }
+
+    // Get all active proposals to find the one with this name
+    let active_proposals = match bot_deps.dao.get_active_daos() {
+        Ok(proposals) => proposals,
+        Err(e) => {
+            log::error!("Failed to get active proposals: {}", e);
+            bot.answer_callback_query(query.id)
+                .text("❌ Error retrieving proposals")
+                .await?;
+            return Ok(());
+        }
+    };
+
+    // Find the proposal by name
+    let proposal = active_proposals.iter().find(|p| p.name == proposal_name);
+
+    match proposal {
+        Some(proposal) => {
+            // Disable notifications for this proposal
+            if let Err(e) = bot_deps
+                .dao
+                .update_disabled_notifications(proposal.proposal_id.clone(), true)
+            {
+                log::error!("Failed to disable notifications: {}", e);
+                bot.answer_callback_query(query.id)
+                    .text("❌ Error disabling notifications")
+                    .await?;
+                return Ok(());
+            }
+
+            // Remove the disable button from the keyboard
+            let mut keyboard_buttons = Vec::new();
+
+            // Recreate the voting options
+            for (index, option) in proposal.options.iter().enumerate() {
+                let base_url = format!(
+                    "https://quark-webhook.vercel.app/dao?group_id={}&proposal_id={}&choice_id={}&coin_type={}&coin_version={}&dao_name={}&dao_description={}",
+                    proposal.group_id,
+                    proposal.proposal_id,
+                    index,
+                    proposal.coin_type,
+                    match proposal.version {
+                        CoinVersion::V1 => "V1",
+                        CoinVersion::V2 => "V2",
+                    },
+                    proposal.name,
+                    proposal.description
+                );
+
+                // Parse URL with error handling
+                let parsed_url = match Url::parse(&base_url) {
+                    Ok(url) => url,
+                    Err(e) => {
+                        log::error!(
+                            "Failed to parse URL for proposal {}: {}",
+                            proposal.proposal_id,
+                            e
+                        );
+                        continue;
+                    }
+                };
+
+                keyboard_buttons.push(vec![InlineKeyboardButton::url(
+                    format!("🗳️ Vote: {}", option),
+                    parsed_url,
+                )]);
+            }
+
+            // Add voting help button
+            keyboard_buttons.push(vec![InlineKeyboardButton::callback(
+                "ℹ️ How to Vote",
+                "voting_help",
+            )]);
+
+            let keyboard = InlineKeyboardMarkup::new(keyboard_buttons);
+
+            // Update the message with new keyboard (without the disable button)
+            bot.edit_message_reply_markup(msg.chat.id, msg.id)
+                .reply_markup(keyboard)
+                .await?;
+
+            bot.answer_callback_query(query.id)
+                .text("✅ Notifications disabled for this proposal")
+                .await?;
+        }
+        None => {
+            bot.answer_callback_query(query.id)
+                .text("❌ Could not find the proposal")
+                .await?;
+        }
+    }
+
     Ok(())
 }
