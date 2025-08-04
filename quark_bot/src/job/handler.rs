@@ -128,7 +128,8 @@ pub fn job_active_daos(dao: Dao, bot: Bot) -> Job {
                     interval_seconds / 3600
                 );
 
-                if time_since_last_notification >= interval_seconds {
+                // Check if notifications are enabled for this specific proposal
+                if !proposal_entry.disabled_notifications && time_since_last_notification >= interval_seconds {
                     // Create inline keyboard with voting options
                     let mut keyboard_buttons = Vec::new();
                     
@@ -176,6 +177,15 @@ pub fn job_active_daos(dao: Dao, bot: Bot) -> Job {
                             "voting_help"
                         )
                     ]);
+                    // Only show disable button if notifications are enabled
+                    if !proposal_entry.disabled_notifications {
+                        keyboard_buttons.push(vec![
+                            InlineKeyboardButton::callback(
+                                "❌ Disable Notifications",
+                                "disable_notifications"
+                            )
+                        ]);
+                    }
 
                     let keyboard = InlineKeyboardMarkup::new(keyboard_buttons);
 
@@ -261,7 +271,8 @@ pub fn job_daos_results(panora: Panora, bot: Bot, dao: Dao) -> Job {
                 log::info!("Proposal id: {}", proposal_entry.proposal_id);
 
                 
-                if time_since_last_notification >= interval_seconds {
+                // Check if notifications are enabled for this specific proposal
+                if !proposal_entry.disabled_notifications && time_since_last_notification >= interval_seconds {
                 // Check if DAO has ended and results haven't been sent
                     log::info!("Processing finished DAO: {}", proposal_entry.proposal_id);
                     

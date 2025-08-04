@@ -354,4 +354,31 @@ impl Dao {
 
         Ok(())
     }
+
+    pub fn update_disabled_notifications(&self, proposal_id: String, disabled: bool) -> Result<()> {
+        self.db.fetch_and_update("daos", |entries| {
+            if let Some(daos) = entries {
+                let daos_result: Result<Vec<ProposalEntry>, serde_json::Error> =
+                    serde_json::from_slice(daos);
+
+                if daos_result.is_err() {
+                    return None;
+                }
+
+                let mut daos = daos_result.unwrap();
+
+                let dao = daos.iter_mut().find(|dao| dao.proposal_id == proposal_id);
+
+                if let Some(dao) = dao {
+                    dao.disabled_notifications = disabled;
+                }
+
+                Some(serde_json::to_vec(&daos).unwrap())
+            } else {
+                None
+            }
+        })?;
+
+        Ok(())
+    }
 }
