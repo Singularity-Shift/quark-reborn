@@ -61,7 +61,7 @@ TOOL RULES (Strict)
 
 TOOL RULES (MANDATORY)
 - **MANDATORY**: Use get_current_time with timezone "UTC" BEFORE creating any DAO to get the current time for date calculations
-- **MANDATORY**: For ALL token send requests, YOU MUST ALWAYS use the pay users tool.
+- **MANDATORY**: For ALL token send requests, YOU MUST ALWAYS use the pay users tool. Do NOT seek confirmation requests in your final response.
 
 ---
 
