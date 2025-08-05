@@ -320,9 +320,9 @@ pub async fn handle_payment_callback(
 ) -> Result<()> {
     let data = query.data.as_ref().unwrap();
     
-    // Parse callback data: pay_accept:user_id:group_id or pay_reject:user_id:group_id
+    // Parse callback data: pay_accept:user_id:group_id:transaction_id or pay_reject:user_id:group_id:transaction_id
     let parts: Vec<&str> = data.split(':').collect();
-    if parts.len() != 3 {
+    if parts.len() != 4 {
         bot.answer_callback_query(query.id)
             .text("❌ Invalid callback data")
             .await?;
@@ -332,6 +332,7 @@ pub async fn handle_payment_callback(
     let action = parts[0];
     let user_id = parts[1].parse::<i64>();
     let group_id_i64 = parts[2].parse::<i64>();
+    let transaction_id = parts[3].to_string();
 
     if user_id.is_err() || group_id_i64.is_err() {
         bot.answer_callback_query(query.id)
@@ -342,6 +343,30 @@ pub async fn handle_payment_callback(
 
     let user_id = user_id.unwrap();
     let group_id_i64 = group_id_i64.unwrap();
+    
+    // SECURITY CHECK: Verify that the user clicking the button is authorized
+    let callback_user_id = query.from.id.0 as i64;
+    
+    if group_id_i64 == 0 {
+        // Individual context: only the requesting user can confirm/cancel
+        if callback_user_id != user_id {
+            bot.answer_callback_query(query.id)
+                .text("❌ Only the user who requested this transaction can confirm or cancel it")
+                .await?;
+            return Ok(());
+        }
+    } else {
+        // Group context: check if user is group admin or the original requester
+        let is_original_requester = callback_user_id == user_id;
+        let is_group_admin = bot.get_chat_member(teloxide::types::ChatId(group_id_i64), query.from.id).await?.is_privileged();
+        
+        if !is_original_requester && !is_group_admin {
+            bot.answer_callback_query(query.id)
+                .text("❌ Only the requester or group admin can confirm or cancel this transaction")
+                .await?;
+            return Ok(());
+        }
+    }
     
     // Convert group_id back to Option<i64> format used by pending_transactions
     let group_id_opt = if group_id_i64 == 0 { None } else { Some(group_id_i64) };
@@ -364,6 +389,43 @@ pub async fn handle_payment_callback(
     }
 
     let pending_transaction = pending_transaction.unwrap();
+    
+    // TRANSACTION ID VALIDATION: Verify that the callback transaction ID matches the stored transaction
+    if pending_transaction.transaction_id != transaction_id {
+        bot.answer_callback_query(query.id)
+            .text("❌ Transaction ID mismatch - invalid callback")
+            .await?;
+        
+        log::warn!("Transaction ID mismatch: callback={}, stored={}", transaction_id, pending_transaction.transaction_id);
+        return Ok(());
+    }
+    
+    // Check if transaction has expired
+    if crate::pending_transactions::handler::PendingTransactions::is_expired(&pending_transaction) {
+        // Remove expired transaction
+        let _ = bot_deps.pending_transactions.delete_pending_transaction(user_id, group_id_opt);
+        
+        bot.answer_callback_query(query.id)
+            .text("❌ Transaction has expired (1 minute timeout)")
+            .await?;
+        
+        // Edit the message to show expiration
+        if let Some(message) = &query.message {
+            if let teloxide::types::MaybeInaccessibleMessage::Regular(msg) = message {
+                let expired_message = format!(
+                    "⏰ <b>Transaction expired</b>\n\n💰 {:.2} {} to {} users was not sent.\n\n<i>Transactions expire after 1 minute for security.</i>",
+                    pending_transaction.per_user_amount * pending_transaction.original_usernames.len() as f64,
+                    pending_transaction.symbol,
+                    pending_transaction.original_usernames.len()
+                );
+                
+                bot.edit_message_text(msg.chat.id, msg.id, expired_message)
+                    .parse_mode(teloxide::types::ParseMode::Html)
+                    .await?;
+            }
+        }
+        return Ok(());
+    }
 
     match action {
         "pay_accept" => {
@@ -386,7 +448,7 @@ pub async fn handle_payment_callback(
                         .to_lowercase();
 
                     let success_message = format!(
-                        "✅ Payment sent successfully!\n\n💰 {:.2} {} sent to {} users ({:.2} each)\n\n🔗 [View transaction](https://explorer.aptoslabs.com/txn/{}?network={})",
+                        "✅ <b>Payment sent successfully!</b>\n\n💰 {:.2} {} sent to {} users ({:.2} each)\n\n🔗 <a href=\"https://explorer.aptoslabs.com/txn/{}?network={}\">View transaction</a>",
                         pending_transaction.per_user_amount * pending_transaction.original_usernames.len() as f64,
                         pending_transaction.symbol,
                         pending_transaction.original_usernames.len(),
@@ -399,7 +461,7 @@ pub async fn handle_payment_callback(
                     if let Some(message) = &query.message {
                         if let teloxide::types::MaybeInaccessibleMessage::Regular(msg) = message {
                             bot.edit_message_text(msg.chat.id, msg.id, success_message)
-                                .parse_mode(teloxide::types::ParseMode::MarkdownV2)
+                                .parse_mode(teloxide::types::ParseMode::Html)
                                 .await?;
                         }
                     }
@@ -409,12 +471,13 @@ pub async fn handle_payment_callback(
                         .await?;
                 }
                 Err(e) => {
-                    let error_message = format!("❌ Payment failed: {}", e);
+                    let error_message = format!("❌ <b>Payment failed</b>\n\n{}", e);
                     
                     // Edit the original message
                     if let Some(message) = &query.message {
                         if let teloxide::types::MaybeInaccessibleMessage::Regular(msg) = message {
                             bot.edit_message_text(msg.chat.id, msg.id, error_message)
+                                .parse_mode(teloxide::types::ParseMode::Html)
                                 .await?;
                         }
                     }
@@ -430,7 +493,7 @@ pub async fn handle_payment_callback(
             let _ = bot_deps.pending_transactions.delete_pending_transaction(user_id, group_id_opt);
 
             let cancel_message = format!(
-                "❌ Payment cancelled\n\n💰 {:.2} {} to {} users was not sent.",
+                "❌ <b>Payment cancelled</b>\n\n💰 {:.2} {} to {} users was not sent.",
                 pending_transaction.per_user_amount * pending_transaction.original_usernames.len() as f64,
                 pending_transaction.symbol,
                 pending_transaction.original_usernames.len()
@@ -440,6 +503,7 @@ pub async fn handle_payment_callback(
             if let Some(message) = &query.message {
                 if let teloxide::types::MaybeInaccessibleMessage::Regular(msg) = message {
                     bot.edit_message_text(msg.chat.id, msg.id, cancel_message)
+                        .parse_mode(teloxide::types::ParseMode::Html)
                         .await?;
                 }
             }

@@ -995,7 +995,23 @@ pub async fn handle_chat(
                     .iter()
                     .any(|tool_call| tool_call.name == "get_pay_users")
                 {
-                    pay_users_hook(bot, msg, ai_response.text, group_id_for_hook).await?;
+                    // Get transaction_id from the pending transaction
+                    let user_id = if let Some(user) = &msg.from {
+                        user.id.0 as i64
+                    } else {
+                        log::warn!("Unable to get user ID for pay_users_hook");
+                        send_long_message(&bot, msg.chat.id, &ai_response.text).await?;
+                        return Ok(());
+                    };
+                    
+                    let group_id_i64 = group_id_for_hook.as_ref().and_then(|gid| gid.parse::<i64>().ok());
+                    
+                    if let Some(pending_transaction) = bot_deps.pending_transactions.get_pending_transaction(user_id, group_id_i64) {
+                        pay_users_hook(bot, msg, ai_response.text, group_id_for_hook, pending_transaction.transaction_id).await?;
+                    } else {
+                        log::warn!("No pending transaction found for user {} in group {:?}", user_id, group_id_i64);
+                        send_long_message(&bot, msg.chat.id, &ai_response.text).await?;
+                    }
                 } else {
                     send_long_message(&bot, msg.chat.id, &ai_response.text).await?;
                 }

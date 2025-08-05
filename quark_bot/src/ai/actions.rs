@@ -1278,8 +1278,13 @@ pub async fn execute_pay_users(
         (user_credentials.unwrap().jwt, false)
     };
 
-    // Create pending transaction
+    // Create pending transaction with 1 minute expiration and unique UUID
+    let now = Utc::now().timestamp() as u64;
+    let expires_at = now + 60; // 1 minute from now
+    let transaction_id = uuid::Uuid::new_v4().to_string();
+    
     let pending_transaction = PendingTransaction {
+        transaction_id,
         amount: blockchain_amount,
         users: user_addresses.clone(),
         coin_type: token_type,
@@ -1290,7 +1295,8 @@ pub async fn execute_pay_users(
         user_addresses,
         original_usernames: users.clone(),
         per_user_amount,
-        created_at: Utc::now().timestamp() as u64,
+        created_at: now,
+        expires_at,
     };
 
 
