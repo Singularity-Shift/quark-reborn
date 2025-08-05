@@ -216,6 +216,8 @@ impl Dao {
 
         let admin_preferences = self.get_all_dao_admin_preferences()?;
 
+        log::info!("Starting DAO cleanup job at timestamp: {}", now);
+
         self.db.fetch_and_update("daos", |entries| {
             if let Some(daos) = entries {
                 let daos_result: Result<Vec<ProposalEntry>, serde_json::Error> =
@@ -231,11 +233,41 @@ impl Dao {
                     .iter()
                     .find(|preference| daos.iter().any(|dao| dao.group_id == preference.group_id));
 
+                // Only remove proposals that are Completed AND have passed their expiration time
+                let initial_count = daos.len();
                 if let Some(admin_preference) = admin_preference {
-                    daos.retain(|dao| dao.end_date + admin_preference.expiration_time > now);
+                    daos.retain(|dao| {
+                        // Keep proposals that are not completed
+                        if dao.status != ProposalStatus::Completed {
+                            return true;
+                        }
+                        // For completed proposals, only remove if they've passed expiration time
+                        let should_keep = dao.end_date + admin_preference.expiration_time > now;
+                        if !should_keep {
+                            log::info!("Removing expired completed DAO: {} (end_date: {}, expiration_time: {}, now: {})", 
+                                dao.proposal_id, dao.end_date, admin_preference.expiration_time, now);
+                        }
+                        should_keep
+                    });
                 } else {
-                    daos.retain(|dao| dao.end_date + 7 * 24 * 60 * 60 > now);
+                    daos.retain(|dao| {
+                        // Keep proposals that are not completed
+                        if dao.status != ProposalStatus::Completed {
+                            return true;
+                        }
+                        // For completed proposals, only remove if they've passed expiration time (default 7 days)
+                        let should_keep = dao.end_date + 7 * 24 * 60 * 60 > now;
+                        if !should_keep {
+                            log::info!("Removing expired completed DAO: {} (end_date: {}, default_expiration: {}, now: {})", 
+                                dao.proposal_id, dao.end_date, 7 * 24 * 60 * 60, now);
+                        }
+                        should_keep
+                    });
                 }
+                
+                let final_count = daos.len();
+                log::info!("DAO cleanup completed: removed {} proposals ({} -> {})", 
+                    initial_count - final_count, initial_count, final_count);
 
                 Some(serde_json::to_vec(&daos).unwrap())
             } else {
