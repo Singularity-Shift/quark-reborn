@@ -219,7 +219,7 @@ pub fn get_fear_and_greed_index_tool() -> Tool {
 pub fn get_pay_users_tool() -> Tool {
     Tool::function(
         "get_pay_users",
-        "Token Send Tool — Streamlined Protocol\n\nThis tool executes token transfers to multiple Telegram users by username. The contract automatically splits the total amount evenly among all recipients.\n\nConfirmation Protocol:\n• Ask for ONE clear confirmation before executing\n• Use explicit format: 'Confirm sending [X] [TOKEN] total, split evenly among [Y] users ([Z] each). Reply \"YES\" to confirm or \"CHANGE\" to modify.'\n• Only proceed after user confirms with \"YES\" or similar affirmative response\n• After execution, immediately provide blockchain explorer link for transaction tracking upon successful execution.\n\n",
+        "Token Send Tool — Streamlined Protocol\n\nThis tool prepares token transfers to multiple Telegram users by username. The contract automatically splits the total amount evenly among all recipients.\n\nResponse Protocol:\n• After calling this tool, ALWAYS describe the prepared transaction using this exact format: 'Confirm sending [X] [TOKEN] total, split evenly among [Y] users ([Z] each).'\n• Do NOT ask for confirmation again - the user will confirm via buttons\n• Do NOT repeat the tool call - execute it once and provide the summary\n• The transaction will be prepared and awaiting user confirmation via inline buttons\n\n",
         json!({
             "type": "object",
             "properties": {

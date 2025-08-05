@@ -57,3 +57,35 @@ pub async fn fund_account_hook(bot: Bot, msg: Message, text: String) -> Result<(
         .await?;
     Ok(())
 }
+
+pub async fn pay_users_hook(
+    bot: Bot, 
+    msg: Message, 
+    text: String, 
+    group_id: Option<String>
+) -> Result<()> {
+    let user_id = if let Some(user) = &msg.from {
+        user.id.0 as i64
+    } else {
+        return Ok(());
+    };
+
+    let group_id_i64 = group_id.and_then(|gid| gid.parse::<i64>().ok()).unwrap_or(0);
+
+    let accept_btn = InlineKeyboardButton::callback(
+        "✅ Accept", 
+        format!("pay_accept:{}:{}", user_id, group_id_i64)
+    );
+    let reject_btn = InlineKeyboardButton::callback(
+        "❌ Reject", 
+        format!("pay_reject:{}:{}", user_id, group_id_i64)
+    );
+    
+    let markup = InlineKeyboardMarkup::new(vec![vec![accept_btn, reject_btn]]);
+    
+    bot.send_message(msg.chat.id, text)
+        .reply_markup(markup)
+        .await?;
+    
+    Ok(())
+}

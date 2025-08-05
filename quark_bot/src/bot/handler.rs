@@ -1,7 +1,7 @@
 //! Command handlers for quark_bot Telegram bot.
 use crate::{
     assets::handler::handle_file_upload,
-    bot::hooks::{fund_account_hook, withdraw_funds_hook},
+    bot::hooks::{fund_account_hook, pay_users_hook, withdraw_funds_hook},
     credentials::dto::CredentialsPayload,
     dependencies::BotDependencies,
     group::dto::GroupCredentials,
@@ -695,6 +695,9 @@ pub async fn handle_chat(
     group_id: Option<String>,
     bot_deps: BotDependencies,
 ) -> AnyResult<()> {
+    // Store group_id for later use to avoid move issues
+    let group_id_for_hook = group_id.clone();
+    
     // --- Start Typing Indicator Immediately ---
     let bot_clone = bot.clone();
     let profile = env::var("PROFILE").unwrap_or("prod".to_string());
@@ -988,6 +991,11 @@ pub async fn handle_chat(
                     .any(|tool_call| tool_call.name == "fund_account")
                 {
                     fund_account_hook(bot, msg, ai_response.text).await?;
+                } else if tool_calls
+                    .iter()
+                    .any(|tool_call| tool_call.name == "get_pay_users")
+                {
+                    pay_users_hook(bot, msg, ai_response.text, group_id_for_hook).await?;
                 } else {
                     send_long_message(&bot, msg.chat.id, &ai_response.text).await?;
                 }
