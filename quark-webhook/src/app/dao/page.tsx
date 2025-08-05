@@ -476,25 +476,6 @@ export default function DaoPage() {
 
   return (
     <Page>
-      {/* Platform Indicator */}
-      <div
-        style={{
-          position: "fixed",
-          top: "10px",
-          right: "10px",
-          padding: "6px 12px",
-          backgroundColor: isExternalBrowser ? "#2196F3" : "#4CAF50",
-          color: "white",
-          borderRadius: "16px",
-          fontSize: "12px",
-          fontWeight: "bold",
-          zIndex: 1000,
-          boxShadow: "0 2px 8px rgba(0,0,0,0.2)",
-        }}
-      >
-        {isExternalBrowser ? "🌐 Browser" : "📱 Mini App"}
-      </div>
-
       <div
         className={`max-w-4xl mx-auto p-4 ${
           isExternalBrowser ? "min-h-screen bg-gray-50" : ""
