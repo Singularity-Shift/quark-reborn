@@ -102,15 +102,16 @@ async fn main() {
     let dao_db = db.open_tree("dao").expect("Failed to open dao tree");
     let dao = Dao::new(dao_db);
 
-    schedule_jobs(panora.clone(), bot.clone(), dao.clone())
-        .await
-        .expect("Failed to schedule jobs");
-
     let ai = AI::new(openai_api_key.clone(), google_cloud);
 
     let user_convos = UserConversations::new(&db).unwrap();
     let user_model_prefs = UserModelPreferences::new(&db).unwrap();
     let pending_transactions = PendingTransactions::new(&db).unwrap();
+
+    schedule_jobs(panora.clone(), bot.clone(), dao.clone(), pending_transactions.clone())
+        .await
+        .expect("Failed to schedule jobs");
+
     let service = Services::new();
 
     let cmd_collector = Arc::new(command_image_collector::CommandImageCollector::new(

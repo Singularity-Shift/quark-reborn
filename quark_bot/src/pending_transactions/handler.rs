@@ -6,6 +6,7 @@ const TREE_NAME: &str = "pending_transactions";
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct PendingTransaction {
+    pub transaction_id: String,         // Unique UUID for this transaction
     pub amount: u64,                    // Amount in smallest units
     pub users: Vec<String>,             // User addresses  
     pub coin_type: String,              // Token address/type
@@ -17,6 +18,7 @@ pub struct PendingTransaction {
     pub original_usernames: Vec<String>, // Original usernames for display
     pub per_user_amount: f64,           // Amount per user (for display)
     pub created_at: u64,                // Timestamp when created
+    pub expires_at: u64,                // Timestamp when transaction expires
 }
 
 #[derive(Clone)]
@@ -73,6 +75,46 @@ impl PendingTransactions {
         let key = Self::create_key(user_id, group_id);
         self.tree.remove(key.as_bytes())?;
         Ok(())
+    }
+
+    /// Check if a transaction has expired
+    pub fn is_expired(transaction: &PendingTransaction) -> bool {
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs();
+        now > transaction.expires_at
+    }
+
+    /// Get all pending transactions (for cleanup)
+    pub fn get_all_pending_transactions(&self) -> Vec<(String, PendingTransaction)> {
+        self.tree
+            .iter()
+            .filter_map(|result| {
+                if let Ok((key, value)) = result {
+                    let key_str = String::from_utf8(key.to_vec()).ok()?;
+                    let transaction: PendingTransaction = serde_json::from_slice(&value).ok()?;
+                    Some((key_str, transaction))
+                } else {
+                    None
+                }
+            })
+            .collect()
+    }
+
+    /// Remove expired transactions
+    pub fn cleanup_expired_transactions(&self) -> sled::Result<usize> {
+        let all_transactions = self.get_all_pending_transactions();
+        let mut removed_count = 0;
+
+        for (key, transaction) in all_transactions {
+            if Self::is_expired(&transaction) {
+                self.tree.remove(key.as_bytes())?;
+                removed_count += 1;
+            }
+        }
+
+        Ok(removed_count)
     }
 
     /// Convert PendingTransaction to PayUsersRequest for service calls

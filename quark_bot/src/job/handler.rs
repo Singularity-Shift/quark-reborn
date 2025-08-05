@@ -9,6 +9,7 @@ use aptos_rust_sdk_types::api_types::view::ViewRequest;
 use crate::{
     dao::{dao::Dao, dto::ProposalEntry},
     panora::handler::Panora,
+    pending_transactions::handler::PendingTransactions,
     utils::format_timestamp,
 };
 use quark_core::helpers::dto::CoinVersion;
@@ -465,6 +466,29 @@ pub fn job_dao_results_cleanup(dao: Dao) -> Job {
                 }
                 Err(e) => {
                     log::error!("Failed to remove expired DAOs: {}", e);
+                }
+            }
+        })
+    })
+    .expect("Failed to create cron job")
+}
+
+pub fn job_pending_transactions_cleanup(pending_transactions: PendingTransactions) -> Job {
+    Job::new_async("0 */1 * * * *", move |_uuid, _l| {
+        let pending_transactions = pending_transactions.clone();
+        Box::pin(async move {
+            log::info!("Starting pending transactions cleanup job at {}", Utc::now());
+            
+            match pending_transactions.cleanup_expired_transactions() {
+                Ok(removed_count) => {
+                    if removed_count > 0 {
+                        log::info!("Successfully removed {} expired pending transactions", removed_count);
+                    } else {
+                        log::debug!("No expired pending transactions found");
+                    }
+                }
+                Err(e) => {
+                    log::error!("Failed to cleanup expired pending transactions: {}", e);
                 }
             }
         })

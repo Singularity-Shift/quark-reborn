@@ -62,7 +62,8 @@ pub async fn pay_users_hook(
     bot: Bot, 
     msg: Message, 
     text: String, 
-    group_id: Option<String>
+    group_id: Option<String>,
+    transaction_id: String
 ) -> Result<()> {
     let user_id = if let Some(user) = &msg.from {
         user.id.0 as i64
@@ -74,11 +75,11 @@ pub async fn pay_users_hook(
 
     let accept_btn = InlineKeyboardButton::callback(
         "✅ Accept", 
-        format!("pay_accept:{}:{}", user_id, group_id_i64)
+        format!("pay_accept:{}:{}:{}", user_id, group_id_i64, transaction_id)
     );
     let reject_btn = InlineKeyboardButton::callback(
         "❌ Reject", 
-        format!("pay_reject:{}:{}", user_id, group_id_i64)
+        format!("pay_reject:{}:{}:{}", user_id, group_id_i64, transaction_id)
     );
     
     let markup = InlineKeyboardMarkup::new(vec![vec![accept_btn, reject_btn]]);
