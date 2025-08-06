@@ -337,6 +337,10 @@ pub async fn handle_dao_preferences(
             InlineKeyboardButtonKind::CallbackData(format!("dao_set_vote_duration_{}", group_id)),
         )],
         vec![InlineKeyboardButton::new(
+            "🔕 Manage Disabled Notifications",
+            InlineKeyboardButtonKind::CallbackData("dao_manage_disabled_".to_string()),
+        )],
+        vec![InlineKeyboardButton::new(
             "✅ Done",
             InlineKeyboardButtonKind::CallbackData("dao_preferences_done".to_string()),
         )],
