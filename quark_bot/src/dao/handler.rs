@@ -337,6 +337,10 @@ pub async fn handle_dao_preferences(
             InlineKeyboardButtonKind::CallbackData(format!("dao_set_vote_duration_{}", group_id)),
         )],
         vec![InlineKeyboardButton::new(
+            "🔕 Manage Disabled Notifications",
+            InlineKeyboardButtonKind::CallbackData("dao_manage_disabled_".to_string()),
+        )],
+        vec![InlineKeyboardButton::new(
             "✅ Done",
             InlineKeyboardButtonKind::CallbackData("dao_preferences_done".to_string()),
         )],
@@ -1221,6 +1225,9 @@ pub async fn handle_disable_notifications_callback(
     query: CallbackQuery,
     bot_deps: BotDependencies,
 ) -> anyhow::Result<()> {
+    let app_url =
+        std::env::var("APP_URL").map_err(|e| anyhow::anyhow!("APP_URL is not set: {}", e))?;
+
     let msg = match &query.message {
         Some(MaybeInaccessibleMessage::Regular(message)) => message,
         _ => return Ok(()),
@@ -1279,7 +1286,8 @@ pub async fn handle_disable_notifications_callback(
             // Recreate the voting options
             for (index, option) in proposal.options.iter().enumerate() {
                 let base_url = format!(
-                    "https://quark-webhook.vercel.app/dao?group_id={}&proposal_id={}&choice_id={}&coin_type={}&coin_version={}&dao_name={}&dao_description={}",
+                    "{}/dao?group_id={}&proposal_id={}&choice_id={}&coin_type={}&coin_version={}&dao_name={}&dao_description={}",
+                    app_url,
                     proposal.group_id,
                     proposal.proposal_id,
                     index,
