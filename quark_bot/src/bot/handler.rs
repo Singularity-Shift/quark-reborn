@@ -677,6 +677,42 @@ pub async fn handle_reasoning_chat(
                 if ai_response.text.len() > 1024 {
                     send_long_message(&bot, msg.chat.id, &ai_response.text[1024..]).await?;
                 }
+            } else if let Some(ref tool_calls) = ai_response.tool_calls {
+                if tool_calls
+                    .iter()
+                    .any(|tool_call| tool_call.name == "withdraw_funds")
+                {
+                    withdraw_funds_hook(bot, msg, ai_response.text).await?;
+                } else if tool_calls
+                    .iter()
+                    .any(|tool_call| tool_call.name == "fund_account")
+                {
+                    fund_account_hook(bot, msg, ai_response.text).await?;
+                } else if tool_calls
+                    .iter()
+                    .any(|tool_call| tool_call.name == "get_pay_users")
+                {
+                    // Get transaction_id from the pending transaction - reasoning chat has no group_id
+                    let user_id = if let Some(user) = &msg.from {
+                        user.id.0 as i64
+                    } else {
+                        log::warn!("Unable to get user ID for pay_users_hook in reasoning chat");
+                        send_long_message(&bot, msg.chat.id, &ai_response.text).await?;
+                        return Ok(());
+                    };
+                    
+                    // Reasoning chat is always individual context (no group_id)
+                    let group_id_i64 = None;
+                    
+                    if let Some(pending_transaction) = bot_deps.pending_transactions.get_pending_transaction(user_id, group_id_i64) {
+                        pay_users_hook(bot, msg, ai_response.text, None, pending_transaction.transaction_id).await?;
+                    } else {
+                        log::warn!("No pending transaction found for user {} in reasoning chat", user_id);
+                        send_long_message(&bot, msg.chat.id, &ai_response.text).await?;
+                    }
+                } else {
+                    send_long_message(&bot, msg.chat.id, &ai_response.text).await?;
+                }
             } else {
                 let text_to_send = if ai_response.text.is_empty() {
                     "_(The model processed the request but returned no text.)_".to_string()
