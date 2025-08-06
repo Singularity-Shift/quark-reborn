@@ -347,25 +347,12 @@ pub async fn handle_payment_callback(
     // SECURITY CHECK: Verify that the user clicking the button is authorized
     let callback_user_id = query.from.id.0 as i64;
     
-    if group_id_i64 == 0 {
-        // Individual context: only the requesting user can confirm/cancel
-        if callback_user_id != user_id {
-            bot.answer_callback_query(query.id)
-                .text("❌ Only the user who requested this transaction can confirm or cancel it")
-                .await?;
-            return Ok(());
-        }
-    } else {
-        // Group context: check if user is group admin or the original requester
-        let is_original_requester = callback_user_id == user_id;
-        let is_group_admin = bot.get_chat_member(teloxide::types::ChatId(group_id_i64), query.from.id).await?.is_privileged();
-        
-        if !is_original_requester && !is_group_admin {
-            bot.answer_callback_query(query.id)
-                .text("❌ Only the requester or group admin can confirm or cancel this transaction")
-                .await?;
-            return Ok(());
-        }
+    // Only the original requester can confirm/cancel transactions (both individual and group context)
+    if callback_user_id != user_id {
+        bot.answer_callback_query(query.id)
+            .text("❌ Only the user who requested this transaction can confirm or cancel it")
+            .await?;
+        return Ok(());
     }
     
     // Convert group_id back to Option<i64> format used by pending_transactions
