@@ -33,13 +33,12 @@ docker build -f quark_consumer/Dockerfile -t quark-consumer .
 ### Run Single Container
 
 ```bash
-docker run -e REDIS_URL=redis://:password@valkey:6379 -e CONSUMER_ID=consumer1 quark-consumer
+docker run -e REDIS_URL=redis://:password@valkey:6379 quark-consumer
 ```
 
 ## Environment Variables
 
 - `REDIS_URL` - Valkey connection string (format: redis://:password@valkey:6379)
-- `CONSUMER_ID` - Unique identifier for the consumer instance (default: consumer)
 - `VALKEY_PASSWORD` - Password for Valkey authentication
 
 ## Architecture
@@ -55,7 +54,7 @@ Both consumers will compete for messages from the same Valkey queue, providing l
 
 ## Logs
 
-Each consumer instance logs with its `CONSUMER_ID` prefix for easy identification:
+Each consumer instance logs with its prefix for easy identification:
 
 ```
 [consumer1] Starting Quark Consumer...

@@ -5,6 +5,7 @@ mod docs;
 mod error;
 mod info;
 mod middlewares;
+mod migration;
 mod pay_members;
 mod pay_users;
 mod purchase;

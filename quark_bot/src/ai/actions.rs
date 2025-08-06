@@ -1230,7 +1230,7 @@ pub async fn execute_pay_users(
     let result: Result<TransactionResponse, anyhow::Error>;
 
     if group_id.is_some() {
-        let group_credentials = bot_deps.group.get_credentials(&msg.chat.id);
+        let group_credentials = bot_deps.group.get_credentials(msg.chat.id);
 
         if group_credentials.is_none() {
             log::error!("❌ Group not found");
@@ -1337,7 +1337,7 @@ pub async fn execute_get_wallet_address(
     let username = username.unwrap();
 
     let resource_account_address = if group_id.is_some() {
-        let group_credentials = bot_deps.group.get_credentials(&msg.chat.id);
+        let group_credentials = bot_deps.group.get_credentials(msg.chat.id);
 
         if group_credentials.is_none() {
             log::error!("❌ Group not found");
@@ -1368,7 +1368,7 @@ pub async fn execute_get_balance(
     bot_deps: BotDependencies,
 ) -> String {
     let resource_account_address = if group_id.is_some() {
-        let group_credentials = bot_deps.group.get_credentials(&msg.chat.id);
+        let group_credentials = bot_deps.group.get_credentials(msg.chat.id);
 
         if group_credentials.is_none() {
             log::error!("❌ Group not found");

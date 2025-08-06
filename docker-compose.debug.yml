@@ -22,7 +22,7 @@ services:
       - GPG_PUBLIC_KEY=${GPG_PUBLIC_KEY}
       - GPG_REVIEWER=${GPG_REVIEWER}
       - REDIS_URL=redis://:${VALKEY_PASSWORD}@valkey:6379
-
+      - ACCOUNT_SEED=${ACCOUNT_SEED}
     networks:
       - quark-net
   quark-bot-lldb:
@@ -50,6 +50,7 @@ services:
       - APP_URL=${APP_URL}
       - RUST_BACKTRACE=1
       - BACKEND_URL=${BACKEND_URL}
+      - ACCOUNT_SEED=${ACCOUNT_SEED}
     networks:
       - quark-net
     volumes:
@@ -84,7 +85,7 @@ services:
       retries: 5
       start_period: 10s
 
-  quark-consumer-one:
+  quark-consumer:
     build:
       context: .
       dockerfile: quark_consumer/Dockerfile
@@ -93,9 +94,11 @@ services:
         condition: service_healthy
       quark-server:
         condition: service_started
+      deploy:
+        mode: replicated
+        replicas: 2
     environment:
       - REDIS_URL=redis://:${VALKEY_PASSWORD}@valkey:6379
-      - CONSUMER_ID=consumer-one
       - PROFILE=${PROFILE}
       - PANORA_URL=${PANORA_URL}
       - PANORA_API_KEY=${PANORA_API_KEY}
@@ -107,35 +110,8 @@ services:
       - GPG_REVIEWER=${GPG_REVIEWER}
       - PRIVATE_KEY=${PRIVATE_KEY}
       - RUST_BACKTRACE=1
+      - APTOS_API_KEY=${APTOS_API_KEY}
 
-    networks:
-      - quark-net
-    volumes:
-      - quark-data:/app/quark_data
-
-  quark-consumer-two:
-    build:
-      context: .
-      dockerfile: quark_consumer/Dockerfile
-    depends_on:
-      valkey:
-        condition: service_healthy
-      quark-server:
-        condition: service_started
-    environment:
-      - REDIS_URL=redis://:${VALKEY_PASSWORD}@valkey:6379
-      - CONSUMER_ID=consumer-two
-      - PROFILE=${PROFILE}
-      - PANORA_URL=${PANORA_URL}
-      - PANORA_API_KEY=${PANORA_API_KEY}
-      - CONTRACT_ADDRESS=${CONTRACT_ADDRESS}
-      - APTOS_NETWORK=${APTOS_NETWORK}
-      - GPG_PASSPHRASE=${GPG_PASSPHRASE}
-      - GPG_PRIVATE_KEY=${GPG_PRIVATE_KEY}
-      - GPG_PUBLIC_KEY=${GPG_PUBLIC_KEY}
-      - GPG_REVIEWER=${GPG_REVIEWER}
-      - PRIVATE_KEY=${PRIVATE_KEY}
-      - RUST_BACKTRACE=1
     networks:
       - quark-net
     volumes:
@@ -153,6 +129,7 @@ services:
       - APTOS_NODE_URL=${APTOS_NODE_URL}
       - APTOS_INDEXER=${APTOS_INDEXER}
       - NEXT_PUBLIC_APTOS_NETWORK=${NEXT_PUBLIC_APTOS_NETWORK}
+      - ACCOUNT_SEED=${ACCOUNT_SEED}
     networks:
       - quark-net
 

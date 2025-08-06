@@ -10,7 +10,7 @@ use super::handler::{
 
 use crate::bot::handler::{
     handle_aptos_connect, handle_balance, handle_group_balance, handle_group_wallet_address,
-    handle_wallet_address,
+    handle_migrate_group_id, handle_wallet_address,
 };
 use crate::dao::handler::handle_dao_preferences;
 use crate::dependencies::BotDependencies;
@@ -143,6 +143,9 @@ pub async fn answers(
         }
         Command::DaoPreferences => {
             handle_dao_preferences(bot, msg, bot_deps.clone()).await?;
+        }
+        Command::MigrateGroupId => {
+            handle_migrate_group_id(bot, msg, bot_deps.clone()).await?;
         }
     };
     Ok(())
