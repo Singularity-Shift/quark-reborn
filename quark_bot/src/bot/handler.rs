@@ -203,10 +203,22 @@ pub async fn handle_login_group(
         return Ok(());
     }
 
+    let account_seed = env::var("ACCOUNT_SEED");
+
+    if account_seed.is_err() {
+        bot.send_message(msg.chat.id, "❌ Unable to verify permissions.")
+            .await?;
+        return Ok(());
+    }
+
+    let account_seed = account_seed.unwrap();
+
     // Allow only group administrators to invoke
     let admins = bot.get_chat_administrators(msg.chat.id).await?;
     let requester_id = msg.from.as_ref().map(|u| u.id);
     let group_id = msg.chat.id;
+
+    let group_id_formatted = format!("{}-{}", msg.chat.id, account_seed);
 
     let payload: GroupCredentials;
 
@@ -236,7 +248,7 @@ pub async fn handle_login_group(
         let group_result = bot_deps
             .service
             .create_group(CreateGroupRequest {
-                group_id: group_id.to_string(),
+                group_id: group_id_formatted.clone(),
             })
             .await;
 
@@ -255,7 +267,7 @@ pub async fn handle_login_group(
         return Ok(());
     }
 
-    let payload_response = bot_deps.group.get_credentials(&group_id);
+    let payload_response = bot_deps.group.get_credentials(group_id);
 
     if payload_response.is_none() {
         bot.send_message(group_id, "❌ Unable to get credentials.")
@@ -743,7 +755,7 @@ pub async fn handle_chat(
         return Ok(());
     }
 
-    let group_credentials = bot_deps.group.get_credentials(&msg.chat.id);
+    let group_credentials = bot_deps.group.get_credentials(msg.chat.id);
 
     let credentials = credentials.unwrap();
 
@@ -1123,11 +1135,13 @@ pub async fn handle_message(bot: Bot, msg: Message, bot_deps: BotDependencies) -
     if !msg.chat.is_private() {
         group_id = Some(msg.chat.id.to_string());
         let profile = std::env::var("PROFILE").unwrap_or("prod".to_string());
+        let account_seed = std::env::var("ACCOUNT_SEED")
+            .map_err(|e| anyhow::anyhow!("ACCOUNT_SEED is not set: {}", e))?;
         let sentinel_tree = bot_deps.db.open_tree("sentinel_state").unwrap();
         let chat_id = msg.chat.id.0.to_be_bytes();
         let user = msg.from.clone();
 
-        let group_credentials = bot_deps.group.get_credentials(&msg.chat.id);
+        let group_credentials = bot_deps.group.get_credentials(msg.chat.id);
 
         if group_credentials.is_none() {
             log::error!("Group credentials not found");
@@ -1353,7 +1367,11 @@ pub async fn handle_message(bot: Bot, msg: Message, bot_deps: BotDependencies) -
                                     model: Model::GPT41Nano,
                                     tokens_used: result.total_tokens,
                                     tools_used: vec![],
-                                    group_id: Some(msg.chat.id.0.to_string()),
+                                    group_id: Some(format!(
+                                        "{}-{}",
+                                        msg.chat.id.0.to_string(),
+                                        account_seed
+                                    )),
                                 },
                             )
                             .await;
@@ -1579,7 +1597,7 @@ pub async fn handle_mod(bot: Bot, msg: Message, bot_deps: BotDependencies) -> An
         }
     }
 
-    let group_credentials = bot_deps.group.get_credentials(&msg.chat.id);
+    let group_credentials = bot_deps.group.get_credentials(msg.chat.id);
 
     if group_credentials.is_none() {
         bot.send_message(msg.chat.id, "❌ Group not found").await?;
@@ -1862,7 +1880,7 @@ pub async fn handle_group_balance(
         return Ok(());
     }
 
-    let group_credentials = bot_deps.group.get_credentials(&msg.chat.id);
+    let group_credentials = bot_deps.group.get_credentials(msg.chat.id);
 
     if group_credentials.is_none() {
         bot.send_message(msg.chat.id, "❌ Group not found").await?;
@@ -1956,7 +1974,7 @@ pub async fn handle_group_wallet_address(
         return Ok(());
     }
 
-    let group_credentials = bot_deps.group.get_credentials(&msg.chat.id);
+    let group_credentials = bot_deps.group.get_credentials(msg.chat.id);
 
     log::info!("Group id: {:?}", msg.chat.id);
 
@@ -2015,13 +2033,68 @@ If you have questions, ask an admin before posting.
     Ok(())
 }
 
+pub async fn handle_migrate_group_id(
+    bot: Bot,
+    msg: Message,
+    bot_deps: BotDependencies,
+) -> AnyResult<()> {
+    let group_admins = bot.get_chat_administrators(msg.chat.id).await?;
+
+    let user = msg.from;
+
+    if user.is_none() {
+        bot.send_message(msg.chat.id, "❌ User not found").await?;
+        return Ok(());
+    }
+
+    let user = user.unwrap();
+
+    let is_admin = group_admins.iter().any(|admin| admin.user.id == user.id);
+
+    if !is_admin {
+        bot.send_message(msg.chat.id, "❌ Only admins can migrate group id")
+            .await?;
+        return Ok(());
+    }
+
+    let group_credentials = bot_deps.group.get_credentials(msg.chat.id);
+
+    if group_credentials.is_none() {
+        bot.send_message(msg.chat.id, "❌ Group not found").await?;
+        return Ok(());
+    }
+
+    let group_credentials = group_credentials.unwrap();
+
+    let transaction_response = bot_deps
+        .service
+        .migrate_group_id(group_credentials.jwt)
+        .await;
+
+    if transaction_response.is_err() {
+        bot.send_message(msg.chat.id, "❌ Error migrating group id")
+            .await?;
+        return Ok(());
+    }
+
+    let transaction_response = transaction_response.unwrap();
+
+    bot.send_message(
+        msg.chat.id,
+        format!("✅ Group id migrated: {}", transaction_response.hash),
+    )
+    .await?;
+
+    Ok(())
+}
+
 async fn check_group_resource_account_address(
     bot: &Bot,
     group_credentials: GroupCredentials,
     msg: Message,
     bot_deps: &BotDependencies,
 ) -> AnyResult<GroupCredentials> {
-    let group_credentials = group_credentials;
+    let group_id = group_credentials.group_id.clone();
 
     if group_credentials.resource_account_address.is_empty() {
         const MAX_RETRIES: u32 = 5;
@@ -2038,7 +2111,7 @@ async fn check_group_resource_account_address(
                         bot_deps.panora.aptos.contract_address
                     ),
                     type_arguments: vec![],
-                    arguments: vec![value::Value::String(msg.chat.id.to_string())],
+                    arguments: vec![value::Value::String(group_id.clone())],
                 })
                 .await;
 
@@ -2053,7 +2126,7 @@ async fn check_group_resource_account_address(
 
                     let new_credentials = GroupCredentials {
                         jwt: group_credentials.jwt.clone(),
-                        group_id: group_credentials.group_id,
+                        group_id: group_credentials.group_id.clone(),
                         resource_account_address: resource_account_address[0].clone(),
                         users: group_credentials.users.clone(),
                     };

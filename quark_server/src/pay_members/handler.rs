@@ -82,7 +82,7 @@ pub async fn pay_members(
                 "pay_users_v1".to_string(),
                 vec![token_type],
                 vec![
-                    bcs::to_bytes(&&group_id.0.to_string()).map_err(|e| ErrorServer {
+                    bcs::to_bytes(&group_id).map_err(|e| ErrorServer {
                         status: StatusCode::INTERNAL_SERVER_ERROR.into(),
                         message: e.to_string(),
                     })?,
@@ -99,7 +99,7 @@ pub async fn pay_members(
             "pay_users_v2".to_string(),
             vec![],
             vec![
-                bcs::to_bytes(&group_id.0.to_string()).map_err(|e| ErrorServer {
+                bcs::to_bytes(&group_id).map_err(|e| ErrorServer {
                     status: StatusCode::INTERNAL_SERVER_ERROR.into(),
                     message: e.to_string(),
                 })?,
