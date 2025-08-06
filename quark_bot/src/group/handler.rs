@@ -1,3 +1,5 @@
+use std::env::{self, VarError};
+
 use anyhow::Result;
 use aptos_rust_sdk_types::api_types::view::ViewRequest;
 use quark_core::helpers::jwt::JwtManager;
@@ -11,13 +13,21 @@ use crate::{group::dto::GroupCredentials, panora::handler::Panora};
 pub struct Group {
     pub jwt_manager: JwtManager,
     pub db: Tree,
+    pub account_seed: String,
 }
 
 impl Group {
     pub fn new(db: Tree) -> Self {
         let jwt_manager = JwtManager::new();
 
-        Self { jwt_manager, db }
+        let account_seed: String =
+            env::var("ACCOUNT_SEED").expect("ACCOUNT_SEED environment variable not found");
+
+        Self {
+            jwt_manager,
+            db,
+            account_seed,
+        }
     }
 
     pub fn save_credentials(&self, credentials: GroupCredentials) -> Result<()> {
@@ -46,13 +56,24 @@ impl Group {
     }
 
     pub fn generate_new_jwt(&self, group_id: ChatId) -> bool {
-        match self.jwt_manager.generate_group_token(group_id) {
+        let account_seed: Result<String, VarError> = env::var("ACCOUNT_SEED");
+
+        if account_seed.is_err() {
+            return false;
+        }
+
+        let account_seed = account_seed.unwrap();
+
+        let group_id = format!("{}-{}", group_id, account_seed);
+
+        match self.jwt_manager.generate_group_token(group_id.clone()) {
             Ok(token) => {
                 let jwt = token;
 
                 let users: Vec<String> = vec![];
 
-                let credentials = GroupCredentials::from((jwt, group_id, "".to_string(), users));
+                let credentials =
+                    GroupCredentials::from((jwt, group_id.clone(), "".to_string(), users));
 
                 let saved = self.save_credentials(credentials);
 
@@ -71,8 +92,10 @@ impl Group {
         }
     }
 
-    pub fn get_credentials(&self, group_id: &ChatId) -> Option<GroupCredentials> {
-        let bytes = self.db.get(group_id.to_string()).unwrap();
+    pub fn get_credentials(&self, group_id: ChatId) -> Option<GroupCredentials> {
+        let group_id = format!("{}-{}", group_id, self.account_seed);
+
+        let bytes = self.db.get(group_id).unwrap();
 
         if let Some(bytes) = bytes {
             let credentials: GroupCredentials = serde_json::from_slice(&bytes).unwrap();
@@ -83,7 +106,7 @@ impl Group {
     }
 
     pub async fn group_exists(&self, group_id: ChatId, panora: Panora) -> bool {
-        let group_id = group_id.to_string();
+        let group_id = format!("{}-{}", group_id, self.account_seed);
 
         let node = panora.aptos.node;
 
@@ -118,17 +141,19 @@ impl Group {
         let user = msg.from;
         let group = msg.chat.id;
 
+        let group_id = format!("{}-{}", group, self.account_seed);
+
         if user.is_none() {
             return false;
         }
 
-        let credentials_opt = self.get_credentials(&group);
+        let credentials_opt = self.get_credentials(group);
 
         if let Some(credentials) = credentials_opt {
             // Initialize JWT manager and validate/update storage
             match self
                 .jwt_manager
-                .validate_and_update_group_jwt(credentials.jwt, group)
+                .validate_and_update_group_jwt(credentials.jwt, group_id)
             {
                 Ok(_updated_storage) => {
                     // Note: The updated storage with the new JWT would need to be
@@ -148,7 +173,7 @@ impl Group {
     }
 
     pub async fn add_user_to_group(&self, group_id: ChatId, username: String) -> Result<()> {
-        let credentials = self.get_credentials(&group_id);
+        let credentials = self.get_credentials(group_id);
 
         if let Some(credentials) = credentials {
             let mut users = credentials.users;
@@ -156,7 +181,7 @@ impl Group {
 
             let new_credentials = GroupCredentials {
                 jwt: credentials.jwt,
-                group_id,
+                group_id: credentials.group_id,
                 resource_account_address: credentials.resource_account_address,
                 users,
             };

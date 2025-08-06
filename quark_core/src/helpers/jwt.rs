@@ -4,7 +4,7 @@ use super::dto::Claims;
 use chrono::{Duration, Utc};
 use jsonwebtoken::{decode, encode, DecodingKey, EncodingKey, Header, TokenData, Validation};
 use std::env;
-use teloxide::types::{ChatId, UserId};
+use teloxide::types::UserId;
 
 #[derive(Clone)]
 pub struct JwtManager {
@@ -97,7 +97,7 @@ impl JwtManager {
 
     pub fn generate_group_token(
         &self,
-        group_id: ChatId,
+        group_id: String,
     ) -> Result<String, jsonwebtoken::errors::Error> {
         let now = Utc::now();
         let expiration = now + Duration::days(7);
@@ -141,7 +141,7 @@ impl JwtManager {
     pub fn get_or_generate_group_token(
         &self,
         existing_token: Option<&str>,
-        group_id: ChatId,
+        group_id: String,
     ) -> Result<String, Box<dyn std::error::Error>> {
         if let Some(token) = existing_token {
             if self.is_token_valid(token) {
@@ -157,7 +157,7 @@ impl JwtManager {
     pub fn validate_and_update_group_jwt(
         &self,
         mut jwt: String,
-        group_id: ChatId,
+        group_id: String,
     ) -> Result<String, Box<dyn std::error::Error>> {
         let existing_token = if jwt.is_empty() {
             None

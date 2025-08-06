@@ -53,6 +53,8 @@ pub enum Command {
     DaoPreferences,
     #[command(description = "Display model pricing information.")]
     Prices,
+    #[command(description = "Migrate group id.")]
+    MigrateGroupId,
 }
 
 #[derive(Debug, Clone, Default)]

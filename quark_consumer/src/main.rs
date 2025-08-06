@@ -20,18 +20,14 @@ use crate::calculator::handler::get_price;
 use crate::purchase::dto::{Purchase, PurchaseType};
 use crate::purchase::handler::purchase_ai;
 
-async fn connect_to_redis_with_retry(
-    redis_url: &str,
-    consumer_id: &str,
-) -> redis::aio::MultiplexedConnection {
+async fn connect_to_redis_with_retry(redis_url: &str) -> redis::aio::MultiplexedConnection {
     let mut retry_count = 0;
     let max_retries = 10;
     let base_delay = Duration::from_secs(1);
 
     loop {
         println!(
-            "[{}] Attempting to connect to Redis (attempt {})...",
-            consumer_id,
+            "Attempting to connect to Redis (attempt {})...",
             retry_count + 1
         );
 
@@ -39,16 +35,14 @@ async fn connect_to_redis_with_retry(
             Ok(client) => match client.get_multiplexed_async_connection().await {
                 Ok(connection) => {
                     println!(
-                        "[{}] Successfully connected to Redis after {} attempts",
-                        consumer_id,
+                        "Successfully connected to Redis after {} attempts",
                         retry_count + 1
                     );
                     return connection;
                 }
                 Err(e) => {
                     eprintln!(
-                        "[{}] Failed to get Redis connection (attempt {}): {}",
-                        consumer_id,
+                        "Failed to get Redis connection (attempt {}): {}",
                         retry_count + 1,
                         e
                     );
@@ -56,8 +50,7 @@ async fn connect_to_redis_with_retry(
             },
             Err(e) => {
                 eprintln!(
-                    "[{}] Failed to create Redis client (attempt {}): {}",
-                    consumer_id,
+                    "Failed to create Redis client (attempt {}): {}",
                     retry_count + 1,
                     e
                 );
@@ -66,17 +59,11 @@ async fn connect_to_redis_with_retry(
 
         retry_count += 1;
         if retry_count >= max_retries {
-            panic!(
-                "[{}] Failed to connect to Redis after {} attempts",
-                consumer_id, max_retries
-            );
+            panic!("Failed to connect to Redis after {} attempts", max_retries);
         }
 
         let delay = base_delay * 2_u32.pow(retry_count as u32 - 1);
-        println!(
-            "[{}] Retrying Redis connection in {:?}...",
-            consumer_id, delay
-        );
+        println!("Retrying Redis connection in {:?}...", delay);
         tokio::time::sleep(delay).await;
     }
 }
@@ -84,7 +71,6 @@ async fn connect_to_redis_with_retry(
 async fn process_message_with_retry(
     redis_connection: &mut redis::aio::MultiplexedConnection,
     message: String,
-    consumer_id: &str,
     contract_address: AccountAddress,
     node: aptos_rust_sdk::client::rest_api::AptosFullnodeClient,
     chain_id: ChainId,
@@ -121,7 +107,7 @@ async fn process_message_with_retry(
     .await;
 
     if price.is_err() {
-        eprintln!("[{}] Error getting price: {:?}", consumer_id, price.err());
+        eprintln!("Error getting price: {:?}", price.err());
 
         // Try to requeue the message
         let _: () = redis_connection
@@ -156,11 +142,7 @@ async fn process_message_with_retry(
     let transaction_response = purchase_ai(purchase_query).await;
 
     if transaction_response.is_err() {
-        eprintln!(
-            "[{}] Error purchasing: {:?}",
-            consumer_id,
-            transaction_response.err()
-        );
+        eprintln!("Error purchasing: {:?}", transaction_response.err());
 
         // Try to requeue the message
         let _: () = redis_connection
@@ -177,17 +159,13 @@ async fn process_message_with_retry(
 
     let transaction_response = transaction_response.unwrap();
 
-    println!(
-        "[{}] Purchased successfully: {:?}",
-        consumer_id, transaction_response
-    );
+    println!("Purchased successfully: {:?}", transaction_response);
 
     Ok(())
 }
 
 #[tokio::main(flavor = "multi_thread", worker_threads = 4)]
 async fn main() -> ConsumerResult<()> {
-    let consumer_id = env::var("CONSUMER_ID").unwrap_or_else(|_| "consumer".to_string());
     let network = env::var("APTOS_NETWORK").expect("APTOS_NETWORK environment variable not set");
     let contract_address =
         env::var("CONTRACT_ADDRESS").expect("CONTRACT_ADDRESS environment variable not set");
@@ -198,6 +176,7 @@ async fn main() -> ConsumerResult<()> {
     let panora_url =
         env::var("PANORA_URL").unwrap_or_else(|_| "https://api.panora.exchange".to_string());
     let panora_api_key = env::var("PANORA_API_KEY").unwrap_or_else(|_| "".to_string());
+    let aptos_api_key = env::var("APTOS_API_KEY").unwrap_or_else(|_| "".to_string());
 
     let (builder, chain_id) = match network.as_str() {
         "mainnet" => (
@@ -218,19 +197,23 @@ async fn main() -> ConsumerResult<()> {
         ),
     };
 
-    let node = builder.build();
+    let node = if aptos_api_key.is_empty() {
+        builder.build()
+    } else {
+        builder.api_key(aptos_api_key.as_str()).unwrap().build()
+    };
 
     let contract_address = AccountAddress::from_str(&contract_address)
         .expect("CONTRACT_ADDRESS is not a valid account address");
 
-    println!("[{}] Starting Quark Consumer...", consumer_id);
-    println!("[{}] Connecting to Redis", consumer_id);
+    println!("Starting Quark Consumer...");
+    println!("Connecting to Redis");
 
     // Initial connection with retry
-    let mut redis_connection = connect_to_redis_with_retry(&redis_url, &consumer_id).await;
+    let mut redis_connection = connect_to_redis_with_retry(&redis_url).await;
 
-    println!("[{}] Connected to Redis successfully", consumer_id);
-    println!("[{}] Starting consumer loop...", consumer_id);
+    println!("Connected to Redis successfully");
+    println!("Starting consumer loop...");
 
     let mut consecutive_errors = 0;
     let max_consecutive_errors = 5;
@@ -249,7 +232,6 @@ async fn main() -> ConsumerResult<()> {
                         match process_message_with_retry(
                             &mut redis_connection,
                             message,
-                            &consumer_id,
                             contract_address,
                             node.clone(),
                             chain_id,
@@ -263,7 +245,7 @@ async fn main() -> ConsumerResult<()> {
                                 // Message processed successfully
                             }
                             Err(e) => {
-                                eprintln!("[{}] Failed to process message: {}", consumer_id, e);
+                                eprintln!("Failed to process message: {}", e);
                                 // Don't return here, continue the loop
                             }
                         }
@@ -276,17 +258,14 @@ async fn main() -> ConsumerResult<()> {
             Err(e) => {
                 consecutive_errors += 1;
                 eprintln!(
-                    "[{}] Redis error: {}. Retrying in 5 seconds... (consecutive errors: {})",
-                    consumer_id, e, consecutive_errors
+                    "Redis error: {}. Retrying in 5 seconds... (consecutive errors: {})",
+                    e, consecutive_errors
                 );
 
                 // If we have too many consecutive errors, try to reconnect
                 if consecutive_errors >= max_consecutive_errors {
-                    eprintln!(
-                        "[{}] Too many consecutive Redis errors. Attempting to reconnect...",
-                        consumer_id
-                    );
-                    redis_connection = connect_to_redis_with_retry(&redis_url, &consumer_id).await;
+                    eprintln!("Too many consecutive Redis errors. Attempting to reconnect...");
+                    redis_connection = connect_to_redis_with_retry(&redis_url).await;
                     consecutive_errors = 0; // Reset counter after reconnection
                 }
 
