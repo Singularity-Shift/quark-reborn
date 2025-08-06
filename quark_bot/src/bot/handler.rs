@@ -705,7 +705,7 @@ pub async fn handle_reasoning_chat(
                     let group_id_i64 = None;
                     
                     if let Some(pending_transaction) = bot_deps.pending_transactions.get_pending_transaction(user_id, group_id_i64) {
-                        pay_users_hook(bot, msg, ai_response.text, None, pending_transaction.transaction_id).await?;
+                        pay_users_hook(bot, msg, ai_response.text, None, pending_transaction.transaction_id, bot_deps.clone()).await?;
                     } else {
                         log::warn!("No pending transaction found for user {} in reasoning chat", user_id);
                         send_long_message(&bot, msg.chat.id, &ai_response.text).await?;
@@ -1055,7 +1055,7 @@ pub async fn handle_chat(
                     let group_id_i64 = group_id_for_hook.as_ref().and_then(|gid| gid.parse::<i64>().ok());
                     
                     if let Some(pending_transaction) = bot_deps.pending_transactions.get_pending_transaction(user_id, group_id_i64) {
-                        pay_users_hook(bot, msg, ai_response.text, group_id_for_hook, pending_transaction.transaction_id).await?;
+                        pay_users_hook(bot, msg, ai_response.text, group_id_for_hook, pending_transaction.transaction_id, bot_deps.clone()).await?;
                     } else {
                         log::warn!("No pending transaction found for user {} in group {:?}", user_id, group_id_i64);
                         send_long_message(&bot, msg.chat.id, &ai_response.text).await?;

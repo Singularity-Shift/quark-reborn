@@ -63,7 +63,8 @@ pub async fn pay_users_hook(
     msg: Message, 
     text: String, 
     group_id: Option<String>,
-    transaction_id: String
+    transaction_id: String,
+    bot_deps: crate::dependencies::BotDependencies,
 ) -> Result<()> {
     let user_id = if let Some(user) = &msg.from {
         user.id.0 as i64
@@ -84,9 +85,20 @@ pub async fn pay_users_hook(
     
     let markup = InlineKeyboardMarkup::new(vec![vec![accept_btn, reject_btn]]);
     
-    bot.send_message(msg.chat.id, text)
+    // Send the message with buttons and capture the sent message
+    let sent_message = bot.send_message(msg.chat.id, text)
         .reply_markup(markup)
         .await?;
+    
+    // Update the pending transaction with the message ID
+    let group_id_opt = if group_id_i64 == 0 { None } else { Some(group_id_i64) };
+    if let Err(e) = bot_deps.pending_transactions.update_transaction_message_id(
+        user_id,
+        group_id_opt,
+        sent_message.id.0,
+    ) {
+        log::error!("Failed to update transaction message ID: {}", e);
+    }
     
     Ok(())
 }

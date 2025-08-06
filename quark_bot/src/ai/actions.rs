@@ -1300,6 +1300,8 @@ pub async fn execute_pay_users(
         per_user_amount,
         created_at: now,
         expires_at,
+        chat_id: msg.chat.id.0,  // Store the chat ID from the message
+        message_id: 0,           // Placeholder - will be updated after message is sent
     };
 
     // Convert group_id from Option<String> to Option<i64>
