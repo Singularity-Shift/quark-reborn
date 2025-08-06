@@ -25,7 +25,7 @@ use crate::{
     dao::dao::Dao,
     dependencies::BotDependencies,
     group::handler::Group,
-    job::job_scheduler::schedule_jobs,
+    job::{job_pending_transactions_cleanup, job_scheduler::schedule_jobs},
     message_history::handler::MessageHistory,
     panora::handler::Panora,
     pending_transactions::handler::PendingTransactions,
@@ -111,6 +111,39 @@ async fn main() {
     schedule_jobs(panora.clone(), bot.clone(), dao.clone(), pending_transactions.clone())
         .await
         .expect("Failed to schedule jobs");
+
+    // Schedule pending transactions cleanup job with a 5-minute delay to avoid startup interference
+    let pending_transactions_for_cleanup = pending_transactions.clone();
+    tokio::spawn(async move {
+        log::info!("Pending transactions cleanup job will start in 5 minutes...");
+        
+        // Wait 5 minutes for full bot initialization
+        tokio::time::sleep(tokio::time::Duration::from_secs(300)).await;
+        
+        log::info!("Starting delayed pending transactions cleanup job scheduler...");
+        
+        // Create a new scheduler just for the cleanup job
+        match tokio_cron_scheduler::JobScheduler::new().await {
+            Ok(cleanup_scheduler) => {
+                let cleanup_job = job_pending_transactions_cleanup(pending_transactions_for_cleanup);
+                
+                if let Err(e) = cleanup_scheduler.add(cleanup_job).await {
+                    log::error!("Failed to add delayed pending transactions cleanup job: {}", e);
+                    return;
+                }
+                
+                if let Err(e) = cleanup_scheduler.start().await {
+                    log::error!("Failed to start delayed cleanup scheduler: {}", e);
+                    return;
+                }
+                
+                log::info!("Pending transactions cleanup job started successfully (5-minute delay completed)");
+            }
+            Err(e) => {
+                log::error!("Failed to create delayed cleanup scheduler: {}", e);
+            }
+        }
+    });
 
     let service = Services::new();
 

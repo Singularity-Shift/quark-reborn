@@ -1305,7 +1305,7 @@ pub async fn execute_pay_users(
     // Convert group_id from Option<String> to Option<i64>
     let group_id_i64 = group_id.and_then(|gid| gid.parse::<i64>().ok());
 
-    // Store the pending transaction
+    // Store the pending transaction (includes internal verification)
     if let Err(e) = bot_deps.pending_transactions.set_pending_transaction(
         user_id,
         group_id_i64,
@@ -1313,12 +1313,6 @@ pub async fn execute_pay_users(
     ) {
         log::error!("❌ Failed to store pending transaction: {}", e);
         return "❌ Failed to prepare transaction".to_string();
-    }
-
-    // Verify the transaction was actually stored before returning success
-    if bot_deps.pending_transactions.get_pending_transaction(user_id, group_id_i64).is_none() {
-        log::error!("❌ Pending transaction not found after storage - race condition detected");
-        return "❌ Failed to prepare transaction - please try again".to_string();
     }
 
     log::info!("✅ Pending transaction stored successfully with ID: {}", pending_transaction.transaction_id);
