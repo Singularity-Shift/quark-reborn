@@ -96,7 +96,7 @@ services:
         condition: service_started
       deploy:
         mode: replicated
-        replicas: 2
+        replicas: ${CONSUMER_REPLICAS}
     environment:
       - REDIS_URL=redis://:${VALKEY_PASSWORD}@valkey:6379
       - PROFILE=${PROFILE}

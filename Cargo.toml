@@ -25,10 +25,10 @@ tower-http = {version="0.6.4", features = ["trace"]}
 jsonwebtoken = "9.3.1"
 utoipa = "5.3.1"
 utoipa-redoc = {version = "6.0.0", features = ["axum"]}
-aptos-rust-sdk = {git = "https://github.com/Singularity-Shift/aptos-rust-sdk.git", branch="feat/view-functions", package="aptos-rust-sdk"}
-aptos-rust-sdk-types = {git = "https://github.com/Singularity-Shift/aptos-rust-sdk.git", branch = "feat/view-functions", package="aptos-rust-sdk-types"}
-aptos-crypto = {git = "https://github.com/Singularity-Shift/aptos-rust-sdk.git", branch="feat/view-functions",  package="aptos-crypto"}
-aptos-crypto-derive = {git = "https://github.com/Singularity-Shift/aptos-rust-sdk.git", branch="feat/view-functions", package="aptos-crypto-derive"}
+aptos-rust-sdk = {git = "https://github.com/aptos-labs/aptos-rust-sdk.git", package="aptos-rust-sdk"}
+aptos-rust-sdk-types = {git = "https://github.com/aptos-labs/aptos-rust-sdk.git", package="aptos-rust-sdk-types"}
+aptos-crypto = {git = "https://github.com/aptos-labs/aptos-rust-sdk.git",  package="aptos-crypto"}
+aptos-crypto-derive = {git = "https://github.com/aptos-labs/aptos-rust-sdk.git", package="aptos-crypto-derive"}
 redis = {version = "0.32.4", features = ["tokio-comp"]}
 open-ai-rust-responses-by-sshift = "0.2.8"
 ron= {version = "0.10.1"}
