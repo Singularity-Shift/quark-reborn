@@ -1,7 +1,7 @@
 use open_ai_rust_responses_by_sshift::Model;
 use serde::{Deserialize, Serialize};
 use std::{env, fmt};
-use teloxide::types::{ChatId, UserId};
+use teloxide::types::UserId;
 use utoipa::ToSchema;
 
 pub enum Endpoints {
@@ -11,6 +11,7 @@ pub enum Endpoints {
     PayMembers,
     GroupPurchase,
     CreateProposal,
+    MigrateGroupId,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -24,7 +25,7 @@ pub struct Claims {
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct GroupClaims {
-    pub group_id: ChatId,
+    pub group_id: String,
     pub exp: i64, // Expiration time
     pub iat: i64, // Issued at
 }
@@ -36,7 +37,7 @@ pub struct UserPayload {
 
 #[derive(Debug, Clone)]
 pub struct GroupPayload {
-    pub group_id: ChatId,
+    pub group_id: String,
 }
 
 #[derive(Deserialize, Serialize, Debug, ToSchema)]
@@ -153,6 +154,7 @@ impl fmt::Display for Endpoints {
             &Endpoints::CreateGroup => write!(f, "{}/create-group", backend_url),
             &Endpoints::GroupPurchase => write!(f, "{}/group-purchase", backend_url),
             &Endpoints::CreateProposal => write!(f, "{}/proposal", backend_url),
+            &Endpoints::MigrateGroupId => write!(f, "{}/migrate-group-id", backend_url),
         }
     }
 }

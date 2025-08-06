@@ -22,6 +22,7 @@ services:
       - GPG_REVIEWER=${GPG_REVIEWER}
       - REDIS_URL=redis://:${VALKEY_PASSWORD}@valkey:6379
       - APTOS_API_KEY=${APTOS_API_KEY}
+      - ACCOUNT_SEED=${ACCOUNT_SEED}
     networks:
       - quark-net
 
@@ -50,6 +51,7 @@ services:
       - CONTRACT_ADDRESS=${CONTRACT_ADDRESS}
       - PROFILE=${PROFILE}
       - APTOS_API_KEY=${APTOS_API_KEY}
+      - ACCOUNT_SEED=${ACCOUNT_SEED}
     networks:
       - quark-net
     volumes:
@@ -67,6 +69,7 @@ services:
       - APTOS_NODE_URL=${APTOS_NODE_URL}
       - APTOS_INDEXER=${APTOS_INDEXER}
       - NEXT_PUBLIC_APTOS_NETWORK=${NEXT_PUBLIC_APTOS_NETWORK}
+      - ACCOUNT_SEED=${ACCOUNT_SEED}
     networks:
       - quark-net
 
@@ -89,8 +92,7 @@ services:
       retries: 5
       start_period: 10s
 
-  quark-consumer-one:
-    container_name: quark-consumer-one
+  quark-consumer:
     build:
       context: .
       dockerfile: quark_consumer/Dockerfile.dev
@@ -99,9 +101,11 @@ services:
         condition: service_healthy
       quark-server:
         condition: service_started
+    deploy:
+      mode: replicated
+      replicas: ${CONSUMER_REPLICAS}
     environment:
       - REDIS_URL=redis://:${VALKEY_PASSWORD}@valkey:6379
-      - CONSUMER_ID=consumer-one
       - PROFILE=${PROFILE}
       - PANORA_URL=${PANORA_URL}
       - PANORA_API_KEY=${PANORA_API_KEY}
@@ -112,33 +116,7 @@ services:
       - GPG_PUBLIC_KEY=${GPG_PUBLIC_KEY}
       - GPG_REVIEWER=${GPG_REVIEWER}
       - PRIVATE_KEY=${PRIVATE_KEY}
-    restart: unless-stopped
-    networks:
-      - quark-net
-
-  quark-consumer-two:
-    container_name: quark-consumer-two
-    build:
-      context: .
-      dockerfile: quark_consumer/Dockerfile.dev
-    depends_on:
-      valkey:
-        condition: service_healthy
-      quark-server:
-        condition: service_started
-    environment:
-      - REDIS_URL=redis://:${VALKEY_PASSWORD}@valkey:6379
-      - CONSUMER_ID=consumer-two
-      - PROFILE=${PROFILE}
-      - PANORA_URL=${PANORA_URL}
-      - PANORA_API_KEY=${PANORA_API_KEY}
-      - CONTRACT_ADDRESS=${CONTRACT_ADDRESS}
-      - APTOS_NETWORK=${APTOS_NETWORK}
-      - GPG_PASSPHRASE=${GPG_PASSPHRASE}
-      - GPG_PRIVATE_KEY=${GPG_PRIVATE_KEY}
-      - GPG_PUBLIC_KEY=${GPG_PUBLIC_KEY}
-      - GPG_REVIEWER=${GPG_REVIEWER}
-      - PRIVATE_KEY=${PRIVATE_KEY}
+      - APTOS_API_KEY=${APTOS_API_KEY}
     restart: unless-stopped
     networks:
       - quark-net
