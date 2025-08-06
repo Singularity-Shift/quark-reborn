@@ -60,7 +60,7 @@ pub async fn group_purchase(
     Extension(group): Extension<GroupPayload>,
     Json(request): Json<PurchaseRequest>,
 ) -> Result<Json<()>, ErrorServer> {
-    let purchase_message: PurchaseMessage = (request, group.group_id.0.to_string()).into();
+    let purchase_message: PurchaseMessage = (request, group.group_id).into();
 
     let message = serde_json::to_string(&purchase_message).unwrap();
 

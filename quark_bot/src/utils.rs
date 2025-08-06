@@ -4,14 +4,13 @@ use chrono::{DateTime, Utc};
 use open_ai_rust_responses_by_sshift::Model;
 use quark_core::helpers::dto::{AITool, PurchaseRequest, ToolUsage};
 use regex::Regex;
-use std::collections::HashMap;
+use std::{collections::HashMap, env};
 
 use crate::services::handler::Services;
 
 /// Helper function to format Unix timestamp into readable date and time
 pub fn format_timestamp(timestamp: u64) -> String {
-    let datetime = DateTime::from_timestamp(timestamp as i64, 0)
-        .unwrap_or_else(|| Utc::now());
+    let datetime = DateTime::from_timestamp(timestamp as i64, 0).unwrap_or_else(|| Utc::now());
     datetime.format("%Y-%m-%d at %H:%M UTC").to_string()
 }
 
@@ -169,9 +168,11 @@ pub async fn create_purchase_request(
     total_tokens_used: u32,
     model: Model,
     token: &str,
-    group_id: Option<String>,
+    mut group_id: Option<String>,
 ) -> Result<(), anyhow::Error> {
     let mut tools_used = Vec::new();
+    let account_seed =
+        env::var("ACCOUNT_SEED").map_err(|e| anyhow::anyhow!("ACCOUNT_SEED is not set: {}", e))?;
 
     if file_search_calls > 0 {
         tools_used.push(ToolUsage {
@@ -191,6 +192,12 @@ pub async fn create_purchase_request(
             calls: image_generation_calls,
         });
     };
+
+    if group_id.is_some() {
+        let group_id_result = group_id.unwrap();
+        let group_id_with_seed = format!("{}-{}", group_id_result, account_seed);
+        group_id = Some(group_id_with_seed);
+    }
 
     let purchase_request = PurchaseRequest {
         model,

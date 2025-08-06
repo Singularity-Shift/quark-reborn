@@ -163,6 +163,7 @@ async fn main() {
         BotCommand::new("groupbalance", "Get the group's balance of a token."),
         BotCommand::new("daopreferences", "Set dao preferences."),
         BotCommand::new("prices", "Display model pricing information."),
+        BotCommand::new("migrategroupid", "Migrate group id."),
     ];
 
     let history_storage = InMemStorage::<MessageHistory>::new();

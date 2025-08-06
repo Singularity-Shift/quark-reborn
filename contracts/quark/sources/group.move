@@ -42,8 +42,9 @@ module quark::group {
     const EUSER_ALREADY_VOTED: u64 = 23;
     const EUSER_NOT_VOTED: u64 = 24;
     const ERESOURCE_ACCOUNT_NOT_EXISTS: u64 = 25;
+    const EGROUP_ALREADY_MIGRATED: u64 = 26;
 
-    struct Group has store {
+    struct Group has store, drop {
         group_id: String,
         account: address,
     }
@@ -52,7 +53,7 @@ module quark::group {
         signer_cap: SignerCapability,
     }
 
-    struct Groups has key, store {
+    struct Groups has key, store, drop {
         groups: vector<Group>,
     }
 
@@ -253,6 +254,12 @@ module quark::group {
         recipients: vector<address>,
         currency: address,
         created_at: u64,
+    }
+
+    #[event]
+    struct MigrateGroupIdEvent has drop, store {
+        group_id: String,
+        new_group_id: String,
     }
 
     fun init_module(sender: &signer) {
@@ -809,6 +816,36 @@ module quark::group {
         });
     }
 
+    public entry fun migrate_group_id(admin: &signer, reviewer: &signer, group_id: String, new_group_id: String) acquires Groups {
+        let admin_address = signer::address_of(admin);
+        let reviewer_address = signer::address_of(reviewer);
+
+        assert!(admin::is_admin(admin_address), EONLY_ADMIN_CAN_CALL);
+        assert!(admin::is_reviewer(reviewer_address), EONLY_REVIEWER_CAN_CALL);
+
+        assert!(group_id != new_group_id, EGROUP_ALREADY_MIGRATED);
+
+        let groups = borrow_global_mut<Groups>(@quark);
+
+        let (exists_group, group_index) = vector::find<Group>(&groups.groups, |group| group.group_id == group_id);
+        assert!(exists_group, EGROUP_NOT_EXISTS);
+
+        let (exists_new_group, new_group_index) = vector::find<Group>(&groups.groups, |group| group.group_id == new_group_id);
+
+        if (exists_new_group) {
+            vector::remove(&mut groups.groups, new_group_index);
+        };
+
+        let group = vector::borrow_mut(&mut groups.groups, group_index);
+
+        group.group_id = new_group_id;
+
+        event::emit(MigrateGroupIdEvent {
+            group_id,
+            new_group_id,
+        });
+    }
+
     #[view]
     public fun get_group_account(group_id: String): address acquires Groups {
         let groups = borrow_global<Groups>(@quark);
@@ -1160,5 +1197,20 @@ module quark::group {
     #[test_only]
     public fun test_init_group(admin: &signer) {
         init_module(admin);
+    }
+
+    #[test_only]
+    public fun count_group(group_id: String): u64 acquires Groups {
+        let groups = borrow_global<Groups>(@quark);
+
+        let count = 0;
+
+        vector::for_each_ref(&groups.groups, |group| {
+            if (group.group_id == group_id) {
+                count = count + 1;
+            };
+        });
+
+        count
     }
 }

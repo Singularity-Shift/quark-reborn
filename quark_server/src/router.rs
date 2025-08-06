@@ -16,6 +16,7 @@ use crate::{
     docs::{dto::ApiDoc, handler::api_docs},
     info::handler::info,
     middlewares::handler::{auth, auth_group},
+    migration::handler::migrate_group_id,
     pay_members::handler::pay_members,
     pay_users::handler::pay_users,
     purchase::handler::{group_purchase, purchase},
@@ -123,6 +124,7 @@ pub async fn router() -> Router {
         .route("/pay-members", post(pay_members))
         .route("/group-purchase", post(group_purchase))
         .route("/proposal", post(create_proposal))
+        .route("/migrate-group-id", post(migrate_group_id))
         .route_layer(middleware::from_fn(auth_group));
 
     Router::new()

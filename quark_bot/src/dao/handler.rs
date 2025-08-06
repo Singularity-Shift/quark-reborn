@@ -34,7 +34,7 @@ pub async fn execute_create_proposal(
 
     let group_id_parsed = ChatId(group_id.parse::<i64>().unwrap());
 
-    let auth = bot_deps.group.get_credentials(&group_id_parsed);
+    let auth = bot_deps.group.get_credentials(group_id_parsed);
 
     if auth.is_none() {
         return "❌ Error getting credentials, maybe the group is not logged in".to_string();

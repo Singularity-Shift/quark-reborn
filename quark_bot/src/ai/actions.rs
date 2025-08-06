@@ -1241,7 +1241,7 @@ pub async fn execute_pay_users(
 
     // Get JWT token and determine if it's a group transfer
     let (jwt_token, is_group_transfer) = if group_id.is_some() {
-        let group_credentials = bot_deps.group.get_credentials(&msg.chat.id);
+        let group_credentials = bot_deps.group.get_credentials(msg.chat.id);
 
         if group_credentials.is_none() {
             log::error!("❌ Group not found");
@@ -1282,7 +1282,7 @@ pub async fn execute_pay_users(
     let now = Utc::now().timestamp() as u64;
     let expires_at = now + 60; // 1 minute from now
     let transaction_id = uuid::Uuid::new_v4().to_string();
-    
+
     let pending_transaction = PendingTransaction {
         transaction_id,
         amount: blockchain_amount,
@@ -1298,8 +1298,6 @@ pub async fn execute_pay_users(
         created_at: now,
         expires_at,
     };
-
-
 
     // Convert group_id from Option<String> to Option<i64>
     let group_id_i64 = group_id.and_then(|gid| gid.parse::<i64>().ok());
@@ -1317,7 +1315,10 @@ pub async fn execute_pay_users(
     // Return summary for AI to incorporate
     format!(
         "Confirm sending {:.2} {} total, split evenly among {} users ({:.2} each).",
-        amount, symbol, users.len(), per_user_amount
+        amount,
+        symbol,
+        users.len(),
+        per_user_amount
     )
 }
 
@@ -1345,7 +1346,7 @@ pub async fn execute_get_wallet_address(
     let username = username.unwrap();
 
     let resource_account_address = if group_id.is_some() {
-        let group_credentials = bot_deps.group.get_credentials(&msg.chat.id);
+        let group_credentials = bot_deps.group.get_credentials(msg.chat.id);
 
         if group_credentials.is_none() {
             log::error!("❌ Group not found");
@@ -1376,7 +1377,7 @@ pub async fn execute_get_balance(
     bot_deps: BotDependencies,
 ) -> String {
     let resource_account_address = if group_id.is_some() {
-        let group_credentials = bot_deps.group.get_credentials(&msg.chat.id);
+        let group_credentials = bot_deps.group.get_credentials(msg.chat.id);
 
         if group_credentials.is_none() {
             log::error!("❌ Group not found");
