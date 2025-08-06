@@ -1,0 +1,6 @@
+[
+  {
+    "comment": "Add Telegram usernames of authorized announcers here (without @)",
+    "usernames": ["AspieJames", "spielrs"]
+  }
+]

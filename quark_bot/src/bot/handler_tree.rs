@@ -106,6 +106,7 @@ pub fn handler_tree() -> Handler<'static, Result<()>, DpHandlerDescription> {
                                     | Command::ListFiles
                                     | Command::NewChat
                                     | Command::PromptExamples
+                                    | Command::Announcement(_)
                             )
                         })
                         .filter_async(|msg: Message, bot_deps: BotDependencies| async move {
