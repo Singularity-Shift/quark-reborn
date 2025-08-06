@@ -7,6 +7,7 @@ use super::handler::{
     handle_login_user, handle_mod, handle_moderation_rules, handle_new_chat, handle_prices,
     handle_reasoning_chat, handle_sentinel,
 };
+use super::announcement::handle_announcement;
 
 use crate::bot::handler::{
     handle_aptos_connect, handle_balance, handle_group_balance, handle_group_wallet_address,
@@ -143,6 +144,9 @@ pub async fn answers(
         }
         Command::DaoPreferences => {
             handle_dao_preferences(bot, msg, bot_deps.clone()).await?;
+        }
+        Command::Announcement(text) => {
+            handle_announcement(bot, msg, text, bot_deps.clone()).await?;
         }
     };
     Ok(())

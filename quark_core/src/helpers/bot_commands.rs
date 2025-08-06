@@ -53,6 +53,8 @@ pub enum Command {
     DaoPreferences,
     #[command(description = "Display model pricing information.")]
     Prices,
+    #[command(description = "Send a global announcement (authorized only).")]
+    Announcement(String),
 }
 
 #[derive(Debug, Clone, Default)]
