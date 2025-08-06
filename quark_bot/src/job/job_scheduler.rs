@@ -1,6 +1,6 @@
 use crate::dao::dao::Dao;
 use crate::job::handler::{
-    job_active_daos, job_dao_results_cleanup, job_daos_results, job_pending_transactions_cleanup, job_token_ai_fees, job_token_list,
+    job_active_daos, job_dao_results_cleanup, job_daos_results, job_token_ai_fees, job_token_list,
 };
 use crate::panora::handler::Panora;
 use crate::pending_transactions::handler::PendingTransactions;
@@ -8,7 +8,7 @@ use anyhow::Result;
 use teloxide::Bot;
 use tokio_cron_scheduler::JobScheduler;
 
-pub async fn schedule_jobs(panora: Panora, bot: Bot, dao: Dao, pending_transactions: PendingTransactions) -> Result<()> {
+pub async fn schedule_jobs(panora: Panora, bot: Bot, dao: Dao, _pending_transactions: PendingTransactions) -> Result<()> {
     log::info!("Initializing job scheduler...");
 
     let scheduler = match JobScheduler::new().await {
@@ -25,7 +25,7 @@ pub async fn schedule_jobs(panora: Panora, bot: Bot, dao: Dao, pending_transacti
     let job_dao_results = job_daos_results(panora.clone(), bot.clone(), dao.clone());
     let job_active_daos = job_active_daos(dao.clone(), bot.clone());
     let job_dao_results_cleanup = job_dao_results_cleanup(dao.clone());
-    let job_pending_transactions_cleanup = job_pending_transactions_cleanup(pending_transactions.clone());
+    // Note: pending_transactions_cleanup will be scheduled after a 5-minute delay
 
     // Add jobs to scheduler with error handling
     if let Err(e) = scheduler.add(job_token_list).await {
@@ -62,10 +62,7 @@ pub async fn schedule_jobs(panora: Panora, bot: Bot, dao: Dao, pending_transacti
         return Err(anyhow::anyhow!("Failed to add DAO cleanup job: {}", e));
     }
 
-    if let Err(e) = scheduler.add(job_pending_transactions_cleanup).await {
-        log::error!("Failed to add pending transactions cleanup job to scheduler: {}", e);
-        return Err(anyhow::anyhow!("Failed to add pending transactions cleanup job: {}", e));
-    }
+    // Pending transactions cleanup job is scheduled separately with a 5-minute delay
 
     log::info!("All jobs scheduled successfully");
     Ok(())
