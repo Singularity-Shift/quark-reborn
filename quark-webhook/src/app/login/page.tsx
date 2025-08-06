@@ -12,6 +12,7 @@ import { useMessage } from "@/hooks/useMessage";
 import { Section, Button } from "@telegram-apps/telegram-ui";
 import { useSearchParams } from "next/navigation";
 import { useActionDelay } from "@/hooks/useActionDelay";
+import { ACCOUNT_SEED } from "@/config/env";
 
 const LoginPage = () => {
   const { abi } = useAbiClient();
@@ -36,7 +37,7 @@ const LoginPage = () => {
     setIsLoading(true);
 
     try {
-      const userIdNum = parseInt(userId);
+      const userIdNum = `${userId}-${ACCOUNT_SEED}-${account?.address.toString()}`;
 
       const resourceAccount = await abi
         ?.useABI(QuarkUserAbi)

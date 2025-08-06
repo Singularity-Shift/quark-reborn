@@ -52,16 +52,19 @@ pub async fn purchase_ai(purchase: Purchase) -> ConsumerResult<TransactionRespon
                 vec![user_address.to_vec(), amount.to_le_bytes().to_vec()],
             ))
         }
-        PurchaseType::Group(group_id) => TransactionPayload::EntryFunction(EntryFunction::new(
-            ModuleId::new(contract_address, "group".to_string()),
-            "pay_ai".to_string(),
-            vec![token_type],
-            vec![
-                bcs::to_bytes(&group_id)
-                    .map_err(|e| ConsumerError::InvalidMessage(e.to_string()))?,
-                amount.to_le_bytes().to_vec(),
-            ],
-        )),
+        PurchaseType::Group(group_id) => {
+            println!("Group ID: {:?}", group_id);
+            TransactionPayload::EntryFunction(EntryFunction::new(
+                ModuleId::new(contract_address, "group".to_string()),
+                "pay_ai".to_string(),
+                vec![token_type],
+                vec![
+                    bcs::to_bytes(&group_id)
+                        .map_err(|e| ConsumerError::InvalidMessage(e.to_string()))?,
+                    amount.to_le_bytes().to_vec(),
+                ],
+            ))
+        }
     };
 
     let resource = node
