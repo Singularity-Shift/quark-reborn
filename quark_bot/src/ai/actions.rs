@@ -1278,10 +1278,13 @@ pub async fn execute_pay_users(
         (user_credentials.unwrap().jwt, false)
     };
 
-    // Create pending transaction with 1 minute expiration and unique UUID
+    // Create pending transaction with 1 minute expiration and unique base64-encoded UUID
     let now = Utc::now().timestamp() as u64;
     let expires_at = now + 60; // 1 minute from now
-    let transaction_id = uuid::Uuid::new_v4().to_string();
+    let transaction_id = {
+        use base64::Engine;
+        base64::prelude::BASE64_STANDARD.encode(uuid::Uuid::new_v4().as_bytes())
+    };
 
     let pending_transaction = PendingTransaction {
         transaction_id,
@@ -1311,6 +1314,14 @@ pub async fn execute_pay_users(
         log::error!("❌ Failed to store pending transaction: {}", e);
         return "❌ Failed to prepare transaction".to_string();
     }
+
+    // Verify the transaction was actually stored before returning success
+    if bot_deps.pending_transactions.get_pending_transaction(user_id, group_id_i64).is_none() {
+        log::error!("❌ Pending transaction not found after storage - race condition detected");
+        return "❌ Failed to prepare transaction - please try again".to_string();
+    }
+
+    log::info!("✅ Pending transaction stored successfully with ID: {}", pending_transaction.transaction_id);
 
     // Return summary for AI to incorporate
     format!(
