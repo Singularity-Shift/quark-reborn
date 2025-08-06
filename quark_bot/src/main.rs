@@ -114,6 +114,7 @@ async fn main() {
 
     // Schedule pending transactions cleanup job with a 5-minute delay to avoid startup interference
     let pending_transactions_for_cleanup = pending_transactions.clone();
+    let bot_for_cleanup = bot.clone();
     tokio::spawn(async move {
         log::info!("Pending transactions cleanup job will start in 5 minutes...");
         
@@ -125,7 +126,7 @@ async fn main() {
         // Create a new scheduler just for the cleanup job
         match tokio_cron_scheduler::JobScheduler::new().await {
             Ok(cleanup_scheduler) => {
-                let cleanup_job = job_pending_transactions_cleanup(pending_transactions_for_cleanup);
+                let cleanup_job = job_pending_transactions_cleanup(pending_transactions_for_cleanup, bot_for_cleanup);
                 
                 if let Err(e) = cleanup_scheduler.add(cleanup_job).await {
                     log::error!("Failed to add delayed pending transactions cleanup job: {}", e);

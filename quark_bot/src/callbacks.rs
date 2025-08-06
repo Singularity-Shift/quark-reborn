@@ -399,11 +399,20 @@ pub async fn handle_payment_callback(
         // Edit the message to show expiration
         if let Some(message) = &query.message {
             if let teloxide::types::MaybeInaccessibleMessage::Regular(msg) = message {
+                let recipients_text = if pending_transaction.original_usernames.len() == 1 {
+                    format!("@{}", pending_transaction.original_usernames[0])
+                } else {
+                    pending_transaction.original_usernames.iter()
+                        .map(|username| format!("@{}", username))
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                };
+
                 let expired_message = format!(
-                    "⏰ <b>Transaction expired</b>\n\n💰 {:.2} {} to {} users was not sent.\n\n<i>Transactions expire after 1 minute for security.</i>",
+                    "⏰ <b>Transaction expired</b>\n\n💰 {:.2} {} to {} was not sent.\n\n<i>Transactions expire after 1 minute for security.</i>",
                     pending_transaction.per_user_amount * pending_transaction.original_usernames.len() as f64,
                     pending_transaction.symbol,
-                    pending_transaction.original_usernames.len()
+                    recipients_text
                 );
                 
                 bot.edit_message_text(msg.chat.id, msg.id, expired_message)
@@ -425,20 +434,29 @@ pub async fn handle_payment_callback(
                 bot_deps.service.pay_users(pending_transaction.jwt_token, pay_request).await
             };
 
-            // Delete the pending transaction
-            let _ = bot_deps.pending_transactions.delete_pending_transaction(user_id, group_id_opt);
-
             match result {
                 Ok(response) => {
+                    // Delete the pending transaction ONLY after successful payment
+                    let _ = bot_deps.pending_transactions.delete_pending_transaction(user_id, group_id_opt);
+                    
                     let network = std::env::var("APTOS_NETWORK")
                         .unwrap_or("mainnet".to_string())
                         .to_lowercase();
 
+                    let recipients_text = if pending_transaction.original_usernames.len() == 1 {
+                        format!("@{}", pending_transaction.original_usernames[0])
+                    } else {
+                        pending_transaction.original_usernames.iter()
+                            .map(|username| format!("@{}", username))
+                            .collect::<Vec<_>>()
+                            .join(", ")
+                    };
+
                     let success_message = format!(
-                        "✅ <b>Payment sent successfully!</b>\n\n💰 {:.2} {} sent to {} users ({:.2} each)\n\n🔗 <a href=\"https://explorer.aptoslabs.com/txn/{}?network={}\">View transaction</a>",
+                        "✅ <b>Payment sent successfully!</b>\n\n💰 {:.2} {} sent to {} ({:.2} each)\n\n🔗 <a href=\"https://explorer.aptoslabs.com/txn/{}?network={}\">View transaction</a>",
                         pending_transaction.per_user_amount * pending_transaction.original_usernames.len() as f64,
                         pending_transaction.symbol,
-                        pending_transaction.original_usernames.len(),
+                        recipients_text,
                         pending_transaction.per_user_amount,
                         response.hash,
                         network
@@ -479,11 +497,20 @@ pub async fn handle_payment_callback(
             // Delete the pending transaction
             let _ = bot_deps.pending_transactions.delete_pending_transaction(user_id, group_id_opt);
 
+            let recipients_text = if pending_transaction.original_usernames.len() == 1 {
+                format!("@{}", pending_transaction.original_usernames[0])
+            } else {
+                pending_transaction.original_usernames.iter()
+                    .map(|username| format!("@{}", username))
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            };
+
             let cancel_message = format!(
-                "❌ <b>Payment cancelled</b>\n\n💰 {:.2} {} to {} users was not sent.",
+                "❌ <b>Payment cancelled</b>\n\n💰 {:.2} {} to {} was not sent.",
                 pending_transaction.per_user_amount * pending_transaction.original_usernames.len() as f64,
                 pending_transaction.symbol,
-                pending_transaction.original_usernames.len()
+                recipients_text
             );
 
             // Edit the original message
