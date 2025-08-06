@@ -49,6 +49,10 @@ impl PendingTransactions {
         let key = Self::create_key(user_id, group_id);
         let encoded = serde_json::to_vec(transaction).unwrap();
         self.tree.insert(key.as_bytes(), encoded)?;
+        
+        // Force flush to ensure data is immediately available for reads
+        self.tree.flush()?;
+        
         Ok(())
     }
 
