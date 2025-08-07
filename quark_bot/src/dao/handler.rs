@@ -204,7 +204,6 @@ pub async fn execute_create_proposal(
         options,
         start_date,
         end_date,
-        group_id: group_id_formatted,
         proposal_id,
         version,
         currency: if token.token_address.is_some() {
@@ -216,7 +215,7 @@ pub async fn execute_create_proposal(
 
     log::info!("Creating proposal with request: {:?}", request);
 
-    let proposal_entry = ProposalEntry::from(&request);
+    let proposal_entry = ProposalEntry::from((&request, group_id_formatted));
 
     let response = bot_deps.service.create_proposal(auth.jwt, request).await;
 
