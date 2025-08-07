@@ -128,7 +128,6 @@ pub struct CreateProposalRequest {
     pub options: Vec<String>,
     pub start_date: u64,
     pub end_date: u64,
-    pub group_id: String,
     pub proposal_id: String,
     pub version: CoinVersion,
     pub currency: String,

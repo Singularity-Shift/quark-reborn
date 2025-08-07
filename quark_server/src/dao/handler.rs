@@ -6,8 +6,10 @@ use aptos_rust_sdk_types::api_types::{
     transaction::{EntryFunction, TransactionPayload},
     type_tag::TypeTag,
 };
-use axum::{Json, extract::State, http::StatusCode};
-use quark_core::helpers::dto::{CoinVersion, CreateProposalRequest, TransactionResponse};
+use axum::{Extension, Json, extract::State, http::StatusCode};
+use quark_core::helpers::dto::{
+    CoinVersion, CreateProposalRequest, GroupPayload, TransactionResponse,
+};
 
 use crate::{
     admin::handler::{get_admin, get_reviewer_priv_acc},
@@ -30,6 +32,7 @@ use chrono::Utc;
 )]
 pub async fn create_proposal(
     State(server_state): State<Arc<ServerState>>,
+    Extension(group): Extension<GroupPayload>,
     Json(request): Json<CreateProposalRequest>,
 ) -> Result<Json<TransactionResponse>, ErrorServer> {
     let (admin, signer) = get_admin().map_err(|e| ErrorServer {
@@ -51,7 +54,7 @@ pub async fn create_proposal(
         message: e.to_string(),
     })?;
 
-    let group_id = request.group_id;
+    let group_id = group.group_id;
 
     let start_date = request.start_date;
     let end_date = request.end_date;
