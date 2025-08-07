@@ -176,7 +176,7 @@ async fn gather_recipients(bot_deps: &BotDependencies) -> Result<HashSet<UserId>
     let mut recipients = HashSet::new();
     
     // Get private (DM) users from Auth::db
-    let auth_tree = bot_deps.db.open_tree("credentials")?;
+    let auth_tree = bot_deps.db.open_tree("auth")?;
     for result in auth_tree.iter() {
         let (_, value) = result?;
         if let Ok(credentials) = serde_json::from_slice::<Credentials>(&value) {
@@ -185,7 +185,7 @@ async fn gather_recipients(bot_deps: &BotDependencies) -> Result<HashSet<UserId>
     }
     
     // Get logged-in group users from Group::db
-    let group_tree = bot_deps.db.open_tree("group_credentials")?;
+    let group_tree = bot_deps.db.open_tree("group")?;
     for result in group_tree.iter() {
         let (_, value) = result?;
         if let Ok(group_credentials) = serde_json::from_slice::<GroupCredentials>(&value) {
