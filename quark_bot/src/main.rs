@@ -2,6 +2,7 @@ mod ai;
 mod aptos;
 mod assets;
 mod bot;
+mod announcement;
 mod callbacks;
 mod credentials;
 mod dao;
@@ -10,8 +11,8 @@ mod group;
 mod job;
 mod message_history;
 mod panora;
-mod services;
 mod pending_transactions;
+mod services;
 mod user_conversation;
 mod user_model_preferences;
 mod utils;
@@ -112,8 +113,6 @@ async fn main() {
         .await
         .expect("Failed to schedule jobs");
 
-
-
     let service = Services::new();
 
     let cmd_collector = Arc::new(command_image_collector::CommandImageCollector::new(
@@ -165,6 +164,10 @@ async fn main() {
         BotCommand::new("groupbalance", "Get the group's balance of a token."),
         BotCommand::new("daopreferences", "Set dao preferences."),
         BotCommand::new("prices", "Display model pricing information."),
+        BotCommand::new(
+            "globalannouncement",
+            "Send a global announcement (authorized only).",
+        ),
         BotCommand::new("migrategroupid", "Migrate group id."),
     ];
 

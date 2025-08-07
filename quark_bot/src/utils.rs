@@ -84,30 +84,7 @@ pub fn clean_filename(filename: &str) -> String {
     }
 }
 
-/// Extract the original group ID from a formatted group ID string
-///
-/// # Arguments
-/// * `formatted_group_id` - A string in the format "{group_id}-{account_seed}"
-///
-/// # Returns
-/// * `Option<String>` - The original group ID if successfully extracted, None otherwise
-///
-/// # Examples
-/// ```
-/// let formatted = "-1002587813217-quark-ai";
-/// let original = extract_group_id_from_formatted(formatted);
-/// assert_eq!(original, Some("-1002587813217".to_string()));
-/// ```
-pub fn extract_group_id_from_formatted(formatted_group_id: &str) -> Option<String> {
-    // Find the last occurrence of '-' to handle cases where the group_id itself contains hyphens
-    if let Some(last_dash_pos) = formatted_group_id.rfind('-') {
-        let group_id = &formatted_group_id[..last_dash_pos];
-        if !group_id.is_empty() {
-            return Some(group_id.to_string());
-        }
-    }
-    None
-}
+
 
 /// Convert a limited subset of Markdown (headings, bold, links, horizontal rule, code blocks)
 /// into Telegram-compatible HTML so we can send messages with `ParseMode::Html`.
