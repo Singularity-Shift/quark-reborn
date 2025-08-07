@@ -36,23 +36,25 @@ module quark::group_test {
     const ECOINS_NOT_MATCH: u64 = 5;
     const ENOT_USER_PASSED: u64 = 6;
     const EGROUP_NOT_EXISTS: u64 = 7;
-    const EAMOUNT_MUST_BE_GREATER_THAN_ZERO: u64 = 8;
-    const EPOOL_NOT_EXISTS: u64 = 9;
-    const EUSER_ALREADY_CLAIMED: u64 = 10;
-    const EPOOLS_REWARDS_NOT_EXISTS: u64 = 11;
-    const EPOOL_REWARD_ALREADY_CLAIMED: u64 = 12;
-    const EPOOL_REWARD_ALREADY_EXISTS: u64 = 13;
-    const EPOOL_REWARD_TOKEN_NOT_MATCH: u64 = 14;
-    const EGROUP_ALREADY_EXISTS: u64 = 15;
-    const EDAO_ALREADY_EXISTS: u64 = 16;
-    const EDAO_NOT_EXISTS: u64 = 17;
-    const EFROM_TO_NOT_VALID: u64 = 18;
-    const ENOT_IN_TIME: u64 = 19;
-    const ECHOICE_NOT_EXISTS: u64 = 20;
-    const ECOIN_TYPE_NOT_MATCH: u64 = 21;
-    const ECURRENCY_NOT_MATCH: u64 = 22;
-    const EUSER_ALREADY_VOTED: u64 = 23;
-    const EUSER_NOT_VOTED: u64 = 24;
+    const EGROUP_SHOULD_NOT_EXISTS: u64 = 8;
+    const EAMOUNT_MUST_BE_GREATER_THAN_ZERO: u64 = 9;
+    const EPOOL_NOT_EXISTS: u64 = 10;
+    const EUSER_ALREADY_CLAIMED: u64 = 11;
+    const EPOOLS_REWARDS_NOT_EXISTS: u64 = 12;
+    const EPOOL_REWARD_ALREADY_CLAIMED: u64 = 13;
+    const EPOOL_REWARD_ALREADY_EXISTS: u64 = 14;
+    const EPOOL_REWARD_TOKEN_NOT_MATCH: u64 = 15;
+    const EGROUP_ALREADY_EXISTS: u64 = 16;
+    const EDAO_ALREADY_EXISTS: u64 = 17;
+    const EDAO_NOT_EXISTS: u64 = 18;
+    const EFROM_TO_NOT_VALID: u64 = 19;
+    const ENOT_IN_TIME: u64 = 20;
+    const ECHOICE_NOT_EXISTS: u64 = 21;
+    const ECOIN_TYPE_NOT_MATCH: u64 = 22;
+    const ECURRENCY_NOT_MATCH: u64 = 23;
+    const EUSER_ALREADY_VOTED: u64 = 24;
+    const EUSER_NOT_VOTED: u64 = 25;
+    const ENEW_GROUP_SHOULD_BE_ONLY_ONE: u64 = 26;
     
 
     struct TestCoin {}
@@ -753,7 +755,7 @@ module quark::group_test {
     }
 
     #[test(aptos_framework = @0x1, quark = @quark, user = @0x5)]
-    #[expected_failure(abort_code = 10, location = quark::group_test)] // EUSER_ALREADY_CLAIMED
+    #[expected_failure(abort_code = EUSER_ALREADY_CLAIMED, location = quark::group_test)] // EUSER_ALREADY_CLAIMED
     fun test_mock_claim_reward_v1_with_state_already_claimed(aptos_framework: &signer, quark: &signer, user: &signer) acquires MockPoolsRewardsV1 {
         let (burn_cap, mint_cap) = aptos_coin::initialize_for_test(aptos_framework);
         timestamp::set_time_has_started_for_testing(aptos_framework);
@@ -827,7 +829,7 @@ module quark::group_test {
     }
 
     #[test(aptos_framework = @0x1, quark = @quark, user = @0x5)]
-    #[expected_failure(abort_code = 10, location = quark::group_test)] // EUSER_ALREADY_CLAIMED
+    #[expected_failure(abort_code = EUSER_ALREADY_CLAIMED, location = quark::group_test)] // EUSER_ALREADY_CLAIMED
     fun test_mock_claim_reward_v2_with_state_already_claimed(aptos_framework: &signer, quark: &signer, user: &signer) acquires FAController, MockPoolsRewardsV2 {
         let (burn_cap, mint_cap) = aptos_coin::initialize_for_test(aptos_framework);
         timestamp::set_time_has_started_for_testing(aptos_framework);
@@ -983,6 +985,87 @@ module quark::group_test {
         
         // Verify user has voted
         assert!(group::exist_group_user_choice_v2(group_id, dao_id, voter_addr), 0);
+    }
+
+    #[test(aptos_framework = @0x1, quark = @quark, voter = @0x5)]
+    fun test_migrate_group_id(aptos_framework: &signer, quark: &signer) {
+        timestamp::set_time_has_started_for_testing(aptos_framework);
+        init_module(quark);
+        let group_id = string::utf8(TEST_GROUP_ID);
+        let new_group_id = string::utf8(b"new_group_id");
+
+        group::create_group(quark, quark, group_id);
+
+        group::migrate_group_id(quark, quark, group_id, new_group_id);
+
+        assert!(group::exist_group_id(new_group_id), EGROUP_NOT_EXISTS);
+        assert!(!group::exist_group_id(group_id), EGROUP_SHOULD_NOT_EXISTS);
+    }
+
+    #[test(aptos_framework = @0x1, quark = @quark)]
+    fun test_new_group_id_should_be_deleted_if_exists_before_migration(aptos_framework: &signer, quark: &signer) {
+        timestamp::set_time_has_started_for_testing(aptos_framework);
+        init_module(quark);
+        let group_id = string::utf8(TEST_GROUP_ID);
+        let new_group_id = string::utf8(b"new_group_id");
+
+        group::create_group(quark, quark, group_id);
+        group::create_group(quark, quark, new_group_id);
+
+        group::migrate_group_id(quark, quark, group_id, new_group_id);
+        
+        let count = group::count_group(new_group_id);
+        assert!(count == 1, ENEW_GROUP_SHOULD_BE_ONLY_ONE);
+    }
+
+    #[test(aptos_framework = @0x1, quark = @quark)]
+    #[expected_failure(abort_code = 26, location = quark::group)]
+    fun test_migrate_group_id_group_already_migrated(aptos_framework: &signer, quark: &signer) {
+        timestamp::set_time_has_started_for_testing(aptos_framework);
+        init_module(quark);
+        let group_id = string::utf8(TEST_GROUP_ID);
+        let new_group_id = string::utf8(TEST_GROUP_ID);
+
+        group::create_group(quark, quark, group_id);
+
+        group::migrate_group_id(quark, quark, group_id, new_group_id);
+    }
+
+    #[test(aptos_framework = @0x1, quark = @quark, admin = @0x1, reviewer = @0x2)]
+    #[expected_failure(abort_code = EONLY_ADMIN_CAN_CALL, location = quark::group)] // EONLY_ADMIN_CAN_CALL
+    fun test_migrate_group_id_admin_not_admin(aptos_framework: &signer, quark: &signer, admin: &signer, reviewer: &signer) {
+        timestamp::set_time_has_started_for_testing(aptos_framework);
+        init_module(quark);
+        let group_id = string::utf8(TEST_GROUP_ID);
+        let new_group_id = string::utf8(b"new_group_id");
+
+        group::create_group(quark, quark, group_id);
+
+        group::migrate_group_id(admin, reviewer, group_id, new_group_id);
+    }
+
+    #[test(aptos_framework = @0x1, quark = @quark, reviewer = @0x2)]
+    #[expected_failure(abort_code = 2, location = quark::group)] // EONLY_REVIEWER_CAN_CALL
+    fun test_migrate_group_id_reviewer_not_reviewer(aptos_framework: &signer, quark: &signer, reviewer: &signer) {
+        timestamp::set_time_has_started_for_testing(aptos_framework);
+        init_module(quark);
+        let group_id = string::utf8(TEST_GROUP_ID);
+        let new_group_id = string::utf8(b"new_group_id");
+
+        group::create_group(quark, quark, group_id);
+
+        group::migrate_group_id(quark, reviewer, group_id, new_group_id);
+    }
+
+    #[test(aptos_framework = @0x1, quark = @quark)]
+    #[expected_failure(abort_code = 7, location = quark::group)] // EGROUP_NOT_EXISTS
+    fun test_migrate_group_id_group_not_exists(aptos_framework: &signer, quark: &signer) {
+        timestamp::set_time_has_started_for_testing(aptos_framework);
+        init_module(quark);
+        let group_id = string::utf8(TEST_GROUP_ID);
+        let new_group_id = string::utf8(b"new_group_id");
+
+        group::migrate_group_id(quark, quark, group_id, new_group_id);
     }
 
     #[test(aptos_framework = @0x1, quark = @quark, voter = @0x5)]

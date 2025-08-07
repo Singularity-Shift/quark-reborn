@@ -55,6 +55,8 @@ pub enum Command {
     Prices,
     #[command(description = "Send a global announcement (authorized only).")]
     Announcement(String),
+    #[command(description = "Migrate group id.")]
+    MigrateGroupId,
 }
 
 #[derive(Debug, Clone, Default)]

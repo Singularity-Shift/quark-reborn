@@ -2,16 +2,16 @@ use anyhow::Result;
 use quark_core::helpers::bot_commands::Command;
 use teloxide::{Bot, prelude::*, types::Message};
 
+use super::announcement::handle_announcement;
 use super::handler::{
     handle_add_files, handle_chat, handle_help, handle_list_files, handle_login_group,
     handle_login_user, handle_mod, handle_moderation_rules, handle_new_chat, handle_prices,
     handle_reasoning_chat, handle_sentinel,
 };
-use super::announcement::handle_announcement;
 
 use crate::bot::handler::{
     handle_aptos_connect, handle_balance, handle_group_balance, handle_group_wallet_address,
-    handle_wallet_address,
+    handle_migrate_group_id, handle_wallet_address,
 };
 use crate::dao::handler::handle_dao_preferences;
 use crate::dependencies::BotDependencies;
@@ -147,6 +147,9 @@ pub async fn answers(
         }
         Command::Announcement(text) => {
             handle_announcement(bot, msg, text, bot_deps.clone()).await?;
+        }
+        Command::MigrateGroupId => {
+            handle_migrate_group_id(bot, msg, bot_deps.clone()).await?;
         }
     };
     Ok(())

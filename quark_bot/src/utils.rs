@@ -4,14 +4,13 @@ use chrono::{DateTime, Utc};
 use open_ai_rust_responses_by_sshift::Model;
 use quark_core::helpers::dto::{AITool, PurchaseRequest, ToolUsage};
 use regex::Regex;
-use std::collections::HashMap;
+use std::{collections::HashMap, env};
 
 use crate::services::handler::Services;
 
 /// Helper function to format Unix timestamp into readable date and time
 pub fn format_timestamp(timestamp: u64) -> String {
-    let datetime = DateTime::from_timestamp(timestamp as i64, 0)
-        .unwrap_or_else(|| Utc::now());
+    let datetime = DateTime::from_timestamp(timestamp as i64, 0).unwrap_or_else(|| Utc::now());
     datetime.format("%Y-%m-%d at %H:%M UTC").to_string()
 }
 
@@ -75,7 +74,7 @@ pub fn clean_filename(filename: &str) -> String {
             if name_part.len() > 30 {
                 format!("{}...{}", &name_part[..27], ext_part)
             } else {
-                cleaned.to_string()
+                format!("{}...", &cleaned[..32])
             }
         } else {
             format!("{}...", &cleaned[..32])
@@ -83,6 +82,31 @@ pub fn clean_filename(filename: &str) -> String {
     } else {
         cleaned.to_string()
     }
+}
+
+/// Extract the original group ID from a formatted group ID string
+///
+/// # Arguments
+/// * `formatted_group_id` - A string in the format "{group_id}-{account_seed}"
+///
+/// # Returns
+/// * `Option<String>` - The original group ID if successfully extracted, None otherwise
+///
+/// # Examples
+/// ```
+/// let formatted = "-1002587813217-quark-ai";
+/// let original = extract_group_id_from_formatted(formatted);
+/// assert_eq!(original, Some("-1002587813217".to_string()));
+/// ```
+pub fn extract_group_id_from_formatted(formatted_group_id: &str) -> Option<String> {
+    // Find the last occurrence of '-' to handle cases where the group_id itself contains hyphens
+    if let Some(last_dash_pos) = formatted_group_id.rfind('-') {
+        let group_id = &formatted_group_id[..last_dash_pos];
+        if !group_id.is_empty() {
+            return Some(group_id.to_string());
+        }
+    }
+    None
 }
 
 /// Convert a limited subset of Markdown (headings, bold, links, horizontal rule, code blocks)
@@ -169,9 +193,11 @@ pub async fn create_purchase_request(
     total_tokens_used: u32,
     model: Model,
     token: &str,
-    group_id: Option<String>,
+    mut group_id: Option<String>,
 ) -> Result<(), anyhow::Error> {
     let mut tools_used = Vec::new();
+    let account_seed =
+        env::var("ACCOUNT_SEED").map_err(|e| anyhow::anyhow!("ACCOUNT_SEED is not set: {}", e))?;
 
     if file_search_calls > 0 {
         tools_used.push(ToolUsage {
@@ -191,6 +217,12 @@ pub async fn create_purchase_request(
             calls: image_generation_calls,
         });
     };
+
+    if group_id.is_some() {
+        let group_id_result = group_id.unwrap();
+        let group_id_with_seed = format!("{}-{}", group_id_result, account_seed);
+        group_id = Some(group_id_with_seed);
+    }
 
     let purchase_request = PurchaseRequest {
         model,

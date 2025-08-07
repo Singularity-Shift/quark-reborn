@@ -57,3 +57,72 @@ pub async fn fund_account_hook(bot: Bot, msg: Message, text: String) -> Result<(
         .await?;
     Ok(())
 }
+
+pub async fn pay_users_hook(
+    bot: Bot, 
+    msg: Message, 
+    text: String, 
+    group_id: Option<String>,
+    transaction_id: String,
+    bot_deps: crate::dependencies::BotDependencies,
+) -> Result<()> {
+    let user_id = if let Some(user) = &msg.from {
+        user.id.0 as i64
+    } else {
+        return Ok(());
+    };
+
+    let group_id_i64 = group_id.and_then(|gid| gid.parse::<i64>().ok()).unwrap_or(0);
+
+    let accept_btn = InlineKeyboardButton::callback(
+        "✅ Accept", 
+        format!("pay_accept:{}:{}:{}", user_id, group_id_i64, transaction_id)
+    );
+    let reject_btn = InlineKeyboardButton::callback(
+        "❌ Reject", 
+        format!("pay_reject:{}:{}:{}", user_id, group_id_i64, transaction_id)
+    );
+    
+    let markup = InlineKeyboardMarkup::new(vec![vec![accept_btn, reject_btn]]);
+    
+    // Send the message with buttons and capture the sent message
+    let sent_message = bot.send_message(msg.chat.id, text)
+        .reply_markup(markup)
+        .await?;
+    
+    // Update the pending transaction with the message ID
+    let group_id_opt = if group_id_i64 == 0 { None } else { Some(group_id_i64) };
+    if let Err(e) = bot_deps.pending_transactions.update_transaction_message_id(
+        user_id,
+        group_id_opt,
+        sent_message.id.0,
+    ) {
+        log::error!("Failed to update transaction message ID: {}", e);
+    }
+    
+    // Start timeout for this transaction
+    if let Some(transaction) = bot_deps.pending_transactions.get_pending_transaction(user_id, group_id_opt) {
+        // Verify this is the transaction we just processed
+        if transaction.transaction_id == transaction_id {
+            // Spawn the async timeout function
+            let pending_transactions = bot_deps.pending_transactions.clone();
+            let bot_clone = bot.clone();
+            tokio::spawn(async move {
+                pending_transactions.start_transaction_timeout(
+                    bot_clone,
+                    user_id,
+                    group_id_opt,
+                    &transaction,
+                ).await;
+            });
+            log::info!("Started timeout for transaction: {}", transaction_id);
+        } else {
+            log::warn!("Transaction ID mismatch when starting timeout: expected {}, found {}", 
+                transaction_id, transaction.transaction_id);
+        }
+    } else {
+        log::error!("Failed to retrieve transaction {} for timeout start", transaction_id);
+    }
+    
+    Ok(())
+}

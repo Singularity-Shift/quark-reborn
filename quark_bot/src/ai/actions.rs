@@ -1,11 +1,12 @@
 use std::env;
 
 use chrono::Utc;
-use quark_core::helpers::dto::{CoinVersion, PayUsersRequest, TransactionResponse};
+use quark_core::helpers::dto::CoinVersion;
 use teloxide::types::Message;
 
 use crate::dependencies::BotDependencies;
 use crate::message_history::handler::fetch;
+use crate::pending_transactions::dto::PendingTransaction;
 
 /// Execute trending pools fetch from GeckoTerminal
 pub async fn execute_trending_pools(arguments: &serde_json::Value) -> String {
@@ -1227,30 +1228,27 @@ pub async fn execute_pay_users(
         return "❌ No users found".to_string();
     }
 
-    let result: Result<TransactionResponse, anyhow::Error>;
+    // Calculate per-user amount for display
+    let per_user_amount = amount / users.len() as f64;
 
-    if group_id.is_some() {
-        let group_credentials = bot_deps.group.get_credentials(&msg.chat.id);
+    // Get user ID early to avoid moved value issues
+    let user_id = if let Some(user) = &msg.from {
+        user.id.0 as i64
+    } else {
+        log::error!("❌ Could not get user ID");
+        return "❌ Could not get user ID".to_string();
+    };
+
+    // Get JWT token and determine if it's a group transfer
+    let (jwt_token, is_group_transfer) = if group_id.is_some() {
+        let group_credentials = bot_deps.group.get_credentials(msg.chat.id);
 
         if group_credentials.is_none() {
             log::error!("❌ Group not found");
             return "❌ Group not found".to_string();
         }
 
-        let group_credentials = group_credentials.unwrap();
-
-        result = bot_deps
-            .service
-            .pay_members(
-                group_credentials.jwt,
-                PayUsersRequest {
-                    amount: blockchain_amount,
-                    users: user_addresses,
-                    coin_type: token_type,
-                    version: version,
-                },
-            )
-            .await;
+        (group_credentials.unwrap().jwt, true)
     } else {
         let user = msg.from;
 
@@ -1277,39 +1275,57 @@ pub async fn execute_pay_users(
             return "❌ User not found".to_string();
         }
 
-        let user_credentials = user_credentials.unwrap();
+        (user_credentials.unwrap().jwt, false)
+    };
 
-        result = bot_deps
-            .service
-            .pay_users(
-                user_credentials.jwt,
-                PayUsersRequest {
-                    amount: blockchain_amount,
-                    users: user_addresses,
-                    coin_type: token_type,
-                    version,
-                },
-            )
-            .await;
+    // Create pending transaction with 1 minute expiration and unique base64-encoded UUID
+    let now = Utc::now().timestamp() as u64;
+    let expires_at = now + 60; // 1 minute from now
+    let transaction_id = {
+        use base64::Engine;
+        base64::prelude::BASE64_STANDARD.encode(uuid::Uuid::new_v4().as_bytes())
+    };
+
+    let pending_transaction = PendingTransaction {
+        transaction_id,
+        amount: blockchain_amount,
+        users: user_addresses.clone(),
+        coin_type: token_type,
+        version,
+        jwt_token,
+        is_group_transfer,
+        symbol: symbol.to_string(),
+        user_addresses,
+        original_usernames: users.clone(),
+        per_user_amount,
+        created_at: now,
+        expires_at,
+        chat_id: msg.chat.id.0,  // Store the chat ID from the message
+        message_id: 0,           // Placeholder - will be updated after message is sent
+    };
+
+    // Convert group_id from Option<String> to Option<i64>
+    let group_id_i64 = group_id.and_then(|gid| gid.parse::<i64>().ok());
+
+    // Store the pending transaction (includes internal verification)
+    if let Err(e) = bot_deps.pending_transactions.set_pending_transaction(
+        user_id,
+        group_id_i64,
+        &pending_transaction,
+    ) {
+        log::error!("❌ Failed to store pending transaction: {}", e);
+        return "❌ Failed to prepare transaction".to_string();
     }
 
-    if result.is_err() {
-        log::error!(
-            "❌ Error sending payments: {}",
-            result.as_ref().err().unwrap()
-        );
-        return format!("❌ Error sending payments: {}", result.err().unwrap());
-    }
+    log::info!("✅ Pending transaction stored successfully with ID: {}", pending_transaction.transaction_id);
 
-    let result = result.unwrap();
-
-    let network = env::var("APTOS_NETWORK")
-        .unwrap_or("mainnet".to_string())
-        .to_lowercase();
-
+    // Return summary for AI to incorporate
     format!(
-        "Payments sent successfully: https://explorer.aptoslabs.com/txn/{}?network={}",
-        result.hash, network
+        "Confirm sending {:.2} {} total, split evenly among {} users ({:.2} each).",
+        amount,
+        symbol,
+        users.len(),
+        per_user_amount
     )
 }
 
@@ -1337,7 +1353,7 @@ pub async fn execute_get_wallet_address(
     let username = username.unwrap();
 
     let resource_account_address = if group_id.is_some() {
-        let group_credentials = bot_deps.group.get_credentials(&msg.chat.id);
+        let group_credentials = bot_deps.group.get_credentials(msg.chat.id);
 
         if group_credentials.is_none() {
             log::error!("❌ Group not found");
@@ -1368,7 +1384,7 @@ pub async fn execute_get_balance(
     bot_deps: BotDependencies,
 ) -> String {
     let resource_account_address = if group_id.is_some() {
-        let group_credentials = bot_deps.group.get_credentials(&msg.chat.id);
+        let group_credentials = bot_deps.group.get_credentials(msg.chat.id);
 
         if group_credentials.is_none() {
             log::error!("❌ Group not found");
