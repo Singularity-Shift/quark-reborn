@@ -1,48 +1,14 @@
 use std::collections::HashSet;
-use std::path::Path;
-use std::fs;
-use serde::{Deserialize, Serialize};
-use teloxide::{Bot, types::{UserId, Message}, prelude::Requester};
-use anyhow::{Result, Context};
+
+use anyhow::Result;
 use futures::stream::{self, StreamExt};
-use crate::dependencies::BotDependencies;
+use teloxide::{prelude::Requester, types::{Message, UserId}, Bot};
+
 use crate::credentials::dto::Credentials;
+use crate::dependencies::BotDependencies;
 use crate::group::dto::GroupCredentials;
 
-#[derive(Debug, Serialize, Deserialize)]
-struct AuthorizedAnnouncersConfig {
-    usernames: Vec<String>,
-}
-
-#[derive(Debug, Clone)]
-pub struct AnnouncerAuth {
-    authorized_usernames: HashSet<String>,
-}
-
-impl AnnouncerAuth {
-    pub fn new<P: AsRef<Path>>(config_path: P) -> Result<Self> {
-        let config_content = fs::read_to_string(config_path.as_ref())
-            .with_context(|| format!("Failed to read authorized announcers config from {:?}", config_path.as_ref()))?;
-        
-        let config: AuthorizedAnnouncersConfig = ron::from_str(&config_content)
-            .context("Failed to parse authorized announcers config RON")?;
-        
-        let usernames = &config.usernames;
-        
-        let authorized_usernames: HashSet<String> = usernames
-            .iter()
-            .cloned()
-            .collect();
-        
-        log::info!("Loaded {} authorized announcers", authorized_usernames.len());
-        
-        Ok(Self { authorized_usernames })
-    }
-    
-    pub fn is_authorized(&self, username: &str) -> bool {
-        self.authorized_usernames.contains(username)
-    }
-}
+use super::announcement::AnnouncerAuth;
 
 pub async fn handle_announcement(
     bot: Bot,
@@ -59,21 +25,24 @@ pub async fn handle_announcement(
             return Ok(());
         }
     };
-    
+
     let username = match &sender.username {
         Some(username) => username,
         None => {
-            bot.send_message(msg.chat.id, "❌ Username required. Please set a Telegram username to use announcements.")
-                .await?;
+            bot.send_message(
+                msg.chat.id,
+                "❌ Username required. Please set a Telegram username to use announcements.",
+            )
+            .await?;
             return Ok(());
         }
     };
-    
+
     // Create announcer auth instance
     let config_path = std::env::current_dir()
         .unwrap_or_else(|_| std::path::PathBuf::from("."))
         .join("config/authorized_announcers.ron");
-    
+
     let announcer_auth = match AnnouncerAuth::new(&config_path) {
         Ok(auth) => auth,
         Err(e) => {
@@ -83,34 +52,37 @@ pub async fn handle_announcement(
             return Ok(());
         }
     };
-    
+
     // Check authorization
     if !announcer_auth.is_authorized(username) {
         bot.send_message(
             msg.chat.id,
-            "❌ You are not authorized to send global announcements."
-        ).await?;
+            "❌ You are not authorized to send global announcements.",
+        )
+        .await?;
         return Ok(());
     }
-    
+
     // Verify the sender is logged in
     if !bot_deps.auth.verify(msg.clone()).await {
         bot.send_message(
             msg.chat.id,
-            "❌ You must be logged in to send announcements. Use /loginuser first."
-        ).await?;
+            "❌ You must be logged in to send announcements. Use /loginuser first.",
+        )
+        .await?;
         return Ok(());
     }
-    
+
     // Check if announcement text is empty
     if text.trim().is_empty() {
         bot.send_message(
             msg.chat.id,
-            "📢 **Announcement Usage**\n\nTo send a global announcement:\n`/globalannouncement Your message here`\n\nThe announcement will be sent to all logged-in users."
-        ).await?;
+            "📢 **Announcement Usage**\n\nTo send a global announcement:\n`/globalannouncement Your message here`\n\nThe announcement will be sent to all logged-in users.",
+        )
+        .await?;
         return Ok(());
     }
-    
+
     // Gather recipients
     let recipients = match gather_recipients(&bot_deps).await {
         Ok(users) => users,
@@ -121,30 +93,31 @@ pub async fn handle_announcement(
             return Ok(());
         }
     };
-    
+
     log::info!("Sending announcement to {} recipients", recipients.len());
-    
+
     // Confirm sending
     bot.send_message(
         msg.chat.id,
-        &format!("📢 Sending announcement to {} users...", recipients.len())
-    ).await?;
-    
+        &format!("📢 Sending announcement to {} users...", recipients.len()),
+    )
+    .await?;
+
     // Prepare announcement message with header
     let announcement_text = format!("📢 **GLOBAL ANNOUNCEMENT**\n\n{}", text);
-    
+
     let recipient_count = recipients.len();
-    
+
     // Send announcements with rate limiting using concurrent approach
     stream::iter(recipients)
         .for_each_concurrent(10, |user_id| {
             let bot = bot.clone();
             let announcement_text = announcement_text.clone();
-            
+
             async move {
                 // Small delay per task to respect API limits
                 tokio::time::sleep(tokio::time::Duration::from_millis(75)).await;
-                
+
                 match send_announcement_to_user(bot, user_id, &announcement_text).await {
                     Ok(_) => {
                         log::debug!("Successfully sent announcement to user {}", user_id);
@@ -156,19 +129,20 @@ pub async fn handle_announcement(
             }
         })
         .await;
-    
+
     // Send completion message
     bot.send_message(
         msg.chat.id,
-        &format!("✅ Announcement sent to {} users.", recipient_count)
-    ).await?;
-    
+        &format!("✅ Announcement sent to {} users.", recipient_count),
+    )
+    .await?;
+
     Ok(())
 }
 
 async fn gather_recipients(bot_deps: &BotDependencies) -> Result<HashSet<UserId>> {
     let mut recipients = HashSet::new();
-    
+
     // Get private (DM) users from Auth::db
     let auth_tree = bot_deps.db.open_tree("auth")?;
     for result in auth_tree.iter() {
@@ -177,7 +151,7 @@ async fn gather_recipients(bot_deps: &BotDependencies) -> Result<HashSet<UserId>
             recipients.insert(credentials.user_id);
         }
     }
-    
+
     // Get logged-in group users from Group::db
     let group_tree = bot_deps.db.open_tree("group")?;
     for result in group_tree.iter() {
@@ -191,7 +165,7 @@ async fn gather_recipients(bot_deps: &BotDependencies) -> Result<HashSet<UserId>
             }
         }
     }
-    
+
     log::info!("Gathered {} unique recipients", recipients.len());
     Ok(recipients)
 }
@@ -199,7 +173,7 @@ async fn gather_recipients(bot_deps: &BotDependencies) -> Result<HashSet<UserId>
 async fn send_announcement_to_user(bot: Bot, user_id: UserId, text: &str) -> Result<()> {
     // Handle long messages by splitting them
     const TELEGRAM_MESSAGE_LIMIT: usize = 4096;
-    
+
     if text.len() > TELEGRAM_MESSAGE_LIMIT {
         let chunks = split_text(text, TELEGRAM_MESSAGE_LIMIT);
         for chunk in chunks {
@@ -208,7 +182,7 @@ async fn send_announcement_to_user(bot: Bot, user_id: UserId, text: &str) -> Res
     } else {
         bot.send_message(user_id, text).await?;
     }
-    
+
     Ok(())
 }
 
@@ -227,7 +201,7 @@ fn split_text(text: &str, limit: usize) -> Vec<String> {
                 current_chunk.clear();
             }
         }
-        
+
         if !current_chunk.is_empty() {
             current_chunk.push('\n');
         }
@@ -240,3 +214,5 @@ fn split_text(text: &str, limit: usize) -> Vec<String> {
 
     chunks
 }
+
+
