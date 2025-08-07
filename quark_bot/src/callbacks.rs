@@ -296,6 +296,9 @@ pub async fn handle_callback_query(
                 .text("📱 Mini App: Opens voting interface inside Telegram\n🌐 Browser: Opens voting page in external browser\n\nBoth options work the same way!")
                 .show_alert(true)
                 .await?;
+        } else if data.starts_with("pay_accept:") || data.starts_with("pay_reject:") {
+            // Handle payment confirmation callbacks
+            handle_payment_callback(bot, query, bot_deps).await?;
         } else {
             bot.answer_callback_query(query.id)
                 .text("❌ Unknown action")
@@ -305,6 +308,229 @@ pub async fn handle_callback_query(
         bot.answer_callback_query(query.id)
             .text("❌ No action specified")
             .await?;
+    }
+
+    Ok(())
+}
+
+pub async fn handle_payment_callback(
+    bot: Bot,
+    query: teloxide::types::CallbackQuery,
+    bot_deps: BotDependencies,
+) -> Result<()> {
+    let data = query.data.as_ref().unwrap();
+    
+    // Parse callback data: pay_accept:user_id:group_id:transaction_id or pay_reject:user_id:group_id:transaction_id
+    let parts: Vec<&str> = data.split(':').collect();
+    if parts.len() != 4 {
+        bot.answer_callback_query(query.id)
+            .text("❌ Invalid callback data")
+            .await?;
+        return Ok(());
+    }
+
+    let action = parts[0];
+    let user_id = parts[1].parse::<i64>();
+    let group_id_i64 = parts[2].parse::<i64>();
+    let transaction_id = parts[3].to_string();
+
+    if user_id.is_err() || group_id_i64.is_err() {
+        bot.answer_callback_query(query.id)
+            .text("❌ Invalid user or group ID")
+            .await?;
+        return Ok(());
+    }
+
+    let user_id = user_id.unwrap();
+    let group_id_i64 = group_id_i64.unwrap();
+    
+    // SECURITY CHECK: Verify that the user clicking the button is authorized
+    let callback_user_id = query.from.id.0 as i64;
+    
+    // Only the original requester can confirm/cancel transactions (both individual and group context)
+    if callback_user_id != user_id {
+        bot.answer_callback_query(query.id)
+            .text("❌ Only the user who requested this transaction can confirm or cancel it")
+            .await?;
+        return Ok(());
+    }
+    
+    // Convert group_id back to Option<i64> format used by pending_transactions
+    let group_id_opt = if group_id_i64 == 0 { None } else { Some(group_id_i64) };
+
+    // Get the pending transaction
+    let pending_transaction = bot_deps.pending_transactions.get_pending_transaction(user_id, group_id_opt);
+    
+    if pending_transaction.is_none() {
+        bot.answer_callback_query(query.id)
+            .text("❌ No pending transaction found")
+            .await?;
+        
+        // Edit the message to remove buttons
+        if let Some(message) = &query.message {
+            if let teloxide::types::MaybeInaccessibleMessage::Regular(msg) = message {
+                let _ = bot.edit_message_reply_markup(msg.chat.id, msg.id).await;
+            }
+        }
+        return Ok(());
+    }
+
+    let pending_transaction = pending_transaction.unwrap();
+    
+    // TRANSACTION ID VALIDATION: Verify that the callback transaction ID matches the stored transaction
+    if pending_transaction.transaction_id != transaction_id {
+        bot.answer_callback_query(query.id)
+            .text("❌ Transaction ID mismatch - invalid callback")
+            .await?;
+        
+        log::warn!("Transaction ID mismatch: callback={}, stored={}", transaction_id, pending_transaction.transaction_id);
+        return Ok(());
+    }
+    
+    // Check if transaction has expired
+    if crate::pending_transactions::handler::PendingTransactions::is_expired(&pending_transaction) {
+        // Remove expired transaction
+        let _ = bot_deps.pending_transactions.delete_pending_transaction(user_id, group_id_opt);
+        
+        bot.answer_callback_query(query.id)
+            .text("❌ Transaction has expired (1 minute timeout)")
+            .await?;
+        
+        // Edit the message to show expiration
+        if let Some(message) = &query.message {
+            if let teloxide::types::MaybeInaccessibleMessage::Regular(msg) = message {
+                let recipients_text = if pending_transaction.original_usernames.len() == 1 {
+                    format!("@{}", pending_transaction.original_usernames[0])
+                } else {
+                    pending_transaction.original_usernames.iter()
+                        .map(|username| format!("@{}", username))
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                };
+
+                let expired_message = format!(
+                    "⏰ <b>Transaction expired</b>\n\n💰 {:.2} {} to {} was not sent.\n\n<i>Transactions expire after 1 minute for security.</i>",
+                    pending_transaction.per_user_amount * pending_transaction.original_usernames.len() as f64,
+                    pending_transaction.symbol,
+                    recipients_text
+                );
+                
+                bot.edit_message_text(msg.chat.id, msg.id, expired_message)
+                    .parse_mode(teloxide::types::ParseMode::Html)
+                    .await?;
+            }
+        }
+        return Ok(());
+    }
+
+    match action {
+        "pay_accept" => {
+            // Execute the transaction
+            let pay_request = crate::pending_transactions::handler::PendingTransactions::to_pay_users_request(&pending_transaction);
+            
+            let result = if pending_transaction.is_group_transfer {
+                bot_deps.service.pay_members(pending_transaction.jwt_token, pay_request).await
+            } else {
+                bot_deps.service.pay_users(pending_transaction.jwt_token, pay_request).await
+            };
+
+            match result {
+                Ok(response) => {
+                    // Delete the pending transaction ONLY after successful payment
+                    let _ = bot_deps.pending_transactions.delete_pending_transaction(user_id, group_id_opt);
+                    
+                    let network = std::env::var("APTOS_NETWORK")
+                        .unwrap_or("mainnet".to_string())
+                        .to_lowercase();
+
+                    let recipients_text = if pending_transaction.original_usernames.len() == 1 {
+                        format!("@{}", pending_transaction.original_usernames[0])
+                    } else {
+                        pending_transaction.original_usernames.iter()
+                            .map(|username| format!("@{}", username))
+                            .collect::<Vec<_>>()
+                            .join(", ")
+                    };
+
+                    let success_message = format!(
+                        "✅ <b>Payment sent successfully!</b>\n\n💰 {:.2} {} sent to {} ({:.2} each)\n\n🔗 <a href=\"https://explorer.aptoslabs.com/txn/{}?network={}\">View transaction</a>",
+                        pending_transaction.per_user_amount * pending_transaction.original_usernames.len() as f64,
+                        pending_transaction.symbol,
+                        recipients_text,
+                        pending_transaction.per_user_amount,
+                        response.hash,
+                        network
+                    );
+
+                    // Edit the original message
+                    if let Some(message) = &query.message {
+                        if let teloxide::types::MaybeInaccessibleMessage::Regular(msg) = message {
+                            bot.edit_message_text(msg.chat.id, msg.id, success_message)
+                                .parse_mode(teloxide::types::ParseMode::Html)
+                                .await?;
+                        }
+                    }
+
+                    bot.answer_callback_query(query.id)
+                        .text("✅ Payment executed successfully!")
+                        .await?;
+                }
+                Err(e) => {
+                    let error_message = format!("❌ <b>Payment failed</b>\n\n{}", e);
+                    
+                    // Edit the original message
+                    if let Some(message) = &query.message {
+                        if let teloxide::types::MaybeInaccessibleMessage::Regular(msg) = message {
+                            bot.edit_message_text(msg.chat.id, msg.id, error_message)
+                                .parse_mode(teloxide::types::ParseMode::Html)
+                                .await?;
+                        }
+                    }
+
+                    bot.answer_callback_query(query.id)
+                        .text("❌ Payment failed")
+                        .await?;
+                }
+            }
+        }
+        "pay_reject" => {
+            // Delete the pending transaction
+            let _ = bot_deps.pending_transactions.delete_pending_transaction(user_id, group_id_opt);
+
+            let recipients_text = if pending_transaction.original_usernames.len() == 1 {
+                format!("@{}", pending_transaction.original_usernames[0])
+            } else {
+                pending_transaction.original_usernames.iter()
+                    .map(|username| format!("@{}", username))
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            };
+
+            let cancel_message = format!(
+                "❌ <b>Payment cancelled</b>\n\n💰 {:.2} {} to {} was not sent.",
+                pending_transaction.per_user_amount * pending_transaction.original_usernames.len() as f64,
+                pending_transaction.symbol,
+                recipients_text
+            );
+
+            // Edit the original message
+            if let Some(message) = &query.message {
+                if let teloxide::types::MaybeInaccessibleMessage::Regular(msg) = message {
+                    bot.edit_message_text(msg.chat.id, msg.id, cancel_message)
+                        .parse_mode(teloxide::types::ParseMode::Html)
+                        .await?;
+                }
+            }
+
+            bot.answer_callback_query(query.id)
+                .text("❌ Payment cancelled")
+                .await?;
+        }
+        _ => {
+            bot.answer_callback_query(query.id)
+                .text("❌ Unknown action")
+                .await?;
+        }
     }
 
     Ok(())
