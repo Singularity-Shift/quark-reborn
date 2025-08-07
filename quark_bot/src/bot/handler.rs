@@ -2072,80 +2072,76 @@ async fn check_group_resource_account_address(
 ) -> AnyResult<GroupCredentials> {
     let group_id = group_credentials.group_id.clone();
 
-    if group_credentials.resource_account_address.is_empty() {
-        const MAX_RETRIES: u32 = 5;
-        const RETRY_DELAY_MS: u64 = 2000;
+    const MAX_RETRIES: u32 = 5;
+    const RETRY_DELAY_MS: u64 = 2000;
 
-        for attempt in 1..=MAX_RETRIES {
-            let resource_account_address = bot_deps
-                .panora
-                .aptos
-                .node
-                .view_function(ViewRequest {
-                    function: format!(
-                        "{}::group::get_group_account",
-                        bot_deps.panora.aptos.contract_address
-                    ),
-                    type_arguments: vec![],
-                    arguments: vec![value::Value::String(group_id.clone())],
-                })
-                .await;
+    for attempt in 1..=MAX_RETRIES {
+        let resource_account_address = bot_deps
+            .panora
+            .aptos
+            .node
+            .view_function(ViewRequest {
+                function: format!(
+                    "{}::group::get_group_account",
+                    bot_deps.panora.aptos.contract_address
+                ),
+                type_arguments: vec![],
+                arguments: vec![value::Value::String(group_id.clone())],
+            })
+            .await;
+
+        if resource_account_address.is_ok() {
+            let resource_account_address = resource_account_address.unwrap().into_inner();
+
+            let resource_account_address =
+                serde_json::from_value::<Vec<String>>(resource_account_address);
 
             if resource_account_address.is_ok() {
-                let resource_account_address = resource_account_address.unwrap().into_inner();
+                let resource_account_address = resource_account_address.unwrap();
 
-                let resource_account_address =
-                    serde_json::from_value::<Vec<String>>(resource_account_address);
+                let new_credentials = GroupCredentials {
+                    jwt: group_credentials.jwt.clone(),
+                    group_id: group_credentials.group_id.clone(),
+                    resource_account_address: resource_account_address[0].clone(),
+                    users: group_credentials.users.clone(),
+                };
 
-                if resource_account_address.is_ok() {
-                    let resource_account_address = resource_account_address.unwrap();
+                bot_deps
+                    .group
+                    .save_credentials(new_credentials)
+                    .map_err(|_| anyhow::anyhow!("Error saving group credentials"))?;
 
-                    let new_credentials = GroupCredentials {
-                        jwt: group_credentials.jwt.clone(),
-                        group_id: group_credentials.group_id.clone(),
-                        resource_account_address: resource_account_address[0].clone(),
-                        users: group_credentials.users.clone(),
-                    };
+                let updated_credentials = GroupCredentials {
+                    jwt: group_credentials.jwt,
+                    group_id: group_credentials.group_id,
+                    resource_account_address: resource_account_address[0].clone(),
+                    users: group_credentials.users,
+                };
 
-                    bot_deps
-                        .group
-                        .save_credentials(new_credentials)
-                        .map_err(|_| anyhow::anyhow!("Error saving group credentials"))?;
-
-                    let updated_credentials = GroupCredentials {
-                        jwt: group_credentials.jwt,
-                        group_id: group_credentials.group_id,
-                        resource_account_address: resource_account_address[0].clone(),
-                        users: group_credentials.users,
-                    };
-
-                    return Ok(updated_credentials);
-                }
-            }
-
-            // If this is not the last attempt, wait before retrying
-            if attempt < MAX_RETRIES {
-                log::warn!(
-                    "Failed to get resource account address (attempt {}/{}), retrying in {}ms...",
-                    attempt,
-                    MAX_RETRIES,
-                    RETRY_DELAY_MS
-                );
-                sleep(Duration::from_millis(RETRY_DELAY_MS)).await;
+                return Ok(updated_credentials);
             }
         }
 
-        // All retries failed
-        bot.send_message(
-            msg.chat.id,
-            "❌ Error getting resource account address after multiple attempts",
-        )
-        .await?;
-        return Err(anyhow::anyhow!(
-            "Error getting resource account address after {} attempts",
-            MAX_RETRIES
-        ));
+        // If this is not the last attempt, wait before retrying
+        if attempt < MAX_RETRIES {
+            log::warn!(
+                "Failed to get resource account address (attempt {}/{}), retrying in {}ms...",
+                attempt,
+                MAX_RETRIES,
+                RETRY_DELAY_MS
+            );
+            sleep(Duration::from_millis(RETRY_DELAY_MS)).await;
+        }
     }
 
-    Ok(group_credentials)
+    // All retries failed
+    bot.send_message(
+        msg.chat.id,
+        "❌ Error getting resource account address after multiple attempts",
+    )
+    .await?;
+    return Err(anyhow::anyhow!(
+        "Error getting resource account address after {} attempts",
+        MAX_RETRIES
+    ));
 }
