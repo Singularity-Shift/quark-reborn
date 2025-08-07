@@ -1,8 +1,8 @@
 use std::time::Duration;
-use chrono::Utc;
 use quark_core::helpers::dto::PayUsersRequest;
 use sled::{Db, IVec};
 use teloxide::{Bot, prelude::*};
+use tokio::time::timeout;
 
 use super::dto::PendingTransaction;
 
@@ -143,35 +143,31 @@ impl PendingTransactions {
         }
     }
 
-    /// Spawn a timeout task for a pending transaction that will clean it up when it expires
-    pub fn spawn_transaction_timeout(
+    /// Start timeout for transaction - automatically cleans up if user doesn't respond
+    pub async fn start_transaction_timeout(
         &self,
         bot: Bot,
         user_id: i64,
         group_id: Option<i64>,
         transaction: &PendingTransaction,
     ) {
-        let pending_transactions = self.clone();
         let transaction_clone = transaction.clone();
         
-        tokio::spawn(async move {
-            // Calculate how long to sleep until expiration
-            let now = Utc::now().timestamp() as u64;
-            let sleep_duration = if transaction_clone.expires_at > now {
-                Duration::from_secs(transaction_clone.expires_at - now)
-            } else {
-                Duration::from_secs(0) // Already expired
-            };
-            
-            // Sleep until the transaction expires
-            tokio::time::sleep(sleep_duration).await;
+        // Use tokio::time::timeout to wait for 60 seconds
+        // We create a future that never completes (representing waiting for user action)
+        let wait_forever = std::future::pending::<()>();
+        
+        // Wrap it with a 60-second timeout - this is the direct timeout call
+        if let Err(_) = timeout(Duration::from_secs(60), wait_forever).await {
+            // Timeout occurred - user didn't act within 60 seconds
+            log::info!("Transaction {} timed out after 60 seconds", transaction_clone.transaction_id);
             
             // Check if transaction still exists and clean it up
-            if let Some(expired_transaction) = pending_transactions.get_pending_transaction(user_id, group_id) {
-                // Verify this is still the same transaction (transaction_id should match)
+            if let Some(expired_transaction) = self.get_pending_transaction(user_id, group_id) {
+                // Verify this is still the same transaction
                 if expired_transaction.transaction_id == transaction_clone.transaction_id {
                     // Remove the expired transaction
-                    if let Err(e) = pending_transactions.delete_pending_transaction(user_id, group_id) {
+                    if let Err(e) = self.delete_pending_transaction(user_id, group_id) {
                         log::error!("Failed to delete expired transaction {}: {}", transaction_clone.transaction_id, e);
                         return;
                     }
@@ -217,6 +213,6 @@ impl PendingTransactions {
             } else {
                 log::debug!("Transaction {} was already removed before timeout", transaction_clone.transaction_id);
             }
-        });
+        }
     }
 }
