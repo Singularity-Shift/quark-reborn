@@ -1,4 +1,4 @@
-use std::env::{self, VarError};
+use std::env;
 
 use anyhow::Result;
 use aptos_rust_sdk_types::api_types::view::ViewRequest;
@@ -60,15 +60,7 @@ impl Group {
     }
 
     pub fn generate_new_jwt(&self, group_id: ChatId) -> bool {
-        let account_seed: Result<String, VarError> = env::var("ACCOUNT_SEED");
-
-        if account_seed.is_err() {
-            return false;
-        }
-
-        let account_seed = account_seed.unwrap();
-
-        let group_id = format!("{}-{}", group_id, account_seed);
+        let group_id = format!("{}-{}", group_id, self.account_seed);
 
         match self.jwt_manager.generate_group_token(group_id.clone()) {
             Ok(token) => {
