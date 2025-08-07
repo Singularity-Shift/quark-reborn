@@ -1202,7 +1202,11 @@ pub async fn handle_message(bot: Bot, msg: Message, bot_deps: BotDependencies) -
             let user_id = user.id.0.to_string();
             let current_group_id = msg.chat.id.to_string();
             let dao_token_input_tree = bot_deps.db.open_tree("dao_token_input_pending").unwrap();
-            let key = format!("{}_{}", user_id, current_group_id);
+
+            // Try to find the pending token input with the formatted group ID
+            let formatted_group_id =
+                format!("{}-{}", current_group_id, bot_deps.group.account_seed);
+            let key = format!("{}_{}", user_id, formatted_group_id);
 
             if let Ok(Some(_)) = dao_token_input_tree.get(key.as_bytes()) {
                 // User is in token input mode
@@ -1218,15 +1222,15 @@ pub async fn handle_message(bot: Bot, msg: Message, bot_deps: BotDependencies) -
                             text.to_string()
                         };
 
-                        // Update DAO token preference
+                        // Update DAO token preference using the formatted group ID
                         if let Ok(mut prefs) = bot_deps
                             .dao
-                            .get_dao_admin_preferences(current_group_id.clone())
+                            .get_dao_admin_preferences(formatted_group_id.clone())
                         {
                             prefs.default_dao_token = Some(processed_token.clone());
                             if let Ok(_) = bot_deps
                                 .dao
-                                .set_dao_admin_preferences(current_group_id.clone(), prefs)
+                                .set_dao_admin_preferences(formatted_group_id.clone(), prefs)
                             {
                                 // Clear the pending state
                                 dao_token_input_tree.remove(key.as_bytes()).unwrap();
