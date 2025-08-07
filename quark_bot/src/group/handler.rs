@@ -40,7 +40,11 @@ impl Group {
                     existing.jwt = credentials.jwt.clone();
                     existing.users = credentials.users.clone();
 
-                    if existing.resource_account_address.is_empty() {
+                    if existing.resource_account_address.is_empty()
+                        || (!credentials.resource_account_address.is_empty()
+                            && existing.resource_account_address
+                                != credentials.resource_account_address)
+                    {
                         existing.resource_account_address =
                             credentials.resource_account_address.clone();
                     }
