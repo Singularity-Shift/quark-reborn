@@ -6,7 +6,6 @@ use teloxide::{prelude::Requester, types::{Message, UserId}, Bot};
 
 use crate::credentials::dto::Credentials;
 use crate::dependencies::BotDependencies;
-use crate::group::dto::GroupCredentials;
 
 use super::announcement::AnnouncerAuth;
 
@@ -143,7 +142,7 @@ pub async fn handle_announcement(
 async fn gather_recipients(bot_deps: &BotDependencies) -> Result<HashSet<UserId>> {
     let mut recipients = HashSet::new();
 
-    // Get private (DM) users from Auth::db
+    // Get all logged-in users from the Auth store only
     let auth_tree = bot_deps.db.open_tree("auth")?;
     for result in auth_tree.iter() {
         let (_, value) = result?;
@@ -152,19 +151,8 @@ async fn gather_recipients(bot_deps: &BotDependencies) -> Result<HashSet<UserId>
         }
     }
 
-    // Get logged-in group users from Group::db
-    let group_tree = bot_deps.db.open_tree("group")?;
-    for result in group_tree.iter() {
-        let (_, value) = result?;
-        if let Ok(group_credentials) = serde_json::from_slice::<GroupCredentials>(&value) {
-            // For each username in the group, look up their user_id
-            for username in &group_credentials.users {
-                if let Some(user_credentials) = bot_deps.auth.get_credentials(username) {
-                    recipients.insert(user_credentials.user_id);
-                }
-            }
-        }
-    }
+    // Per feedback: recipients should be determined solely from the auth store.
+    // No need to iterate group memberships.
 
     log::info!("Gathered {} unique recipients", recipients.len());
     Ok(recipients)
