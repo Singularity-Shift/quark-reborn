@@ -11,8 +11,6 @@ use crate::group::dto::GroupCredentials;
 
 #[derive(Debug, Serialize, Deserialize)]
 struct AuthorizedAnnouncersConfig {
-    #[serde(skip_serializing_if = "Option::is_none")]
-    comment: Option<String>,
     usernames: Vec<String>,
 }
 
@@ -26,14 +24,10 @@ impl AnnouncerAuth {
         let config_content = fs::read_to_string(config_path.as_ref())
             .with_context(|| format!("Failed to read authorized announcers config from {:?}", config_path.as_ref()))?;
         
-        let config: Vec<AuthorizedAnnouncersConfig> = serde_json::from_str(&config_content)
-            .context("Failed to parse authorized announcers config JSON")?;
+        let config: AuthorizedAnnouncersConfig = ron::from_str(&config_content)
+            .context("Failed to parse authorized announcers config RON")?;
         
-        // Extract usernames from the first config entry
-        let empty_vec = vec![];
-        let usernames = config.first()
-            .map(|c| &c.usernames)
-            .unwrap_or(&empty_vec);
+        let usernames = &config.usernames;
         
         let authorized_usernames: HashSet<String> = usernames
             .iter()
@@ -78,7 +72,7 @@ pub async fn handle_announcement(
     // Create announcer auth instance
     let config_path = std::env::current_dir()
         .unwrap_or_else(|_| std::path::PathBuf::from("."))
-        .join("config/authorized_announcers.json");
+        .join("config/authorized_announcers.ron");
     
     let announcer_auth = match AnnouncerAuth::new(&config_path) {
         Ok(auth) => auth,
@@ -112,7 +106,7 @@ pub async fn handle_announcement(
     if text.trim().is_empty() {
         bot.send_message(
             msg.chat.id,
-            "📢 **Announcement Usage**\n\nTo send a global announcement:\n`/announcement Your message here`\n\nThe announcement will be sent to all logged-in users."
+            "📢 **Announcement Usage**\n\nTo send a global announcement:\n`/globalannouncement Your message here`\n\nThe announcement will be sent to all logged-in users."
         ).await?;
         return Ok(());
     }

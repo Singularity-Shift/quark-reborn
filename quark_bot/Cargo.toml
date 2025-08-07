@@ -32,3 +32,4 @@ bincode = { workspace = true }
 bcs = { workspace = true }
 chrono = { workspace = true }
 futures = { workspace = true }
+ron = { workspace = true }
