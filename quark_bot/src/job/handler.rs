@@ -471,3 +471,4 @@ pub fn job_dao_results_cleanup(dao: Dao) -> Job {
     })
     .expect("Failed to create cron job")
 }
+
