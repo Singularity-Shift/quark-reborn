@@ -99,8 +99,12 @@ pub fn job_active_daos(dao: Dao, bot: Bot) -> Job {
             for proposal_entry in daos {
                 let group_id = proposal_entry.group_id.clone();
 
+                let account_seed = env::var("ACCOUNT_SEED").map_err(|e| anyhow::anyhow!("Failed to get ACCOUNT_SEED: {}", e)).unwrap_or("".to_string());
+
+                let group_id_trimmed = group_id.trim_end_matches(format!("-{}", account_seed).as_str());
+
                 // Parse chat group ID with error handling
-                let chat_group_id = match group_id.parse::<i64>() {
+                let chat_group_id = match group_id_trimmed.parse::<i64>() {
                     Ok(id) => ChatId(id),
                     Err(e) => {
                         log::error!("Failed to parse group ID {}: {}", group_id, e);
@@ -301,9 +305,13 @@ async fn fetch_and_send_dao_results(
     proposal_entry: &ProposalEntry,
 ) -> anyhow::Result<()> {
     let group_id = proposal_entry.group_id.clone();
-    
+
+    let account_seed = env::var("ACCOUNT_SEED").map_err(|e| anyhow::anyhow!("Failed to get ACCOUNT_SEED: {}", e))?;
+
+    let group_id_trimmed = group_id.trim_end_matches(format!("-{}", account_seed).as_str());
+
     // Parse chat group ID with error handling
-    let chat_group_id = match group_id.parse::<i64>() {
+    let chat_group_id = match group_id_trimmed.parse::<i64>() {
         Ok(id) => ChatId(id),
         Err(e) => {
             log::error!("Failed to parse group ID {} for DAO {}: {}", group_id, proposal_entry.proposal_id, e);
