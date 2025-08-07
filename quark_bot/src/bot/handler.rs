@@ -203,15 +203,7 @@ pub async fn handle_login_group(
         return Ok(());
     }
 
-    let account_seed = env::var("ACCOUNT_SEED");
-
-    if account_seed.is_err() {
-        bot.send_message(msg.chat.id, "❌ Unable to verify permissions.")
-            .await?;
-        return Ok(());
-    }
-
-    let account_seed = account_seed.unwrap();
+    let account_seed = bot_deps.group.account_seed.clone();
 
     // Allow only group administrators to invoke
     let admins = bot.get_chat_administrators(msg.chat.id).await?;
@@ -1111,8 +1103,7 @@ pub async fn handle_message(bot: Bot, msg: Message, bot_deps: BotDependencies) -
     if !msg.chat.is_private() {
         group_id = Some(msg.chat.id.to_string());
         let profile = std::env::var("PROFILE").unwrap_or("prod".to_string());
-        let account_seed = std::env::var("ACCOUNT_SEED")
-            .map_err(|e| anyhow::anyhow!("ACCOUNT_SEED is not set: {}", e))?;
+        let account_seed = bot_deps.group.account_seed.clone();
         let sentinel_tree = bot_deps.db.open_tree("sentinel_state").unwrap();
         let chat_id = msg.chat.id.0.to_be_bytes();
         let user = msg.from.clone();

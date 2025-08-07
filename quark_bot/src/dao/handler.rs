@@ -196,13 +196,15 @@ pub async fn execute_create_proposal(
 
     let proposal_id = Uuid::new_v4().to_string();
 
+    let group_id_formatted = format!("{}-{}", group_id, bot_deps.group.account_seed);
+
     let request = CreateProposalRequest {
         name: name.unwrap().to_string(),
         description: description.unwrap().to_string(),
         options,
         start_date,
         end_date,
-        group_id,
+        group_id: group_id_formatted,
         proposal_id,
         version,
         currency: if token.token_address.is_some() {
