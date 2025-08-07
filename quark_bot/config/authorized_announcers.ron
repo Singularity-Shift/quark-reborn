@@ -1,0 +1,4 @@
+// Add Telegram usernames of authorized announcers here (without @)
+AuthorizedAnnouncersConfig(
+    usernames: ["AspieJames", "spielrs"]
+)

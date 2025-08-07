@@ -164,7 +164,7 @@ async fn main() {
         BotCommand::new("daopreferences", "Set dao preferences."),
         BotCommand::new("prices", "Display model pricing information."),
         BotCommand::new(
-            "announcement",
+            "globalannouncement",
             "Send a global announcement (authorized only).",
         ),
         BotCommand::new("migrategroupid", "Migrate group id."),
