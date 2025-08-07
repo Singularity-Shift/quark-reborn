@@ -100,7 +100,7 @@ impl AI {
         );
 
         let address = if group_id.is_some() {
-            let group_credentials = bot_deps.group.get_credentials(&msg.chat.id);
+            let group_credentials = bot_deps.group.get_credentials(msg.chat.id);
 
             if group_credentials.is_none() {
                 return Err(anyhow::anyhow!("Group credentials not found"));

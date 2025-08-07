@@ -10,6 +10,7 @@ mod group;
 mod job;
 mod message_history;
 mod panora;
+mod pending_transactions;
 mod services;
 mod user_conversation;
 mod user_model_preferences;
@@ -27,6 +28,7 @@ use crate::{
     job::job_scheduler::schedule_jobs,
     message_history::handler::MessageHistory,
     panora::handler::Panora,
+    pending_transactions::handler::PendingTransactions,
     services::handler::Services,
     user_conversation::handler::UserConversations,
     user_model_preferences::handler::UserModelPreferences,
@@ -100,14 +102,16 @@ async fn main() {
     let dao_db = db.open_tree("dao").expect("Failed to open dao tree");
     let dao = Dao::new(dao_db);
 
-    schedule_jobs(panora.clone(), bot.clone(), dao.clone())
-        .await
-        .expect("Failed to schedule jobs");
-
     let ai = AI::new(openai_api_key.clone(), google_cloud);
 
     let user_convos = UserConversations::new(&db).unwrap();
     let user_model_prefs = UserModelPreferences::new(&db).unwrap();
+    let pending_transactions = PendingTransactions::new(&db).unwrap();
+
+    schedule_jobs(panora.clone(), bot.clone(), dao.clone())
+        .await
+        .expect("Failed to schedule jobs");
+
     let service = Services::new();
 
     let cmd_collector = Arc::new(command_image_collector::CommandImageCollector::new(
@@ -159,7 +163,11 @@ async fn main() {
         BotCommand::new("groupbalance", "Get the group's balance of a token."),
         BotCommand::new("daopreferences", "Set dao preferences."),
         BotCommand::new("prices", "Display model pricing information."),
-        BotCommand::new("announcement", "Send a global announcement (authorized only)."),
+        BotCommand::new(
+            "announcement",
+            "Send a global announcement (authorized only).",
+        ),
+        BotCommand::new("migrategroupid", "Migrate group id."),
     ];
 
     let history_storage = InMemStorage::<MessageHistory>::new();
@@ -179,6 +187,7 @@ async fn main() {
         dao: dao.clone(),
         media_aggregator: media_aggregator.clone(),
         history_storage: history_storage.clone(),
+        pending_transactions: pending_transactions.clone(),
     };
 
     Dispatcher::builder(bot.clone(), handler_tree())

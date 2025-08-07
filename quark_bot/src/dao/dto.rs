@@ -36,8 +36,8 @@ pub struct ProposalEntry {
     pub disabled_notifications: bool,
 }
 
-impl From<&CreateProposalRequest> for ProposalEntry {
-    fn from(request: &CreateProposalRequest) -> Self {
+impl From<(&CreateProposalRequest, String)> for ProposalEntry {
+    fn from((request, group_id): (&CreateProposalRequest, String)) -> Self {
         let now = Utc::now().timestamp() as u64;
 
         Self {
@@ -46,7 +46,7 @@ impl From<&CreateProposalRequest> for ProposalEntry {
             options: request.options.clone(),
             start_date: request.start_date,
             end_date: request.end_date,
-            group_id: request.group_id.clone(),
+            group_id,
             proposal_id: request.proposal_id.clone(),
             version: request.version.clone(),
             coin_type: request.currency.clone(),

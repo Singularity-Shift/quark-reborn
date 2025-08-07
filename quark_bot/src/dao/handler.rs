@@ -34,9 +34,10 @@ pub async fn execute_create_proposal(
 
     let group_id_parsed = ChatId(group_id.parse::<i64>().unwrap());
 
-    let auth = bot_deps.group.get_credentials(&group_id_parsed);
+    let auth = bot_deps.group.get_credentials(group_id_parsed);
 
     if auth.is_none() {
+        log::error!("Error getting credentials, maybe the group is not logged in");
         return "❌ Error getting credentials, maybe the group is not logged in".to_string();
     }
 
@@ -45,6 +46,7 @@ pub async fn execute_create_proposal(
     let user = msg.from.as_ref();
 
     if user.is_none() {
+        log::error!("User is required");
         return "❌ User is required".to_string();
     }
 
@@ -98,12 +100,16 @@ pub async fn execute_create_proposal(
         .map(|option| option.as_str().unwrap().to_string())
         .collect::<Vec<String>>();
 
+    let symbol_opt = arguments["symbol"].as_str();
+
     // Get symbol from arguments or use saved DAO token preference
-    let symbol = if let Some(provided_symbol) = arguments["symbol"].as_str() {
-        provided_symbol.to_uppercase()
+    let symbol = if symbol_opt.is_some() && !symbol_opt.unwrap().is_empty() {
+        symbol_opt.unwrap().to_uppercase()
     } else {
         // Use saved DAO token preference
-        let dao_admin_preferences = bot_deps.dao.get_dao_admin_preferences(group_id.clone());
+        let dao_admin_preferences = bot_deps
+            .dao
+            .get_dao_admin_preferences(auth.group_id.clone());
 
         if dao_admin_preferences.is_err() {
             return "❌ No symbol provided and no DAO token preference found. Please set a DAO token preference or provide a symbol.".to_string();
@@ -140,8 +146,6 @@ pub async fn execute_create_proposal(
 
     let start_date = start_date.unwrap();
 
-    log::info!("Start date: {}", start_date);
-
     if end_date.is_none() {
         return "❌ End date is invalid".to_string();
     }
@@ -153,8 +157,6 @@ pub async fn execute_create_proposal(
     }
 
     let end_date = end_date.unwrap();
-
-    log::info!("End date: {}", end_date);
 
     if start_date > end_date {
         return "❌ Start date must be before end date".to_string();
@@ -188,6 +190,8 @@ pub async fn execute_create_proposal(
 
     let token = token.unwrap();
 
+    log::info!("Token: {:?}", token);
+
     let version = if token.token_address.is_some() {
         CoinVersion::V1
     } else {
@@ -196,13 +200,14 @@ pub async fn execute_create_proposal(
 
     let proposal_id = Uuid::new_v4().to_string();
 
+    let group_id_formatted = format!("{}-{}", group_id, bot_deps.group.account_seed);
+
     let request = CreateProposalRequest {
         name: name.unwrap().to_string(),
         description: description.unwrap().to_string(),
         options,
         start_date,
         end_date,
-        group_id,
         proposal_id,
         version,
         currency: if token.token_address.is_some() {
@@ -214,7 +219,7 @@ pub async fn execute_create_proposal(
 
     log::info!("Creating proposal with request: {:?}", request);
 
-    let proposal_entry = ProposalEntry::from(&request);
+    let proposal_entry = ProposalEntry::from((&request, group_id_formatted));
 
     let response = bot_deps.service.create_proposal(auth.jwt, request).await;
 
@@ -261,8 +266,12 @@ pub async fn handle_dao_preferences(
 
     let group_id = msg.chat.id.to_string();
 
+    let group_id_formatted = format!("{}-{}", group_id, bot_deps.group.account_seed);
+
     // Get current DAO admin preferences
-    let dao_admin_preferences = bot_deps.dao.get_dao_admin_preferences(group_id.clone());
+    let dao_admin_preferences = bot_deps
+        .dao
+        .get_dao_admin_preferences(group_id_formatted.clone());
 
     let current_prefs = match dao_admin_preferences {
         Ok(prefs) => prefs,
@@ -270,7 +279,7 @@ pub async fn handle_dao_preferences(
             // Create default preferences if none exist
             use crate::dao::dto::DaoAdminPreferences;
             let default_prefs = DaoAdminPreferences {
-                group_id: group_id.clone(),
+                group_id: group_id_formatted.clone(),
                 expiration_time: 7 * 24 * 60 * 60, // 7 days in seconds
                 interval_active_proposal_notifications: 60 * 60, // 1 hour in seconds
                 interval_dao_results_notifications: 3600,
@@ -283,7 +292,7 @@ pub async fn handle_dao_preferences(
             // Save default preferences
             if let Err(_e) = bot_deps
                 .dao
-                .set_dao_admin_preferences(group_id.clone(), default_prefs.clone())
+                .set_dao_admin_preferences(group_id_formatted.clone(), default_prefs.clone())
             {
                 bot.send_message(msg.chat.id, "❌ Error creating default DAO preferences.")
                     .await?;
@@ -300,14 +309,20 @@ pub async fn handle_dao_preferences(
                 "🗑️ Deletion After Conclusion Duration: {}",
                 format_time_duration(current_prefs.expiration_time)
             ),
-            InlineKeyboardButtonKind::CallbackData(format!("dao_set_expiration_{}", group_id)),
+            InlineKeyboardButtonKind::CallbackData(format!(
+                "dao_set_expiration_{}",
+                group_id_formatted
+            )),
         )],
         vec![InlineKeyboardButton::new(
             format!(
                 "🔔 Notification Interval: {}",
                 format_time_duration(current_prefs.interval_active_proposal_notifications)
             ),
-            InlineKeyboardButtonKind::CallbackData(format!("dao_set_notifications_{}", group_id)),
+            InlineKeyboardButtonKind::CallbackData(format!(
+                "dao_set_notifications_{}",
+                group_id_formatted
+            )),
         )],
         vec![InlineKeyboardButton::new(
             format!(
@@ -316,7 +331,7 @@ pub async fn handle_dao_preferences(
             ),
             InlineKeyboardButtonKind::CallbackData(format!(
                 "dao_set_results_notifications_{}",
-                group_id
+                group_id_formatted
             )),
         )],
         vec![InlineKeyboardButton::new(
@@ -327,14 +342,24 @@ pub async fn handle_dao_preferences(
                     .as_ref()
                     .unwrap_or(&"".to_string())
             ),
-            InlineKeyboardButtonKind::CallbackData(format!("dao_set_token_{}", group_id)),
+            InlineKeyboardButtonKind::CallbackData(format!("dao_set_token_{}", group_id_formatted)),
         )],
         vec![InlineKeyboardButton::new(
             format!(
                 "🗳️ Vote Duration: {}",
                 format_time_duration(current_prefs.vote_duration.unwrap_or(24 * 60 * 60))
             ),
-            InlineKeyboardButtonKind::CallbackData(format!("dao_set_vote_duration_{}", group_id)),
+            InlineKeyboardButtonKind::CallbackData(format!(
+                "dao_set_vote_duration_{}",
+                group_id_formatted
+            )),
+        )],
+        vec![InlineKeyboardButton::new(
+            "🔕 Manage Disabled Notifications",
+            InlineKeyboardButtonKind::CallbackData(format!(
+                "dao_manage_disabled_{}",
+                group_id_formatted
+            )),
         )],
         vec![InlineKeyboardButton::new(
             "✅ Done",
@@ -393,8 +418,9 @@ pub async fn handle_dao_preference_callback(
         // Clear any pending token input state
         let group_id = msg.chat.id.to_string();
         let user_id = query.from.id.0.to_string();
+        let formatted_group_id = format!("{}-{}", group_id, bot_deps.group.account_seed);
         let dao_token_input_tree = bot_deps.db.open_tree("dao_token_input_pending").unwrap();
-        let key = format!("{}_{}", user_id, group_id);
+        let key = format!("{}_{}", user_id, formatted_group_id);
         dao_token_input_tree.remove(key.as_bytes()).unwrap();
 
         bot.edit_message_text(
@@ -901,6 +927,7 @@ pub async fn handle_dao_preference_callback(
 
         // Go back to the manage disabled menu
         let group_id = msg.chat.id.to_string();
+        let group_id_formatted = format!("{}-{}", group_id, bot_deps.group.account_seed);
         let all_proposals = match bot_deps.dao.get_active_daos() {
             Ok(proposals) => proposals,
             Err(e) => {
@@ -912,7 +939,7 @@ pub async fn handle_dao_preference_callback(
         // Filter proposals for this group that have disabled notifications
         let disabled_proposals: Vec<_> = all_proposals
             .into_iter()
-            .filter(|p| p.group_id == group_id && p.disabled_notifications)
+            .filter(|p| p.group_id == group_id_formatted && p.disabled_notifications)
             .collect();
 
         if disabled_proposals.is_empty() {
@@ -1123,13 +1150,17 @@ pub async fn handle_dao_preference_callback(
     } else if data == "dao_preferences_back" {
         // Go back to main preferences menu - just edit the message back to the main menu
         let group_id = msg.chat.id.to_string();
+        let group_id_formatted = format!("{}-{}", group_id, bot_deps.group.account_seed);
 
         // Clear any pending token input state
         let user_id = query.from.id.0.to_string();
         let dao_token_input_tree = bot_deps.db.open_tree("dao_token_input_pending").unwrap();
-        let key = format!("{}_{}", user_id, group_id);
+        let key = format!("{}_{}", user_id, group_id_formatted);
         dao_token_input_tree.remove(key.as_bytes()).unwrap();
-        let current_prefs = match bot_deps.dao.get_dao_admin_preferences(group_id.clone()) {
+        let current_prefs = match bot_deps
+            .dao
+            .get_dao_admin_preferences(group_id_formatted.clone())
+        {
             Ok(prefs) => prefs,
             Err(_) => return Ok(()),
         };
@@ -1140,7 +1171,10 @@ pub async fn handle_dao_preference_callback(
                     "🗑️ Deletion After Conclusion Duration: {}",
                     format_time_duration(current_prefs.expiration_time)
                 ),
-                InlineKeyboardButtonKind::CallbackData(format!("dao_set_expiration_{}", group_id)),
+                InlineKeyboardButtonKind::CallbackData(format!(
+                    "dao_set_expiration_{}",
+                    group_id_formatted
+                )),
             )],
             vec![InlineKeyboardButton::new(
                 format!(
@@ -1149,7 +1183,7 @@ pub async fn handle_dao_preference_callback(
                 ),
                 InlineKeyboardButtonKind::CallbackData(format!(
                     "dao_set_notifications_{}",
-                    group_id
+                    group_id_formatted
                 )),
             )],
             vec![InlineKeyboardButton::new(
@@ -1159,7 +1193,7 @@ pub async fn handle_dao_preference_callback(
                 ),
                 InlineKeyboardButtonKind::CallbackData(format!(
                     "dao_set_results_notifications_{}",
-                    group_id
+                    group_id_formatted
                 )),
             )],
             vec![InlineKeyboardButton::new(
@@ -1170,7 +1204,10 @@ pub async fn handle_dao_preference_callback(
                         .as_ref()
                         .unwrap_or(&"".to_string())
                 ),
-                InlineKeyboardButtonKind::CallbackData(format!("dao_set_token_{}", group_id)),
+                InlineKeyboardButtonKind::CallbackData(format!(
+                    "dao_set_token_{}",
+                    group_id_formatted
+                )),
             )],
             vec![InlineKeyboardButton::new(
                 format!(
@@ -1179,12 +1216,15 @@ pub async fn handle_dao_preference_callback(
                 ),
                 InlineKeyboardButtonKind::CallbackData(format!(
                     "dao_set_vote_duration_{}",
-                    group_id
+                    group_id_formatted
                 )),
             )],
             vec![InlineKeyboardButton::new(
                 "🔕 Manage Disabled Notifications",
-                InlineKeyboardButtonKind::CallbackData(format!("dao_manage_disabled_{}", group_id)),
+                InlineKeyboardButtonKind::CallbackData(format!(
+                    "dao_manage_disabled_{}",
+                    group_id_formatted
+                )),
             )],
             vec![InlineKeyboardButton::new(
                 "✅ Done",
@@ -1221,6 +1261,9 @@ pub async fn handle_disable_notifications_callback(
     query: CallbackQuery,
     bot_deps: BotDependencies,
 ) -> anyhow::Result<()> {
+    let app_url =
+        std::env::var("APP_URL").map_err(|e| anyhow::anyhow!("APP_URL is not set: {}", e))?;
+
     let msg = match &query.message {
         Some(MaybeInaccessibleMessage::Regular(message)) => message,
         _ => return Ok(()),
@@ -1279,7 +1322,8 @@ pub async fn handle_disable_notifications_callback(
             // Recreate the voting options
             for (index, option) in proposal.options.iter().enumerate() {
                 let base_url = format!(
-                    "https://quark-webhook.vercel.app/dao?group_id={}&proposal_id={}&choice_id={}&coin_type={}&coin_version={}&dao_name={}&dao_description={}",
+                    "{}/dao?group_id={}&proposal_id={}&choice_id={}&coin_type={}&coin_version={}&dao_name={}&dao_description={}",
+                    app_url,
                     proposal.group_id,
                     proposal.proposal_id,
                     index,

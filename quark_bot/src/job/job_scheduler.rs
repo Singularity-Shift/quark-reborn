@@ -3,6 +3,7 @@ use crate::job::handler::{
     job_active_daos, job_dao_results_cleanup, job_daos_results, job_token_ai_fees, job_token_list,
 };
 use crate::panora::handler::Panora;
+
 use anyhow::Result;
 use teloxide::Bot;
 use tokio_cron_scheduler::JobScheduler;
@@ -54,7 +55,7 @@ pub async fn schedule_jobs(panora: Panora, bot: Bot, dao: Dao) -> Result<()> {
 
     log::info!("Job scheduler started successfully");
 
-    // Add cleanup job after scheduler is started
+    // Add cleanup jobs after scheduler is started
     if let Err(e) = scheduler.add(job_dao_results_cleanup).await {
         log::error!("Failed to add DAO cleanup job to scheduler: {}", e);
         return Err(anyhow::anyhow!("Failed to add DAO cleanup job: {}", e));
