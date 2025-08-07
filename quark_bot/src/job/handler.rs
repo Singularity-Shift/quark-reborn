@@ -9,7 +9,6 @@ use aptos_rust_sdk_types::api_types::view::ViewRequest;
 use crate::{
     dao::{dao::Dao, dto::ProposalEntry},
     panora::handler::Panora,
-    pending_transactions::handler::PendingTransactions,
     utils::format_timestamp,
 };
 use quark_core::helpers::dto::CoinVersion;
@@ -473,62 +472,3 @@ pub fn job_dao_results_cleanup(dao: Dao) -> Job {
     .expect("Failed to create cron job")
 }
 
-pub fn job_pending_transactions_cleanup(pending_transactions: PendingTransactions, bot: Bot) -> Job {
-    Job::new_async("0 */1 * * * *", move |_uuid, _l| {
-        let pending_transactions = pending_transactions.clone();
-        let bot = bot.clone();
-        Box::pin(async move {
-            log::info!("Starting pending transactions cleanup job at {}", Utc::now());
-            
-            match pending_transactions.cleanup_expired_transactions() {
-                Ok((removed_count, expired_transactions)) => {
-                    if removed_count > 0 {
-                        log::info!("Found {} expired pending transactions to clean up", removed_count);
-                        
-                        // Update messages for expired transactions
-                        for transaction in expired_transactions {
-                            let recipients_text = if transaction.original_usernames.len() == 1 {
-                                format!("@{}", transaction.original_usernames[0])
-                            } else {
-                                transaction.original_usernames.iter()
-                                    .map(|username| format!("@{}", username))
-                                    .collect::<Vec<_>>()
-                                    .join(", ")
-                            };
-
-                            let expired_message = format!(
-                                "⏰ <b>Transaction expired</b>\n\n💰 {:.2} {} to {} was not sent.\n\n<i>Transactions expire after 1 minute for security.</i>",
-                                transaction.per_user_amount * transaction.original_usernames.len() as f64,
-                                transaction.symbol,
-                                recipients_text
-                            );
-                            
-                            if let Err(e) = bot.edit_message_text(
-                                teloxide::types::ChatId(transaction.chat_id),
-                                teloxide::types::MessageId(transaction.message_id),
-                                expired_message
-                            )
-                            .parse_mode(teloxide::types::ParseMode::Html)
-                            .await 
-                            {
-                                log::warn!("Failed to edit expired transaction message for chat {} message {}: {}", 
-                                    transaction.chat_id, transaction.message_id, e);
-                            } else {
-                                log::info!("Successfully updated expired transaction message for chat {} message {}", 
-                                    transaction.chat_id, transaction.message_id);
-                            }
-                        }
-                        
-                        log::info!("Successfully processed {} expired pending transactions", removed_count);
-                    } else {
-                        log::debug!("No expired pending transactions found");
-                    }
-                }
-                Err(e) => {
-                    log::error!("Failed to cleanup expired pending transactions: {}", e);
-                }
-            }
-        })
-    })
-    .expect("Failed to create cron job")
-}
