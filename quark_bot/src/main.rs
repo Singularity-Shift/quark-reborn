@@ -2,6 +2,7 @@ mod ai;
 mod aptos;
 mod assets;
 mod bot;
+mod announcement;
 mod callbacks;
 mod credentials;
 mod dao;
