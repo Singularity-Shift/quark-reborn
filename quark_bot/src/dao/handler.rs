@@ -37,6 +37,7 @@ pub async fn execute_create_proposal(
     let auth = bot_deps.group.get_credentials(group_id_parsed);
 
     if auth.is_none() {
+        log::error!("Error getting credentials, maybe the group is not logged in");
         return "❌ Error getting credentials, maybe the group is not logged in".to_string();
     }
 
@@ -45,6 +46,7 @@ pub async fn execute_create_proposal(
     let user = msg.from.as_ref();
 
     if user.is_none() {
+        log::error!("User is required");
         return "❌ User is required".to_string();
     }
 
@@ -98,9 +100,11 @@ pub async fn execute_create_proposal(
         .map(|option| option.as_str().unwrap().to_string())
         .collect::<Vec<String>>();
 
+    let symbol_opt = arguments["symbol"].as_str();
+
     // Get symbol from arguments or use saved DAO token preference
-    let symbol = if let Some(provided_symbol) = arguments["symbol"].as_str() {
-        provided_symbol.to_uppercase()
+    let symbol = if symbol_opt.is_some() && !symbol_opt.unwrap().is_empty() {
+        symbol_opt.unwrap().to_uppercase()
     } else {
         // Use saved DAO token preference
         let dao_admin_preferences = bot_deps
@@ -142,8 +146,6 @@ pub async fn execute_create_proposal(
 
     let start_date = start_date.unwrap();
 
-    log::info!("Start date: {}", start_date);
-
     if end_date.is_none() {
         return "❌ End date is invalid".to_string();
     }
@@ -155,8 +157,6 @@ pub async fn execute_create_proposal(
     }
 
     let end_date = end_date.unwrap();
-
-    log::info!("End date: {}", end_date);
 
     if start_date > end_date {
         return "❌ Start date must be before end date".to_string();
@@ -189,6 +189,8 @@ pub async fn execute_create_proposal(
     }
 
     let token = token.unwrap();
+
+    log::info!("Token: {:?}", token);
 
     let version = if token.token_address.is_some() {
         CoinVersion::V1
