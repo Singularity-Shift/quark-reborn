@@ -100,5 +100,24 @@ pub async fn pay_users_hook(
         log::error!("Failed to update transaction message ID: {}", e);
     }
     
+    // Spawn timeout cleanup for this transaction
+    if let Some(transaction) = bot_deps.pending_transactions.get_pending_transaction(user_id, group_id_opt) {
+        // Verify this is the transaction we just processed
+        if transaction.transaction_id == transaction_id {
+            bot_deps.pending_transactions.spawn_transaction_timeout(
+                bot.clone(),
+                user_id,
+                group_id_opt,
+                &transaction,
+            );
+            log::info!("Spawned timeout cleanup for transaction: {}", transaction_id);
+        } else {
+            log::warn!("Transaction ID mismatch when spawning timeout: expected {}, found {}", 
+                transaction_id, transaction.transaction_id);
+        }
+    } else {
+        log::error!("Failed to retrieve transaction {} for timeout spawn", transaction_id);
+    }
+    
     Ok(())
 }

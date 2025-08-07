@@ -1,27 +1,12 @@
-use quark_core::helpers::dto::{CoinVersion, PayUsersRequest};
-use serde::{Deserialize, Serialize};
+use std::time::Duration;
+use chrono::Utc;
+use quark_core::helpers::dto::PayUsersRequest;
 use sled::{Db, IVec};
+use teloxide::{Bot, prelude::*};
+
+use super::dto::PendingTransaction;
 
 const TREE_NAME: &str = "pending_transactions";
-
-#[derive(Serialize, Deserialize, Debug, Clone)]
-pub struct PendingTransaction {
-    pub transaction_id: String,         // Unique UUID for this transaction
-    pub amount: u64,                    // Amount in smallest units
-    pub users: Vec<String>,             // User addresses  
-    pub coin_type: String,              // Token address/type
-    pub version: CoinVersion,           // V1 or V2
-    pub jwt_token: String,              // JWT for authentication
-    pub is_group_transfer: bool,        // Whether this is a group or individual transfer
-    pub symbol: String,                 // Token symbol for display
-    pub user_addresses: Vec<String>,    // Recipient addresses
-    pub original_usernames: Vec<String>, // Original usernames for display
-    pub per_user_amount: f64,           // Amount per user (for display)
-    pub created_at: u64,                // Timestamp when created
-    pub expires_at: u64,                // Timestamp when transaction expires
-    pub chat_id: i64,                   // Telegram chat ID where the message was sent
-    pub message_id: i32,                // Telegram message ID of the transaction message
-}
 
 #[derive(Clone)]
 pub struct PendingTransactions {
@@ -105,41 +90,7 @@ impl PendingTransactions {
         now > transaction.expires_at
     }
 
-    /// Get all pending transactions (for cleanup)
-    pub fn get_all_pending_transactions(&self) -> Vec<(String, PendingTransaction)> {
-        self.tree
-            .iter()
-            .filter_map(|result| {
-                if let Ok((key, value)) = result {
-                    let key_str = String::from_utf8(key.to_vec()).ok()?;
-                    let transaction: PendingTransaction = serde_json::from_slice(&value).ok()?;
-                    Some((key_str, transaction))
-                } else {
-                    None
-                }
-            })
-            .collect()
-    }
 
-    /// Remove expired transactions and return them for message updating
-    pub fn cleanup_expired_transactions(&self) -> sled::Result<(usize, Vec<PendingTransaction>)> {
-        let all_transactions = self.get_all_pending_transactions();
-        let mut removed_count = 0;
-        let mut expired_transactions = Vec::new();
-
-        for (key, transaction) in all_transactions {
-            if Self::is_expired(&transaction) {
-                // Only collect transactions that have valid message IDs (not placeholder 0)
-                if transaction.message_id != 0 {
-                    expired_transactions.push(transaction.clone());
-                }
-                self.tree.remove(key.as_bytes())?;
-                removed_count += 1;
-            }
-        }
-
-        Ok((removed_count, expired_transactions))
-    }
 
     /// Update message_id for an existing pending transaction
     pub fn update_transaction_message_id(
@@ -190,5 +141,82 @@ impl PendingTransactions {
             coin_type: transaction.coin_type.clone(),
             version: transaction.version.clone(),
         }
+    }
+
+    /// Spawn a timeout task for a pending transaction that will clean it up when it expires
+    pub fn spawn_transaction_timeout(
+        &self,
+        bot: Bot,
+        user_id: i64,
+        group_id: Option<i64>,
+        transaction: &PendingTransaction,
+    ) {
+        let pending_transactions = self.clone();
+        let transaction_clone = transaction.clone();
+        
+        tokio::spawn(async move {
+            // Calculate how long to sleep until expiration
+            let now = Utc::now().timestamp() as u64;
+            let sleep_duration = if transaction_clone.expires_at > now {
+                Duration::from_secs(transaction_clone.expires_at - now)
+            } else {
+                Duration::from_secs(0) // Already expired
+            };
+            
+            // Sleep until the transaction expires
+            tokio::time::sleep(sleep_duration).await;
+            
+            // Check if transaction still exists and clean it up
+            if let Some(expired_transaction) = pending_transactions.get_pending_transaction(user_id, group_id) {
+                // Verify this is still the same transaction (transaction_id should match)
+                if expired_transaction.transaction_id == transaction_clone.transaction_id {
+                    // Remove the expired transaction
+                    if let Err(e) = pending_transactions.delete_pending_transaction(user_id, group_id) {
+                        log::error!("Failed to delete expired transaction {}: {}", transaction_clone.transaction_id, e);
+                        return;
+                    }
+                    
+                    log::info!("Automatically expired and removed transaction: {}", transaction_clone.transaction_id);
+                    
+                    // Update the message to show expiration (only if message_id is valid)
+                    if expired_transaction.message_id != 0 {
+                        let recipients_text = if expired_transaction.original_usernames.len() == 1 {
+                            format!("@{}", expired_transaction.original_usernames[0])
+                        } else {
+                            expired_transaction.original_usernames.iter()
+                                .map(|username| format!("@{}", username))
+                                .collect::<Vec<_>>()
+                                .join(", ")
+                        };
+
+                        let expired_message = format!(
+                            "⏰ <b>Transaction expired</b>\n\n💰 {:.2} {} to {} was not sent.\n\n<i>Transactions expire after 1 minute for security.</i>",
+                            expired_transaction.per_user_amount * expired_transaction.original_usernames.len() as f64,
+                            expired_transaction.symbol,
+                            recipients_text
+                        );
+                        
+                        if let Err(e) = bot.edit_message_text(
+                            teloxide::types::ChatId(expired_transaction.chat_id),
+                            teloxide::types::MessageId(expired_transaction.message_id),
+                            expired_message
+                        )
+                        .parse_mode(teloxide::types::ParseMode::Html)
+                        .await 
+                        {
+                            log::warn!("Failed to edit expired transaction message for chat {} message {}: {}", 
+                                expired_transaction.chat_id, expired_transaction.message_id, e);
+                        } else {
+                            log::info!("Successfully updated expired transaction message for chat {} message {}", 
+                                expired_transaction.chat_id, expired_transaction.message_id);
+                        }
+                    }
+                } else {
+                    log::debug!("Transaction ID mismatch during timeout cleanup - transaction was likely replaced");
+                }
+            } else {
+                log::debug!("Transaction {} was already removed before timeout", transaction_clone.transaction_id);
+            }
+        });
     }
 }

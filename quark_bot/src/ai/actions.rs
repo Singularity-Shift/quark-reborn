@@ -6,7 +6,7 @@ use teloxide::types::Message;
 
 use crate::dependencies::BotDependencies;
 use crate::message_history::handler::fetch;
-use crate::pending_transactions::handler::PendingTransaction;
+use crate::pending_transactions::dto::PendingTransaction;
 
 /// Execute trending pools fetch from GeckoTerminal
 pub async fn execute_trending_pools(arguments: &serde_json::Value) -> String {
