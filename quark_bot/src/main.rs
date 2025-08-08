@@ -147,7 +147,7 @@ async fn main() {
         ),
         BotCommand::new(
             "selectmodel",
-            "Select chat model (4-series) and temperature.",
+            "Select chat model (5-series or 4.1) and temperature.",
         ),
         BotCommand::new(
             "mysettings",

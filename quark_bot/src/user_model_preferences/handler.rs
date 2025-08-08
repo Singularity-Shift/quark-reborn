@@ -83,16 +83,16 @@ pub async fn handle_select_model(bot: Bot, msg: Message) -> Result<()> {
     // Step 1: Show chat model selection
     let keyboard = InlineKeyboardMarkup::new(vec![
         vec![InlineKeyboardButton::callback(
-            "GPT-4o (💰 Expensive)",
-            "select_chat_model:GPT4o",
+            "GPT-5 (💰 Expensive)",
+            "select_chat_model:GPT5",
         )],
         vec![InlineKeyboardButton::callback(
             "GPT-4.1 (💸 Cheap)",
             "select_chat_model:GPT41",
         )],
         vec![InlineKeyboardButton::callback(
-            "GPT-4.1-Mini (💵 Cheapest)",
-            "select_chat_model:GPT41Mini",
+            "GPT-5-Mini (💵 Cheapest)",
+            "select_chat_model:GPT5Mini",
         )],
     ]);
 
@@ -164,17 +164,24 @@ pub async fn handle_my_settings(bot: Bot, msg: Message, bot_deps: BotDependencie
     let preferences = bot_deps.user_model_prefs.get_preferences(username.unwrap());
 
     // Format the settings message
+    let temperature_block = match preferences.chat_model {
+        ChatModel::GPT41 | ChatModel::GPT41Mini | ChatModel::GPT4o => {
+            format!("        🌡️ Temperature: {}\n\n", preferences.temperature)
+        }
+        _ => "\n".to_string(), // extra newline to keep spacing when no temperature line
+    };
+
     let settings_text = format!(
         "⚙️ <b>Your Current Model Settings</b>\n\n\
         💬 <b>Chat Model (for /c commands):</b>\n\
         🤖 Model: {}\n\
-        🌡️ Temperature: {}\n\n\
+        {}\
         🧠 <b>Reasoning Model (for /r commands):</b>\n\
         🤖 Model: {}\n\
         ⚡ Effort: {}\n\n\
         💡 Use /selectmodel or /selectreasoningmodel to change these settings.",
         preferences.chat_model.to_display_string(),
-        preferences.temperature,
+        temperature_block,
         preferences.reasoning_model.to_display_string(),
         super::dto::effort_to_display_string(&preferences.effort)
     );
@@ -193,8 +200,8 @@ pub fn get_temperature_keyboard() -> InlineKeyboardMarkup {
             InlineKeyboardButton::callback("0.6", "set_temperature:0.6"),
         ],
         vec![
+            InlineKeyboardButton::callback("0.8", "set_temperature:0.8"),
             InlineKeyboardButton::callback("1.0", "set_temperature:1.0"),
-            InlineKeyboardButton::callback("1.5", "set_temperature:1.5"),
         ],
     ])
 }
