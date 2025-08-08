@@ -135,16 +135,12 @@ async fn main() {
         BotCommand::new("listfiles", "List files in your vector store (DM only)."),
         BotCommand::new("newchat", "Start a new conversation thread."),
         BotCommand::new("c", "prompt to chat AI with the bot."),
-        BotCommand::new("r", "prompt to chat AI with the bot with reasoning."),
         BotCommand::new(
             "g",
             "prompt to chat AI with the bot in a group. (only admins can use this command)",
         ),
         BotCommand::new("walletaddress", "Get your wallet address."),
-        BotCommand::new(
-            "selectreasoningmodel",
-            "Select reasoning model (O-series) and effort level.",
-        ),
+        // Removed selectreasoningmodel (unified under selectmodel)
         BotCommand::new(
             "selectmodel",
             "Select chat model (5-series or 4.1) and temperature.",

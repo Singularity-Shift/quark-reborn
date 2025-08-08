@@ -14,3 +14,6 @@ cargo-check.log
 *.asc
 *.gpg
 
+CHANGELOG.md
+
+

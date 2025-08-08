@@ -1,10 +1,13 @@
-use super::dto::{ChatModel, ReasoningModel, effort_to_display_string};
-use super::handler::{UserModelPreferences, get_effort_keyboard, get_temperature_keyboard};
+use super::dto::{
+    ChatModel, Gpt5Mode, gpt5_mode_to_display_string, gpt5_effort_to_display_string,
+    verbosity_to_display_string,
+};
+use super::handler::{UserModelPreferences, get_temperature_keyboard};
 use anyhow::Result;
-use open_ai_rust_responses_by_sshift::types::Effort;
+// no Effort import; GPT-5 uses ReasoningEffort
 
 use teloxide::prelude::*;
-use teloxide::types::{CallbackQuery, ParseMode};
+use teloxide::types::{CallbackQuery, ParseMode, InlineKeyboardButton, InlineKeyboardMarkup};
 
 pub async fn handle_model_preferences_callback(
     bot: Bot,
@@ -41,7 +44,7 @@ pub async fn handle_model_preferences_callback(
             }
         };
 
-        // For 4-series, ask for temperature; for 5-series, save immediately with default 0.6
+        // For 4-series, ask for temperature; for 5-series, branch into Mode/Effort/Verbosity
         let is_four_series = matches!(model, ChatModel::GPT41 | ChatModel::GPT41Mini | ChatModel::GPT4o);
         if is_four_series {
             let keyboard = get_temperature_keyboard();
@@ -65,8 +68,14 @@ pub async fn handle_model_preferences_callback(
                 .text(format!("Selected {}", model.to_display_string()))
                 .await?;
         } else {
-            // Save immediately with default 0.6 and confirm
+            // Save baseline for GPT-5: default temp still stored (unused), set defaults for mode/verbosity
             prefs_handler.set_chat_preferences(username, model.clone(), 0.6)?;
+
+            // Ask GPT-5 Mode selection next
+            let keyboard = InlineKeyboardMarkup::new(vec![
+                vec![InlineKeyboardButton::callback("Regular", "set_gpt5_mode:Regular")],
+                vec![InlineKeyboardButton::callback("Reasoning", "set_gpt5_mode:Reasoning")],
+            ]);
 
             if let Some(message) = query.message {
                 if let teloxide::types::MaybeInaccessibleMessage::Regular(msg) = message {
@@ -74,17 +83,18 @@ pub async fn handle_model_preferences_callback(
                         msg.chat.id,
                         msg.id,
                         format!(
-                            "✅ <b>Chat model preferences saved!</b>\n\n🤖 Model: {}\n\n<i>Temperature applies to 4‑series models only.</i>",
-                            model.to_display_string(),
+                            "🧩 <b>Select GPT‑5 Mode for {}:</b>\n\nChoose between regular responses or reasoning mode.",
+                            model.to_display_string()
                         )
                     )
+                    .reply_markup(keyboard)
                     .parse_mode(ParseMode::Html)
                     .await?;
                 }
             }
 
             bot.answer_callback_query(query.id)
-                .text("Preferences saved!")
+                .text("Model selected")
                 .await?;
         }
     } else if data.starts_with("set_temperature:") {
@@ -129,31 +139,87 @@ pub async fn handle_model_preferences_callback(
         bot.answer_callback_query(query.id)
             .text("Preferences saved!")
             .await?;
-    } else if data.starts_with("select_reasoning_model:") {
-        let model_str = data.strip_prefix("select_reasoning_model:").unwrap();
-        let model = match model_str {
-            "O3" => ReasoningModel::O3,
-            "O4Mini" => ReasoningModel::O4Mini,
-            _ => {
-                bot.answer_callback_query(query.id)
-                    .text("❌ Invalid model selection")
-                    .await?;
-                return Ok(());
-            }
+    } else if data.starts_with("set_gpt5_mode:") {
+        let mode_str = data.strip_prefix("set_gpt5_mode:").unwrap();
+        let mode = match mode_str {
+            "Regular" => Gpt5Mode::Regular,
+            "Reasoning" => Gpt5Mode::Reasoning,
+            _ => Gpt5Mode::Regular,
         };
 
-        let keyboard = get_effort_keyboard();
+        // Persist mode
+        let mut prefs = user_model_prefs.get_preferences(username);
+        prefs.gpt5_mode = Some(mode.clone());
+        // Default verbosity
+        if prefs.gpt5_verbosity.is_none() {
+            prefs.gpt5_verbosity = Some(open_ai_rust_responses_by_sshift::Verbosity::Medium);
+        }
+        user_model_prefs.set_preferences(username, &prefs)?;
 
-        // Update the message to show effort selection
+        // If Reasoning, ask Effort; then ask Verbosity
         if let Some(message) = query.message {
             if let teloxide::types::MaybeInaccessibleMessage::Regular(msg) = message {
+                if mode == Gpt5Mode::Reasoning {
+                    let keyboard = InlineKeyboardMarkup::new(vec![
+                        vec![InlineKeyboardButton::callback("Minimal", "set_gpt5_effort:Minimal")],
+                        vec![InlineKeyboardButton::callback("Medium", "set_gpt5_effort:Medium")],
+                        vec![InlineKeyboardButton::callback("High", "set_gpt5_effort:High")],
+                    ]);
+                    bot.edit_message_text(
+                        msg.chat.id,
+                        msg.id,
+                        "⚡ <b>Select GPT‑5 Reasoning Effort:</b>"
+                    )
+                    .reply_markup(keyboard)
+                    .parse_mode(ParseMode::Html)
+                    .await?;
+                } else {
+                    // Ask verbosity directly
+                    let keyboard = InlineKeyboardMarkup::new(vec![
+                        vec![InlineKeyboardButton::callback("Low", "set_gpt5_verbosity:Low")],
+                        vec![InlineKeyboardButton::callback("Medium", "set_gpt5_verbosity:Medium")],
+                        vec![InlineKeyboardButton::callback("High", "set_gpt5_verbosity:High")],
+                    ]);
+                    bot.edit_message_text(
+                        msg.chat.id,
+                        msg.id,
+                        "🗣️ <b>Select GPT‑5 Verbosity:</b>"
+                    )
+                    .reply_markup(keyboard)
+                    .parse_mode(ParseMode::Html)
+                    .await?;
+                }
+            }
+        }
+
+        bot.answer_callback_query(query.id)
+            .text(format!("Mode set: {}", gpt5_mode_to_display_string(&mode)))
+            .await?;
+    } else if data.starts_with("set_gpt5_effort:") {
+        let effort_str = data.strip_prefix("set_gpt5_effort:").unwrap();
+        let eff = match effort_str {
+            "Minimal" => open_ai_rust_responses_by_sshift::ReasoningEffort::Minimal,
+            "Medium" => open_ai_rust_responses_by_sshift::ReasoningEffort::Medium,
+            "High" => open_ai_rust_responses_by_sshift::ReasoningEffort::High,
+            _ => open_ai_rust_responses_by_sshift::ReasoningEffort::Medium,
+        };
+
+        let mut prefs = user_model_prefs.get_preferences(username);
+        prefs.gpt5_effort = Some(eff.clone());
+        user_model_prefs.set_preferences(username, &prefs)?;
+
+        // Next: ask verbosity
+        if let Some(message) = query.message {
+            if let teloxide::types::MaybeInaccessibleMessage::Regular(msg) = message {
+                let keyboard = InlineKeyboardMarkup::new(vec![
+                    vec![InlineKeyboardButton::callback("Low", "set_gpt5_verbosity:Low")],
+                    vec![InlineKeyboardButton::callback("Medium", "set_gpt5_verbosity:Medium")],
+                    vec![InlineKeyboardButton::callback("High", "set_gpt5_verbosity:High")],
+                ]);
                 bot.edit_message_text(
                     msg.chat.id,
                     msg.id,
-                    format!(
-                        "⚡ <b>Select effort level for {}:</b>\n\nChoose how much reasoning effort to use:",
-                        model.to_display_string()
-                    )
+                    format!("✅ Effort set: {}\n\n🗣️ <b>Select GPT‑5 Verbosity:</b>", gpt5_effort_to_display_string(&eff))
                 )
                 .reply_markup(keyboard)
                 .parse_mode(ParseMode::Html)
@@ -162,36 +228,45 @@ pub async fn handle_model_preferences_callback(
         }
 
         bot.answer_callback_query(query.id)
-            .text(format!("Selected {}", model.to_display_string()))
+            .text("Effort saved")
             .await?;
-    } else if data.starts_with("set_effort:") {
-        let effort_str = data.strip_prefix("set_effort:").unwrap();
-        let effort = match effort_str {
-            "Low" => Effort::Low,
-            "Medium" => Effort::Medium,
-            "High" => Effort::High,
-            _ => Effort::Low, // fallback
+    } else if data.starts_with("set_gpt5_verbosity:") {
+        let v_str = data.strip_prefix("set_gpt5_verbosity:").unwrap();
+        let v = match v_str {
+            "Low" => open_ai_rust_responses_by_sshift::Verbosity::Low,
+            "Medium" => open_ai_rust_responses_by_sshift::Verbosity::Medium,
+            "High" => open_ai_rust_responses_by_sshift::Verbosity::High,
+            _ => open_ai_rust_responses_by_sshift::Verbosity::Medium,
         };
 
-        // Parse model from message text
-        if let Some(message) = &query.message {
+        let mut prefs = user_model_prefs.get_preferences(username);
+        prefs.gpt5_verbosity = Some(v.clone());
+        user_model_prefs.set_preferences(username, &prefs)?;
+
+        if let Some(message) = query.message {
             if let teloxide::types::MaybeInaccessibleMessage::Regular(msg) = message {
-                let message_text = msg.text().unwrap_or("");
-                let model = if message_text.contains("O3") {
-                    ReasoningModel::O3
-                } else {
-                    ReasoningModel::O4Mini // fallback
-                };
-
-                prefs_handler.set_reasoning_preferences(username, model.clone(), effort.clone())?;
-
                 bot.edit_message_text(
                     msg.chat.id,
                     msg.id,
                     format!(
-                        "✅ <b>Reasoning model preferences saved!</b>\n\n🧠 Model: {}\n⚡ Effort: {}\n\nYour /r commands will now use these settings.",
-                        model.to_display_string(),
-                        effort_to_display_string(&effort)
+                        "✅ <b>Chat model preferences saved!</b>\n\n🧩 Mode: {}\n🗣️ Verbosity: {}{}\n\nYour /c commands will now use these settings.",
+                        prefs
+                            .gpt5_mode
+                            .as_ref()
+                            .map(gpt5_mode_to_display_string)
+                            .unwrap_or("Regular"),
+                        verbosity_to_display_string(&v),
+                        match prefs.gpt5_mode {
+                            Some(Gpt5Mode::Reasoning) => {
+                                let e = prefs
+                                    .gpt5_effort
+                                    .as_ref()
+                                    .map(gpt5_effort_to_display_string)
+                                    .unwrap_or("Medium");
+                                format!("\n⚡ Reasoning Effort: {}", e)
+                            }
+                            _ => String::new(),
+                        }
                     )
                 )
                 .parse_mode(ParseMode::Html)
@@ -200,7 +275,7 @@ pub async fn handle_model_preferences_callback(
         }
 
         bot.answer_callback_query(query.id)
-            .text("Preferences saved!")
+            .text("Verbosity saved")
             .await?;
     }
 

@@ -16,10 +16,7 @@ use crate::{
     user_model_preferences::handler::initialize_user_preferences,
 };
 
-use open_ai_rust_responses_by_sshift::{
-    Model,
-    types::{ReasoningParams, SummarySetting},
-};
+use open_ai_rust_responses_by_sshift::Model;
 use quark_core::helpers::{
     bot_commands::Command,
     dto::{CreateGroupRequest, PurchaseRequest},
@@ -384,7 +381,9 @@ pub async fn handle_list_files(bot: Bot, msg: Message, bot_deps: BotDependencies
     Ok(())
 }
 
-pub async fn handle_reasoning_chat(
+// Removed legacy handle_reasoning_chat; unified under handle_chat
+/*
+/* pub async fn handle_reasoning_chat(
     bot: Bot,
     msg: Message,
     prompt: String,
@@ -726,7 +725,8 @@ pub async fn handle_reasoning_chat(
     }
 
     Ok(())
-}
+} */
+*/
 
 pub async fn handle_chat(
     bot: Bot,

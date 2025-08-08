@@ -265,8 +265,9 @@ pub async fn handle_callback_query(
             }
         } else if data.starts_with("select_chat_model:")
             || data.starts_with("set_temperature:")
-            || data.starts_with("select_reasoning_model:")
-            || data.starts_with("set_effort:")
+            || data.starts_with("set_gpt5_mode:")
+            || data.starts_with("set_gpt5_effort:")
+            || data.starts_with("set_gpt5_verbosity:")
         {
             // Handle model preference callbacks
             handle_model_preferences_callback(bot, query, bot_deps.user_model_prefs.clone())
