@@ -53,7 +53,6 @@ impl ModerationService {
             .model(Model::GPT5Nano)
             .input(prompt)
             .max_output_tokens(20)
-            .temperature(0.1)
             .build();
 
         let response = self.client.responses.create(request).await?;
