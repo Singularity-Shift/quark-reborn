@@ -6,7 +6,7 @@ use teloxide::prelude::*;
 use tokio::task::JoinHandle;
 use tokio::time::sleep;
 
-use crate::bot::handler::{handle_chat, handle_reasoning_chat};
+use crate::bot::handler::handle_chat;
 
 /// Holds an in-flight `/c` command and any trailing photo-only messages
 struct PendingCmd {
@@ -117,43 +117,21 @@ impl CommandImageCollector {
             all_msgs.extend(pending.extra_photos);
             let text = msg.text().or_else(|| msg.caption()).unwrap_or("");
 
-            // Check if the original command was /r (reasoning)
-            let is_reasoning_command = pending
-                .first_msg
-                .text()
-                .map(|t| t.trim_start().starts_with("/r ") || t.trim() == "/r")
-                .unwrap_or(false);
-
             // Decide whether to call single or grouped handler
             if all_msgs.len() == 1 {
                 // Single message path
                 let msg = all_msgs.pop().unwrap();
-
-                if is_reasoning_command {
-                    // Use reasoning handler for /r commands
-                    if let Err(e) = handle_reasoning_chat(
-                        self.bot.clone(),
-                        msg,
-                        text.to_string(),
-                        bot_deps.clone(),
-                    )
-                    .await
-                    {
-                        log::error!("Error handling reasoning chat: {}", e);
-                    }
-                } else {
-                    // Use regular chat handler for /c commands
-                    if let Err(e) = handle_chat(
-                        self.bot.clone(),
-                        msg,
-                        text.to_string(),
-                        group_id,
-                        bot_deps.clone(),
-                    )
-                    .await
-                    {
-                        log::error!("Error handling chat: {}", e);
-                    }
+                // Unified handler for both /c and legacy /r
+                if let Err(e) = handle_chat(
+                    self.bot.clone(),
+                    msg,
+                    text.to_string(),
+                    group_id,
+                    bot_deps.clone(),
+                )
+                .await
+                {
+                    log::error!("Error handling chat: {}", e);
                 }
             } else {
                 log::error!("Error handling grouped chat (ungrouped images)");

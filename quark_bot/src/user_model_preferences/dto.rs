@@ -1,15 +1,16 @@
 use serde::{Deserialize, Serialize};
-use open_ai_rust_responses_by_sshift::types::Effort;
+use open_ai_rust_responses_by_sshift::{ReasoningEffort, Verbosity};
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct ModelPreferences {
     // Regular chat models (for /c command)
     pub chat_model: ChatModel,
     pub temperature: f32,
-    
-    // Reasoning models (for /r command) 
-    pub reasoning_model: ReasoningModel,
-    pub effort: Effort,
+
+    // GPT-5 specific preferences (unified chat flow)
+    pub gpt5_mode: Option<Gpt5Mode>,
+    pub gpt5_effort: Option<ReasoningEffort>,
+    pub gpt5_verbosity: Option<Verbosity>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -21,10 +22,10 @@ pub enum ChatModel {
     GPT5Mini,
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone)]
-pub enum ReasoningModel {
-    O3,
-    O4Mini,
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+pub enum Gpt5Mode {
+    Regular,
+    Reasoning,
 }
 
 impl Default for ModelPreferences {
@@ -32,8 +33,10 @@ impl Default for ModelPreferences {
         Self {
             chat_model: ChatModel::GPT5Mini,
             temperature: 0.6,
-            reasoning_model: ReasoningModel::O4Mini,
-            effort: Effort::Low,
+            // Defaults for GPT-5 unified flow
+            gpt5_mode: Some(Gpt5Mode::Regular),
+            gpt5_effort: None,
+            gpt5_verbosity: Some(Verbosity::Medium),
         }
     }
 }
@@ -60,26 +63,27 @@ impl ChatModel {
     }
 }
 
-impl ReasoningModel {
-    pub fn to_display_string(&self) -> &'static str {
-        match self {
-            ReasoningModel::O3 => "O3",
-            ReasoningModel::O4Mini => "O4-Mini",
-        }
-    }
+// Removed legacy O-series reasoning model and effort fields
 
-    pub fn to_openai_model(&self) -> open_ai_rust_responses_by_sshift::Model {
-        match self {
-            ReasoningModel::O3 => open_ai_rust_responses_by_sshift::Model::O3,
-            ReasoningModel::O4Mini => open_ai_rust_responses_by_sshift::Model::O4Mini,
-        }
+pub fn gpt5_effort_to_display_string(effort: &ReasoningEffort) -> &'static str {
+    match effort {
+        ReasoningEffort::Minimal => "Minimal",
+        ReasoningEffort::Medium => "Medium",
+        ReasoningEffort::High => "High",
     }
 }
 
-pub fn effort_to_display_string(effort: &Effort) -> &'static str {
-    match effort {
-        Effort::Low => "Low",
-        Effort::Medium => "Medium",
-        Effort::High => "High",
+pub fn gpt5_mode_to_display_string(mode: &Gpt5Mode) -> &'static str {
+    match mode {
+        Gpt5Mode::Regular => "Regular",
+        Gpt5Mode::Reasoning => "Reasoning",
     }
-} 
+}
+
+pub fn verbosity_to_display_string(v: &Verbosity) -> &'static str {
+    match v {
+        Verbosity::Low => "Low",
+        Verbosity::Medium => "Medium",
+        Verbosity::High => "High",
+    }
+}

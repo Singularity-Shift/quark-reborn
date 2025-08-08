@@ -9,7 +9,8 @@ use open_ai_rust_responses_by_sshift::types::{
     Include, InputItem, ReasoningParams, Response, ResponseItem, Tool, ToolChoice,
 };
 use open_ai_rust_responses_by_sshift::{
-    Client as OAIClient, FunctionCallInfo, Model, RecoveryPolicy, Request,
+    Client as OAIClient, FunctionCallInfo, Model, ReasoningEffort, RecoveryPolicy, Request,
+    Verbosity,
 };
 use serde_json;
 use teloxide::Bot;
@@ -259,8 +260,31 @@ impl AI {
             .user(&user)
             .store(true);
 
-        if let Some(temp) = temperature {
-            request_builder = request_builder.temperature(temp);
+        // Apply sampling/controls based on model family per SDK docs
+        match model {
+            Model::GPT41 | Model::GPT41Mini | Model::GPT4o => {
+                if let Some(temp) = temperature {
+                    request_builder = request_builder.temperature(temp);
+                }
+            }
+            Model::GPT5 | Model::GPT5Mini => {
+                // GPT-5: apply verbosity (and reasoning_effort if configured) from user preferences
+                if let Some(username) = msg.from.as_ref().and_then(|u| u.username.clone()) {
+                    let prefs = bot_deps.user_model_prefs.get_preferences(&username);
+                    // Verbosity default Medium
+                    let verbosity = prefs.gpt5_verbosity.unwrap_or(Verbosity::Medium);
+                    request_builder = request_builder.verbosity(verbosity);
+                    // Reasoning mode optional
+                    if let Some(mode) = prefs.gpt5_mode {
+                        if mode == crate::user_model_preferences::dto::Gpt5Mode::Reasoning {
+                            let eff = prefs.gpt5_effort.unwrap_or(ReasoningEffort::Medium);
+                            request_builder = request_builder.reasoning_effort(eff);
+                        }
+                    }
+                }
+            }
+            // O-series and others: do not apply temperature; reasoning passed via ReasoningParams below when provided
+            _ => {}
         }
 
         if let Some(reasoning_params) = reasoning.clone() {

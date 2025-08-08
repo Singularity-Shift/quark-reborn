@@ -6,7 +6,7 @@ use crate::announcement::handle_announcement;
 use super::handler::{
     handle_add_files, handle_chat, handle_help, handle_list_files, handle_login_group,
     handle_login_user, handle_mod, handle_moderation_rules, handle_new_chat, handle_prices,
-    handle_reasoning_chat, handle_sentinel,
+    handle_sentinel,
 };
 
 use crate::bot::handler::{
@@ -15,9 +15,7 @@ use crate::bot::handler::{
 };
 use crate::dao::handler::handle_dao_preferences;
 use crate::dependencies::BotDependencies;
-use crate::user_model_preferences::handler::{
-    handle_my_settings, handle_select_model, handle_select_reasoning_model,
-};
+use crate::user_model_preferences::handler::{handle_my_settings, handle_select_model};
 
 pub async fn answers(
     bot: Bot,
@@ -105,21 +103,7 @@ pub async fn answers(
                 .await?;
             }
         }
-        Command::R(prompt) => {
-            let cmd_collector = bot_deps.cmd_collector.clone();
-
-            if prompt.trim().is_empty() && msg.photo().is_some() {
-                cmd_collector.add_command(msg, bot_deps.clone(), None).await;
-            } else if prompt.trim().is_empty() {
-                bot.send_message(
-                    msg.chat.id,
-                    "Please include a message after /r, e.g. /r Explain quantum entanglement.",
-                )
-                .await?;
-            } else {
-                handle_reasoning_chat(bot, msg, prompt, bot_deps.clone()).await?;
-            }
-        }
+        // Note: /r has been unified under /c and is no longer handled here.
         Command::Sentinel(param) => {
             handle_sentinel(bot, msg, param, bot_deps.clone()).await?;
         }
@@ -134,7 +118,6 @@ pub async fn answers(
             ()
         }
         Command::SelectModel => handle_select_model(bot, msg).await?,
-        Command::SelectReasoningModel => handle_select_reasoning_model(bot, msg).await?,
         Command::MySettings => handle_my_settings(bot, msg, bot_deps.clone()).await?,
         Command::GroupWalletAddress => {
             handle_group_wallet_address(bot, msg, bot_deps.clone()).await?;
