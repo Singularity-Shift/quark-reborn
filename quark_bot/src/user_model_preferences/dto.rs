@@ -36,7 +36,7 @@ impl Default for ModelPreferences {
             // Defaults for GPT-5 unified flow
             gpt5_mode: Some(Gpt5Mode::Regular),
             gpt5_effort: None,
-            gpt5_verbosity: Some(Verbosity::Medium),
+            gpt5_verbosity: Some(Verbosity::Low),
         }
     }
 }
