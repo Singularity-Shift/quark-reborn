@@ -30,7 +30,7 @@ pub enum Command {
     PromptExamples,
     #[command(description = "Select reasoning model (O-series) and effort level.")]
     SelectReasoningModel,
-    #[command(description = "Select chat model (4-series) and temperature.")]
+    #[command(description = "Select chat model (5-series or 4.1) and temperature.")]
     SelectModel,
     #[command(description = "View your current model preferences (DM only).")]
     MySettings,

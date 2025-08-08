@@ -31,6 +31,8 @@ pub async fn handle_model_preferences_callback(
             "GPT4o" => ChatModel::GPT4o,
             "GPT41" => ChatModel::GPT41,
             "GPT41Mini" => ChatModel::GPT41Mini,
+            "GPT5" => ChatModel::GPT5,
+            "GPT5Mini" => ChatModel::GPT5Mini,
             _ => {
                 bot.answer_callback_query(query.id)
                     .text("❌ Invalid model selection")
@@ -39,30 +41,52 @@ pub async fn handle_model_preferences_callback(
             }
         };
 
-        // Store the selected model temporarily in the callback data
-        let keyboard = get_temperature_keyboard();
-
-        // Update the message to show temperature selection
-        if let Some(message) = query.message {
-            if let teloxide::types::MaybeInaccessibleMessage::Regular(msg) = message {
-                bot.edit_message_text(
-                    msg.chat.id,
-                    msg.id,
-                    format!(
-                        "🌡️ <b>Select temperature for {}:</b>\n\nChoose the creativity level for your chat responses:",
-                        model.to_display_string()
+        // For 4-series, ask for temperature; for 5-series, save immediately with default 0.6
+        let is_four_series = matches!(model, ChatModel::GPT41 | ChatModel::GPT41Mini | ChatModel::GPT4o);
+        if is_four_series {
+            let keyboard = get_temperature_keyboard();
+            if let Some(message) = query.message {
+                if let teloxide::types::MaybeInaccessibleMessage::Regular(msg) = message {
+                    bot.edit_message_text(
+                        msg.chat.id,
+                        msg.id,
+                        format!(
+                            "🌡️ <b>Select temperature for {}:</b>\n\nChoose the creativity level for your chat responses.\n\n<i>Note: Temperature applies to 4‑series models only.</i>",
+                            model.to_display_string()
+                        )
                     )
-                )
-                .reply_markup(keyboard)
-                .parse_mode(ParseMode::Html)
-                .await?;
+                    .reply_markup(keyboard)
+                    .parse_mode(ParseMode::Html)
+                    .await?;
+                }
             }
-        }
 
-        // Store selected model in callback for next step
-        bot.answer_callback_query(query.id)
-            .text(format!("Selected {}", model.to_display_string()))
-            .await?;
+            bot.answer_callback_query(query.id)
+                .text(format!("Selected {}", model.to_display_string()))
+                .await?;
+        } else {
+            // Save immediately with default 0.6 and confirm
+            prefs_handler.set_chat_preferences(username, model.clone(), 0.6)?;
+
+            if let Some(message) = query.message {
+                if let teloxide::types::MaybeInaccessibleMessage::Regular(msg) = message {
+                    bot.edit_message_text(
+                        msg.chat.id,
+                        msg.id,
+                        format!(
+                            "✅ <b>Chat model preferences saved!</b>\n\n🤖 Model: {}\n\n<i>Temperature applies to 4‑series models only.</i>",
+                            model.to_display_string(),
+                        )
+                    )
+                    .parse_mode(ParseMode::Html)
+                    .await?;
+                }
+            }
+
+            bot.answer_callback_query(query.id)
+                .text("Preferences saved!")
+                .await?;
+        }
     } else if data.starts_with("set_temperature:") {
         let temp_str = data.strip_prefix("set_temperature:").unwrap();
         let temperature: f32 = temp_str.parse().unwrap_or(0.6);
@@ -72,14 +96,18 @@ pub async fn handle_model_preferences_callback(
         if let Some(message) = &query.message {
             if let teloxide::types::MaybeInaccessibleMessage::Regular(msg) = message {
                 let message_text = msg.text().unwrap_or("");
-                let model = if message_text.contains("GPT-4o") {
-                    ChatModel::GPT4o
-                } else if message_text.contains("GPT-4.1-Mini") {
-                    ChatModel::GPT41Mini
+                let model = if message_text.contains("GPT-5-Mini") {
+                    ChatModel::GPT5Mini
+                } else if message_text.contains("GPT-5") {
+                    ChatModel::GPT5
                 } else if message_text.contains("GPT-4.1") {
                     ChatModel::GPT41
+                } else if message_text.contains("GPT-4.1-Mini") {
+                    ChatModel::GPT41Mini
+                } else if message_text.contains("GPT-4o") {
+                    ChatModel::GPT4o
                 } else {
-                    ChatModel::GPT41Mini // fallback
+                    ChatModel::GPT5Mini // fallback to new default
                 };
 
                 prefs_handler.set_chat_preferences(username, model.clone(), temperature)?;

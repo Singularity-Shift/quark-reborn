@@ -17,6 +17,8 @@ pub enum ChatModel {
     GPT4o,
     GPT41,
     GPT41Mini,
+    GPT5,
+    GPT5Mini,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -28,7 +30,7 @@ pub enum ReasoningModel {
 impl Default for ModelPreferences {
     fn default() -> Self {
         Self {
-            chat_model: ChatModel::GPT41Mini,
+            chat_model: ChatModel::GPT5Mini,
             temperature: 0.6,
             reasoning_model: ReasoningModel::O4Mini,
             effort: Effort::Low,
@@ -42,6 +44,8 @@ impl ChatModel {
             ChatModel::GPT4o => "GPT-4o",
             ChatModel::GPT41 => "GPT-4.1",
             ChatModel::GPT41Mini => "GPT-4.1-Mini",
+            ChatModel::GPT5 => "GPT-5",
+            ChatModel::GPT5Mini => "GPT-5-Mini",
         }
     }
 
@@ -50,6 +54,8 @@ impl ChatModel {
             ChatModel::GPT4o => open_ai_rust_responses_by_sshift::Model::GPT4o,
             ChatModel::GPT41 => open_ai_rust_responses_by_sshift::Model::GPT41,
             ChatModel::GPT41Mini => open_ai_rust_responses_by_sshift::Model::GPT41Mini,
+            ChatModel::GPT5 => open_ai_rust_responses_by_sshift::Model::GPT5,
+            ChatModel::GPT5Mini => open_ai_rust_responses_by_sshift::Model::GPT5Mini,
         }
     }
 }
