@@ -1,8 +1,8 @@
 mod ai;
+mod announcement;
 mod aptos;
 mod assets;
 mod bot;
-mod announcement;
 mod callbacks;
 mod credentials;
 mod dao;
@@ -16,6 +16,7 @@ mod services;
 mod user_conversation;
 mod user_model_preferences;
 mod utils;
+mod yield_ai;
 
 mod dependencies;
 
@@ -33,6 +34,7 @@ use crate::{
     services::handler::Services,
     user_conversation::handler::UserConversations,
     user_model_preferences::handler::UserModelPreferences,
+    yield_ai::yield_ai::YieldAI,
 };
 use quark_core::helpers::bot_commands::QuarkState;
 use std::env;
@@ -108,6 +110,7 @@ async fn main() {
     let user_convos = UserConversations::new(&db).unwrap();
     let user_model_prefs = UserModelPreferences::new(&db).unwrap();
     let pending_transactions = PendingTransactions::new(&db).unwrap();
+    let yield_ai = YieldAI::new();
 
     schedule_jobs(panora.clone(), bot.clone(), dao.clone())
         .await
@@ -185,6 +188,7 @@ async fn main() {
         media_aggregator: media_aggregator.clone(),
         history_storage: history_storage.clone(),
         pending_transactions: pending_transactions.clone(),
+        yield_ai: yield_ai.clone(),
     };
 
     Dispatcher::builder(bot.clone(), handler_tree())
