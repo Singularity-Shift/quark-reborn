@@ -4,6 +4,7 @@ use crate::dependencies::BotDependencies;
 use crate::user_model_preferences::handler::UserModelPreferences;
 use dashmap::DashMap;
 use open_ai_rust_responses_by_sshift::types::ReasoningParams;
+use crate::user_model_preferences::dto::ChatModel;
 use std::sync::Arc;
 use std::time::Duration;
 use teloxide::net::Download;
@@ -80,7 +81,6 @@ impl MediaGroupAggregator {
         if let Some(cmd_msg) = command_msg {
             // Determine prompt & command type
             let text = cmd_msg.caption().unwrap_or("");
-            let is_reasoning_command = text.trim_start().starts_with("/r ") || text.trim() == "/r";
             let is_group_command = text.trim_start().starts_with("/g ");
             let group_id = if is_group_command && !cmd_msg.chat.is_private() {
                 Some(cmd_msg.chat.id.to_string())
@@ -132,21 +132,17 @@ impl MediaGroupAggregator {
                 return;
             }
 
-            // Load model prefs
+            // Load model prefs and compute request params (unified)
             let prefs = self.user_model_prefs.get_preferences(username);
-            let (model, temperature, reasoning_params) = if is_reasoning_command {
-                (
-                    prefs.reasoning_model.to_openai_model(),
-                    None,
-                    Some(ReasoningParams::new().with_effort(prefs.effort)),
-                )
-            } else {
-                (
-                    prefs.chat_model.to_openai_model(),
-                    Some(prefs.temperature),
-                    None,
-                )
-            };
+            let model = prefs.chat_model.to_openai_model();
+            let mut temperature: Option<f32> = None;
+            let reasoning_params: Option<ReasoningParams> = None;
+            match prefs.chat_model {
+                ChatModel::GPT41 | ChatModel::GPT41Mini | ChatModel::GPT4o => {
+                    temperature = Some(prefs.temperature);
+                }
+                ChatModel::GPT5 | ChatModel::GPT5Mini => {}
+            }
 
             // --- Gather photos: take largest variant from each message ---
             let mut image_paths: Vec<(String, String)> = Vec::new();

@@ -1,7 +1,9 @@
-use super::dto::{ChatModel, ModelPreferences, ReasoningModel};
+use super::dto::{
+    ChatModel, Gpt5Mode, ModelPreferences, gpt5_effort_to_display_string, gpt5_mode_to_display_string,
+    verbosity_to_display_string,
+};
 use crate::dependencies::BotDependencies;
 use anyhow::Result;
-use open_ai_rust_responses_by_sshift::types::Effort;
 use serde_json;
 use sled::Db;
 use teloxide::prelude::*;
@@ -49,17 +51,7 @@ impl UserModelPreferences {
         self.set_preferences(username, &prefs)
     }
 
-    pub fn set_reasoning_preferences(
-        &self,
-        username: &str,
-        model: ReasoningModel,
-        effort: Effort,
-    ) -> sled::Result<()> {
-        let mut prefs = self.get_preferences(username);
-        prefs.reasoning_model = model;
-        prefs.effort = effort;
-        self.set_preferences(username, &prefs)
-    }
+    // Removed legacy set_reasoning_preferences
 }
 
 pub async fn handle_select_model(bot: Bot, msg: Message) -> Result<()> {
@@ -83,16 +75,16 @@ pub async fn handle_select_model(bot: Bot, msg: Message) -> Result<()> {
     // Step 1: Show chat model selection
     let keyboard = InlineKeyboardMarkup::new(vec![
         vec![InlineKeyboardButton::callback(
-            "GPT-4o (💰 Expensive)",
-            "select_chat_model:GPT4o",
+            "GPT-5 (💰 Expensive)",
+            "select_chat_model:GPT5",
         )],
         vec![InlineKeyboardButton::callback(
             "GPT-4.1 (💸 Cheap)",
             "select_chat_model:GPT41",
         )],
         vec![InlineKeyboardButton::callback(
-            "GPT-4.1-Mini (💵 Cheapest)",
-            "select_chat_model:GPT41Mini",
+            "GPT-5-Mini (💵 Cheapest)",
+            "select_chat_model:GPT5Mini",
         )],
     ]);
 
@@ -104,43 +96,7 @@ pub async fn handle_select_model(bot: Bot, msg: Message) -> Result<()> {
     Ok(())
 }
 
-pub async fn handle_select_reasoning_model(bot: Bot, msg: Message) -> Result<()> {
-    let user = msg.from.as_ref();
-    if user.is_none() {
-        bot.send_message(msg.chat.id, "❌ Unable to verify user.")
-            .await?;
-        return Ok(());
-    }
-
-    let username = user.unwrap().username.as_ref();
-    if username.is_none() {
-        bot.send_message(
-            msg.chat.id,
-            "❌ Username not found, required for this feature",
-        )
-        .await?;
-        return Ok(());
-    }
-
-    // Step 1: Show reasoning model selection
-    let keyboard = InlineKeyboardMarkup::new(vec![
-        vec![InlineKeyboardButton::callback(
-            "O3 (💰 Expensive)",
-            "select_reasoning_model:O3",
-        )],
-        vec![InlineKeyboardButton::callback(
-            "O4-Mini (💵 Cheapest)",
-            "select_reasoning_model:O4Mini",
-        )],
-    ]);
-
-    bot.send_message(msg.chat.id, "🧠 <b>Select your reasoning model:</b>\n\nChoose which model to use for reasoning commands (/r):")
-        .reply_markup(keyboard)
-        .parse_mode(teloxide::types::ParseMode::Html)
-        .await?;
-
-    Ok(())
-}
+// Removed: handle_select_reasoning_model (unified in /selectmodel)
 
 pub async fn handle_my_settings(bot: Bot, msg: Message, bot_deps: BotDependencies) -> Result<()> {
     let user = msg.from.as_ref();
@@ -164,19 +120,52 @@ pub async fn handle_my_settings(bot: Bot, msg: Message, bot_deps: BotDependencie
     let preferences = bot_deps.user_model_prefs.get_preferences(username.unwrap());
 
     // Format the settings message
+    // Build conditional blocks
+    let temperature_block = match preferences.chat_model {
+        ChatModel::GPT41 | ChatModel::GPT41Mini | ChatModel::GPT4o => {
+            format!("        🌡️ Temperature: {}\n\n", preferences.temperature)
+        }
+        _ => "\n".to_string(),
+    };
+
+    let gpt5_block = if matches!(preferences.chat_model, ChatModel::GPT5 | ChatModel::GPT5Mini) {
+        let mode = preferences
+            .gpt5_mode
+            .as_ref()
+            .map(gpt5_mode_to_display_string)
+            .unwrap_or("Regular");
+        let verbosity = preferences
+            .gpt5_verbosity
+            .as_ref()
+            .map(verbosity_to_display_string)
+            .unwrap_or("Medium");
+        let effort_line = if preferences.gpt5_mode == Some(Gpt5Mode::Reasoning) {
+            let eff = preferences
+                .gpt5_effort
+                .as_ref()
+                .map(gpt5_effort_to_display_string)
+                .unwrap_or("Medium");
+            format!("        ⚡ Reasoning Effort: {}\n", eff)
+        } else {
+            String::new()
+        };
+        format!(
+            "        🧩 Mode: {}\n        🗣️ Verbosity: {}\n{}",
+            mode, verbosity, effort_line
+        )
+    } else {
+        String::new()
+    };
+
     let settings_text = format!(
         "⚙️ <b>Your Current Model Settings</b>\n\n\
         💬 <b>Chat Model (for /c commands):</b>\n\
         🤖 Model: {}\n\
-        🌡️ Temperature: {}\n\n\
-        🧠 <b>Reasoning Model (for /r commands):</b>\n\
-        🤖 Model: {}\n\
-        ⚡ Effort: {}\n\n\
-        💡 Use /selectmodel or /selectreasoningmodel to change these settings.",
+{}{}\
+        💡 Use /selectmodel to change these settings.",
         preferences.chat_model.to_display_string(),
-        preferences.temperature,
-        preferences.reasoning_model.to_display_string(),
-        super::dto::effort_to_display_string(&preferences.effort)
+        temperature_block,
+        if gpt5_block.is_empty() { String::new() } else { format!("{}\n", gpt5_block) }
     );
 
     bot.send_message(msg.chat.id, settings_text)
@@ -193,28 +182,13 @@ pub fn get_temperature_keyboard() -> InlineKeyboardMarkup {
             InlineKeyboardButton::callback("0.6", "set_temperature:0.6"),
         ],
         vec![
+            InlineKeyboardButton::callback("0.8", "set_temperature:0.8"),
             InlineKeyboardButton::callback("1.0", "set_temperature:1.0"),
-            InlineKeyboardButton::callback("1.5", "set_temperature:1.5"),
         ],
     ])
 }
 
-pub fn get_effort_keyboard() -> InlineKeyboardMarkup {
-    InlineKeyboardMarkup::new(vec![
-        vec![InlineKeyboardButton::callback(
-            "Low (💸 Cheap)",
-            "set_effort:Low",
-        )],
-        vec![InlineKeyboardButton::callback(
-            "Medium (💰 Standard)",
-            "set_effort:Medium",
-        )],
-        vec![InlineKeyboardButton::callback(
-            "High (💸💸 Very Expensive)",
-            "set_effort:High",
-        )],
-    ])
-}
+// Removed legacy O-series effort keyboard
 
 /// Initialize default preferences for a new user
 pub async fn initialize_user_preferences(

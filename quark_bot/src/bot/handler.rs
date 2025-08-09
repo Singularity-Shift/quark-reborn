@@ -16,10 +16,7 @@ use crate::{
     user_model_preferences::handler::initialize_user_preferences,
 };
 
-use open_ai_rust_responses_by_sshift::{
-    Model,
-    types::{ReasoningParams, SummarySetting},
-};
+use open_ai_rust_responses_by_sshift::Model;
 use quark_core::helpers::{
     bot_commands::Command,
     dto::{CreateGroupRequest, PurchaseRequest},
@@ -384,7 +381,9 @@ pub async fn handle_list_files(bot: Bot, msg: Message, bot_deps: BotDependencies
     Ok(())
 }
 
-pub async fn handle_reasoning_chat(
+/*
+// Legacy handle_reasoning_chat removed in unified flow
+/* pub async fn handle_reasoning_chat(
     bot: Bot,
     msg: Message,
     prompt: String,
@@ -726,7 +725,8 @@ pub async fn handle_reasoning_chat(
     }
 
     Ok(())
-}
+} */
+*/
 
 pub async fn handle_chat(
     bot: Bot,
@@ -790,10 +790,12 @@ pub async fn handle_chat(
     // Load user's chat model preferences
     let preferences = bot_deps.user_model_prefs.get_preferences(username);
 
-    let (chat_model, temperature) = (
-        preferences.chat_model.to_openai_model(),
-        Some(preferences.temperature),
-    );
+    let chat_model = preferences.chat_model.to_openai_model();
+    // Only pass temperature for models that support it
+    let temperature = match chat_model {
+        Model::GPT41 | Model::GPT41Mini | Model::GPT4o => Some(preferences.temperature),
+        _ => None,
+    };
 
     // --- Vision Support: Check for replied-to images ---
     let mut image_url_from_reply: Option<String> = None;
@@ -1395,7 +1397,7 @@ pub async fn handle_message(bot: Bot, msg: Message, bot_deps: BotDependencies) -
                             .group_purchase(
                                 group_credentials.jwt,
                                 PurchaseRequest {
-                                    model: Model::GPT41Nano,
+                                    model: Model::GPT5Nano,
                                     tokens_used: result.total_tokens,
                                     tools_used: vec![],
                                     group_id: Some(format!(
@@ -1678,7 +1680,7 @@ pub async fn handle_mod(bot: Bot, msg: Message, bot_deps: BotDependencies) -> An
                     .group_purchase(
                         group_credentials.unwrap().jwt,
                         PurchaseRequest {
-                            model: Model::GPT41Nano,
+                            model: Model::GPT5Nano,
                             tokens_used: result.total_tokens,
                             tools_used: vec![],
                             group_id: Some(msg.chat.id.0.to_string()),

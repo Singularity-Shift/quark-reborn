@@ -99,7 +99,6 @@ pub fn handler_tree() -> Handler<'static, Result<()>, DpHandlerDescription> {
                             matches!(
                                 cmd,
                                 Command::C(_)
-                                    | Command::R(_)
                                     | Command::WalletAddress
                                     | Command::Balance(_)
                                     | Command::AddFiles
@@ -136,7 +135,7 @@ pub fn handler_tree() -> Handler<'static, Result<()>, DpHandlerDescription> {
                         .filter(|cmd| {
                             matches!(
                                 cmd,
-                                Command::SelectModel | Command::SelectReasoningModel | Command::MySettings
+                                Command::SelectModel | Command::MySettings
                             )
                         })
                         .filter(|msg: Message| msg.chat.is_private())
@@ -152,7 +151,7 @@ pub fn handler_tree() -> Handler<'static, Result<()>, DpHandlerDescription> {
                         .filter(|cmd| {
                             matches!(
                                 cmd,
-                                Command::SelectModel | Command::SelectReasoningModel | Command::MySettings
+                                Command::SelectModel | Command::MySettings
                             )
                         })
                         .filter(|msg: Message| !msg.chat.is_private())
