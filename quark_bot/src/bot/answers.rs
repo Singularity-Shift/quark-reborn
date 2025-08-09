@@ -103,7 +103,6 @@ pub async fn answers(
                 .await?;
             }
         }
-        // Note: /r has been unified under /c and is no longer handled here.
         Command::Sentinel(param) => {
             handle_sentinel(bot, msg, param, bot_deps.clone()).await?;
         }
