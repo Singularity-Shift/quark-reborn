@@ -30,7 +30,7 @@ aptos-rust-sdk-types = {git = "https://github.com/aptos-labs/aptos-rust-sdk.git"
 aptos-crypto = {git = "https://github.com/aptos-labs/aptos-rust-sdk.git",  package="aptos-crypto"}
 aptos-crypto-derive = {git = "https://github.com/aptos-labs/aptos-rust-sdk.git", package="aptos-crypto-derive"}
 redis = {version = "0.32.4", features = ["tokio-comp"]}
-open-ai-rust-responses-by-sshift = "0.2.8"
+open-ai-rust-responses-by-sshift = "0.3.0"
 ron= {version = "0.10.1"}
 bincode = "2.0.1"
 hex = "0.4.3"

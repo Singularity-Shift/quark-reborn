@@ -9,7 +9,7 @@ Price(
             price: 0.00748,
         ),
         (
-            name: GPT4o,
+            name: GPT5,
             price: 0.034,
         ),
         (
@@ -17,11 +17,11 @@ Price(
             price: 0.0136,
         ),
         (
-            name: GPT41Mini,
+            name: GPT5Mini,
             price: 0.00272,
         ),
         (
-            name: GPT41Nano,
+            name: GPT5Nano,
             price: 0.00068,
         ),
     ],

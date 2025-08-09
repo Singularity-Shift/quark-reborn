@@ -24,13 +24,9 @@ pub enum Command {
     C(String),
     #[command(description = "Send a prompt to the bot in a group.")]
     G(String),
-    #[command(description = "Send a prompt to the your selected reasoning model.")]
-    R(String),
     #[command(description = "Show example prompts.")]
     PromptExamples,
-    #[command(description = "Select reasoning model (O-series) and effort level.")]
-    SelectReasoningModel,
-    #[command(description = "Select chat model (4-series) and temperature.")]
+    #[command(description = "Select chat model (5-series or 4.1) and temperature.")]
     SelectModel,
     #[command(description = "View your current model preferences (DM only).")]
     MySettings,

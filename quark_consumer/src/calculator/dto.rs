@@ -23,10 +23,10 @@ pub struct ToolEntry {
 pub enum ModelName {
     O3,
     O4Mini,
-    GPT4o,
+    GPT5,
     GPT41,
-    GPT41Mini,
-    GPT41Nano,
+    GPT5Mini,
+    GPT5Nano,
 }
 
 impl fmt::Display for ModelName {
@@ -34,10 +34,10 @@ impl fmt::Display for ModelName {
         match self {
             ModelName::O3 => write!(f, "o3"),
             ModelName::O4Mini => write!(f, "o4-mini"),
-            ModelName::GPT4o => write!(f, "gpt-4o"),
+            ModelName::GPT5 => write!(f, "gpt-5"),
             ModelName::GPT41 => write!(f, "gpt-4.1"),
-            ModelName::GPT41Mini => write!(f, "gpt-4.1-mini"),
-            ModelName::GPT41Nano => write!(f, "gpt-4.1-nano"),
+            ModelName::GPT5Mini => write!(f, "gpt-5-mini"),
+            ModelName::GPT5Nano => write!(f, "gpt-5-nano"),
         }
     }
 }
