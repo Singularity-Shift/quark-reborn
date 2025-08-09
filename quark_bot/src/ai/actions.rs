@@ -1720,8 +1720,8 @@ pub async fn execute_prices(_arguments: &serde_json::Value) -> String {
     "💰 <b>Model Prices</b> <i>(per 1000 tokens)</i>
 
 🤖 <b>AI Models:</b>
-• <code>o3</code> - <b>$0.0136</b>
-• <code>o4-mini</code> - <b>$0.00748</b>
+• <code>o3</code> <i>(retired)</i> - <b>$0.0136</b>
+• <code>o4-mini</code> <i>(retired)</i> - <b>$0.00748</b>
 • <code>GPT-5</code> - <b>$0.034</b>
 • <code>GPT-4.1</code> - <b>$0.0136</b>
 • <code>GPT-5-mini</code> - <b>$0.00272</b>
