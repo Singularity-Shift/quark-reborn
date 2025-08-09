@@ -381,8 +381,8 @@ pub async fn handle_list_files(bot: Bot, msg: Message, bot_deps: BotDependencies
     Ok(())
 }
 
-// Removed legacy handle_reasoning_chat; unified under handle_chat
 /*
+// Legacy handle_reasoning_chat removed in unified flow
 /* pub async fn handle_reasoning_chat(
     bot: Bot,
     msg: Message,

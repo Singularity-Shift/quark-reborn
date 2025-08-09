@@ -83,7 +83,7 @@ pub async fn handle_model_preferences_callback(
                         msg.chat.id,
                         msg.id,
                         format!(
-                            "✅ <b>Model selected:</b> {}\n\n🧩 <b>Select GPT‑5 Mode:</b>\nChoose between regular responses or reasoning mode.",
+                            "✅ <b>Model selected:</b> {}\n\n🧩 <b>Select GPT‑5 Mode:</b>\nChoose between regular responses or reasoning mode.\n<i>Note: Reasoning uses more LLM tokens and may cost more.</i>",
                             model.to_display_string()
                         )
                     )
@@ -169,7 +169,7 @@ pub async fn handle_model_preferences_callback(
                         msg.chat.id,
                         msg.id,
                         format!(
-                            "✅ <b>Mode:</b> {}\n\n⚡ <b>Select GPT‑5 Reasoning Effort:</b>\n<i>Lower effort is cheaper; higher effort may use more tokens.</i>",
+                            "✅ <b>Mode:</b> {}\n\n⚡ <b>Select GPT‑5 Reasoning Effort:</b>\n<i>Lower effort is cheaper; higher effort uses more LLM tokens and may cost more.</i>",
                             gpt5_mode_to_display_string(&mode)
                         )
                     )
@@ -187,7 +187,7 @@ pub async fn handle_model_preferences_callback(
                         msg.chat.id,
                         msg.id,
                         format!(
-                            "✅ <b>Mode:</b> {}\n\n🗣️ <b>Select GPT‑5 Verbosity:</b>\n<i>Lower verbosity is cheaper; higher verbosity may use more tokens.</i>",
+                            "✅ <b>Mode:</b> {}\n\n🗣️ <b>Select GPT‑5 Verbosity:</b>\n<i>Lower verbosity is cheaper; higher verbosity uses more LLM tokens and may cost more.</i>",
                             gpt5_mode_to_display_string(&mode)
                         )
                     )
@@ -226,7 +226,7 @@ pub async fn handle_model_preferences_callback(
                     msg.chat.id,
                     msg.id,
                     format!(
-                        "✅ Effort set: {}\n\n🗣️ <b>Select GPT‑5 Verbosity:</b>\n<i>Lower verbosity is cheaper; higher verbosity may use more tokens.</i>",
+                        "✅ Effort set: {}\n\n🗣️ <b>Select GPT‑5 Verbosity:</b>\n<i>Lower verbosity is cheaper; higher verbosity uses more LLM tokens and may cost more.</i>",
                         gpt5_effort_to_display_string(&eff)
                     )
                 )

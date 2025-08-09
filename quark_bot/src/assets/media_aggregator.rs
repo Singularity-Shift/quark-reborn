@@ -141,10 +141,7 @@ impl MediaGroupAggregator {
                 ChatModel::GPT41 | ChatModel::GPT41Mini | ChatModel::GPT4o => {
                     temperature = Some(prefs.temperature);
                 }
-                ChatModel::GPT5 | ChatModel::GPT5Mini => {
-                    // GPT-5 path: use ReasoningEffort/Verbosity in AI handler; no ReasoningParams or temperature here
-                    // We leave temperature=None and reasoning_params=None
-                }
+                ChatModel::GPT5 | ChatModel::GPT5Mini => {}
             }
 
             // --- Gather photos: take largest variant from each message ---
