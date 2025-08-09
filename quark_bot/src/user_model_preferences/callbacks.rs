@@ -71,7 +71,7 @@ pub async fn handle_model_preferences_callback(
             // Save baseline for GPT-5: default temp still stored (unused), set defaults for mode/verbosity
             prefs_handler.set_chat_preferences(username, model.clone(), 0.6)?;
 
-            // Ask GPT-5 Mode selection next
+            // Ask GPT-5 Mode selection next and confirm model choice
             let keyboard = InlineKeyboardMarkup::new(vec![
                 vec![InlineKeyboardButton::callback("Regular", "set_gpt5_mode:Regular")],
                 vec![InlineKeyboardButton::callback("Reasoning", "set_gpt5_mode:Reasoning")],
@@ -83,7 +83,7 @@ pub async fn handle_model_preferences_callback(
                         msg.chat.id,
                         msg.id,
                         format!(
-                            "🧩 <b>Select GPT‑5 Mode for {}:</b>\n\nChoose between regular responses or reasoning mode.",
+                            "✅ <b>Model selected:</b> {}\n\n🧩 <b>Select GPT‑5 Mode:</b>\nChoose between regular responses or reasoning mode.",
                             model.to_display_string()
                         )
                     )
@@ -94,7 +94,7 @@ pub async fn handle_model_preferences_callback(
             }
 
             bot.answer_callback_query(query.id)
-                .text("Model selected")
+                .text(format!("Model: {}", model.to_display_string()))
                 .await?;
         }
     } else if data.starts_with("set_temperature:") {
@@ -168,7 +168,10 @@ pub async fn handle_model_preferences_callback(
                     bot.edit_message_text(
                         msg.chat.id,
                         msg.id,
-                        "⚡ <b>Select GPT‑5 Reasoning Effort:</b>"
+                        format!(
+                            "✅ <b>Mode:</b> {}\n\n⚡ <b>Select GPT‑5 Reasoning Effort:</b>",
+                            gpt5_mode_to_display_string(&mode)
+                        )
                     )
                     .reply_markup(keyboard)
                     .parse_mode(ParseMode::Html)
@@ -183,7 +186,10 @@ pub async fn handle_model_preferences_callback(
                     bot.edit_message_text(
                         msg.chat.id,
                         msg.id,
-                        "🗣️ <b>Select GPT‑5 Verbosity:</b>"
+                        format!(
+                            "✅ <b>Mode:</b> {}\n\n🗣️ <b>Select GPT‑5 Verbosity:</b>",
+                            gpt5_mode_to_display_string(&mode)
+                        )
                     )
                     .reply_markup(keyboard)
                     .parse_mode(ParseMode::Html)
@@ -249,7 +255,8 @@ pub async fn handle_model_preferences_callback(
                     msg.chat.id,
                     msg.id,
                     format!(
-                        "✅ <b>Chat model preferences saved!</b>\n\n🧩 Mode: {}\n🗣️ Verbosity: {}{}\n\nYour /c commands will now use these settings.",
+                        "✅ <b>Chat model preferences saved!</b>\n\n🤖 Model: {}\n🧩 Mode: {}\n🗣️ Verbosity: {}{}\n\nYour /c commands will now use these settings.",
+                        prefs.chat_model.to_display_string(),
                         prefs
                             .gpt5_mode
                             .as_ref()
