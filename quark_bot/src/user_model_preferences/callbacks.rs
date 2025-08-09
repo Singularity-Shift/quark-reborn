@@ -161,15 +161,15 @@ pub async fn handle_model_preferences_callback(
             if let teloxide::types::MaybeInaccessibleMessage::Regular(msg) = message {
                 if mode == Gpt5Mode::Reasoning {
                     let keyboard = InlineKeyboardMarkup::new(vec![
-                        vec![InlineKeyboardButton::callback("Minimal", "set_gpt5_effort:Minimal")],
-                        vec![InlineKeyboardButton::callback("Medium", "set_gpt5_effort:Medium")],
-                        vec![InlineKeyboardButton::callback("High", "set_gpt5_effort:High")],
+                        vec![InlineKeyboardButton::callback("Minimal (💸 Cheapest)", "set_gpt5_effort:Minimal")],
+                        vec![InlineKeyboardButton::callback("Medium (💰 Standard)", "set_gpt5_effort:Medium")],
+                        vec![InlineKeyboardButton::callback("High (💸💸 Most Expensive)", "set_gpt5_effort:High")],
                     ]);
                     bot.edit_message_text(
                         msg.chat.id,
                         msg.id,
                         format!(
-                            "✅ <b>Mode:</b> {}\n\n⚡ <b>Select GPT‑5 Reasoning Effort:</b>",
+                            "✅ <b>Mode:</b> {}\n\n⚡ <b>Select GPT‑5 Reasoning Effort:</b>\n<i>Lower effort is cheaper; higher effort may use more tokens.</i>",
                             gpt5_mode_to_display_string(&mode)
                         )
                     )
@@ -179,15 +179,15 @@ pub async fn handle_model_preferences_callback(
                 } else {
                     // Ask verbosity directly
                     let keyboard = InlineKeyboardMarkup::new(vec![
-                        vec![InlineKeyboardButton::callback("Low", "set_gpt5_verbosity:Low")],
-                        vec![InlineKeyboardButton::callback("Medium", "set_gpt5_verbosity:Medium")],
-                        vec![InlineKeyboardButton::callback("High", "set_gpt5_verbosity:High")],
+                        vec![InlineKeyboardButton::callback("Low (💸 Cheapest)", "set_gpt5_verbosity:Low")],
+                        vec![InlineKeyboardButton::callback("Medium (💰 Standard)", "set_gpt5_verbosity:Medium")],
+                        vec![InlineKeyboardButton::callback("High (💸💸 Most Expensive)", "set_gpt5_verbosity:High")],
                     ]);
                     bot.edit_message_text(
                         msg.chat.id,
                         msg.id,
                         format!(
-                            "✅ <b>Mode:</b> {}\n\n🗣️ <b>Select GPT‑5 Verbosity:</b>",
+                            "✅ <b>Mode:</b> {}\n\n🗣️ <b>Select GPT‑5 Verbosity:</b>\n<i>Lower verbosity is cheaper; higher verbosity may use more tokens.</i>",
                             gpt5_mode_to_display_string(&mode)
                         )
                     )
@@ -218,14 +218,17 @@ pub async fn handle_model_preferences_callback(
         if let Some(message) = query.message {
             if let teloxide::types::MaybeInaccessibleMessage::Regular(msg) = message {
                 let keyboard = InlineKeyboardMarkup::new(vec![
-                    vec![InlineKeyboardButton::callback("Low", "set_gpt5_verbosity:Low")],
-                    vec![InlineKeyboardButton::callback("Medium", "set_gpt5_verbosity:Medium")],
-                    vec![InlineKeyboardButton::callback("High", "set_gpt5_verbosity:High")],
+                    vec![InlineKeyboardButton::callback("Low (💸 Cheapest)", "set_gpt5_verbosity:Low")],
+                    vec![InlineKeyboardButton::callback("Medium (💰 Standard)", "set_gpt5_verbosity:Medium")],
+                    vec![InlineKeyboardButton::callback("High (💸💸 Most Expensive)", "set_gpt5_verbosity:High")],
                 ]);
                 bot.edit_message_text(
                     msg.chat.id,
                     msg.id,
-                    format!("✅ Effort set: {}\n\n🗣️ <b>Select GPT‑5 Verbosity:</b>", gpt5_effort_to_display_string(&eff))
+                    format!(
+                        "✅ Effort set: {}\n\n🗣️ <b>Select GPT‑5 Verbosity:</b>\n<i>Lower verbosity is cheaper; higher verbosity may use more tokens.</i>",
+                        gpt5_effort_to_display_string(&eff)
+                    )
                 )
                 .reply_markup(keyboard)
                 .parse_mode(ParseMode::Html)
