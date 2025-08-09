@@ -1,5 +1,5 @@
 use anyhow::Result;
-use open_ai_rust_responses_by_sshift::{Client, Model, Request};
+use open_ai_rust_responses_by_sshift::{Client, Model, Request, ReasoningEffort, Verbosity};
 use teloxide::{Bot, prelude::*, types::Message};
 
 pub struct ModerationService {
@@ -45,14 +45,53 @@ impl ModerationService {
 
         // Proceed with AI moderation for non-admin users
         let prompt = format!(
-            "You are an expert content moderator. Analyze this message for violations:\n\nRULE 1 - PROMOTION/SELLING:\n- Offering services, products, access, or benefits\n- Positioning as authority/leader to gain trust\n- Promising exclusive opportunities or deals\n- Any form of commercial solicitation\n\nRULE 2 - PRIVATE COMMUNICATION:\n- Requesting to move conversation to DM/private\n- Offering to send details privately\n- Asking for personal contact information\n- Any attempt to bypass public group discussion\n\nEXAMPLES TO FLAG (NOT EXHAUSTIVE - look for similar patterns):\n- \"I can offer you whitelist access\"\n- \"DM me for details\"\n- \"React and I'll message you\"\n- \"I'm a [title] and can help you\"\n- \"Send me your wallet address\"\n- \"Contact me privately\"\n- \"I'll send you the link\"\n\nADDITIONAL MODERATION CONSIDERATIONS:\n- Avoid overflagging extremely short messages (e.g., under 5 words) unless they clearly imply a rule violation\n- If context is unclear or ambiguous, default to 'P' unless there's a strong pattern match\n- Do not flag general expressions, exclamations, or encouragements (e.g., \"Let's raid it\", \"Where's yours?\", \"Let's go\", \"gm Gm\") unless clearly linked to promotion or privacy rule violations\n\nIMPORTANT: These examples are just patterns. Flag ANY message that violates the rules above, even if worded differently.\n\nReturn only:\n- 'F' if ANY rule is violated\n- 'P' if completely clean\n\nMessage: \"{}\"",
+            r#"You are a high-precision content moderator for a crypto community.
+
+Return EXACTLY one character:
+
+'F' if ANY rule is violated
+
+'P' if completely clean
+(No explanations, no punctuation, no extra text.)
+
+Rules (flag 'F' on any match):
+
+Promotion / Selling:
+- Offering services, products, access, or benefits
+- Positioning as authority/leader to gain trust
+- Promising exclusive opportunities or deals
+- Any commercial solicitation
+
+Private Communication:
+- Asking to move to DM/private, or sharing personal contact channels
+- "DM me", "I'll message you", "Contact me privately", etc.
+
+Unsolicited Links with Call-To-Action (phishing/scam risk):
+- Any external link combined with CTAs like:
+  vote, sign, proposal, claim, mint, verify, connect wallet, airdrop, whitelist or semantically similar words
+- Urgency/pressure language (e.g., urgent, now, protect your holdings) with or without a link
+
+Examples to flag (not exhaustive consider semantically similar words):
+- "DM me for details"
+- "I can offer whitelist access"
+- "Vote here: http://…"
+- "Sign the proposal here: https://…"
+- "Connect your wallet to claim: https://…"
+
+Notes:
+- Do not flag neutral short expressions ("Let's go", "gm", etc.) unless they clearly violate rules.
+- Use minimal but sufficient reasoning: if clear risk signals (link + CTA/urgency) are present, choose 'F'. If uncertain, rationalise based on the rules before deciding; otherwise choose 'P'.
+
+Message: "{}""#,
             message_text
         );
 
         let request = Request::builder()
             .model(Model::GPT5Nano)
             .input(prompt)
-            .max_output_tokens(20)
+            .verbosity(Verbosity::Low)
+            .reasoning_effort(ReasoningEffort::Minimal)
+            .max_output_tokens(500)
             .build();
 
         let response = self.client.responses.create(request).await?;
