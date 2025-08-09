@@ -3,9 +3,9 @@ use std::sync::Arc;
 use crate::message_history::handler::HistoryStorage;
 use crate::{
     ai::handler::AI, assets::media_aggregator::MediaGroupAggregator, credentials::handler::Auth,
-    dao::dao::Dao, group::handler::Group, panora::handler::Panora, 
+    dao::dao::Dao, group::handler::Group, panora::handler::Panora,
     pending_transactions::handler::PendingTransactions, services::handler::Services,
-    user_conversation::handler::UserConversations,
+    user_conversation::handler::UserConversations, yield_ai::yield_ai::YieldAI,
 };
 
 #[derive(Clone)]
@@ -24,4 +24,5 @@ pub struct BotDependencies {
     pub media_aggregator: Arc<MediaGroupAggregator>,
     pub history_storage: HistoryStorage,
     pub pending_transactions: PendingTransactions,
+    pub yield_ai: YieldAI,
 }

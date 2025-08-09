@@ -52,6 +52,8 @@ services:
       - PROFILE=${PROFILE}
       - APTOS_API_KEY=${APTOS_API_KEY}
       - ACCOUNT_SEED=${ACCOUNT_SEED}
+      - YIELD_AI_URL=${YIELD_AI_URL}
+      - YIELD_AI_API_KEY=${YIELD_AI_API_KEY}
     networks:
       - quark-net
     volumes:
