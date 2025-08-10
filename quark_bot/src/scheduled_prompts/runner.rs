@@ -37,16 +37,6 @@ fn next_daily_at(hour: u8, minute: u8) -> i64 {
     dt.timestamp()
 }
 
-fn next_hourly_at(minute: u8) -> i64 {
-    let now = Utc::now();
-    let add_hour = if now.minute() < minute as u32 { 0 } else { 1 };
-    let target = now
-        .with_minute(minute as u32)
-        .and_then(|dt| dt.with_second(0))
-        .and_then(|dt| dt.with_nanosecond(0))
-        .unwrap();
-    (target + chrono::Duration::hours(add_hour)).timestamp()
-}
 
 const TELEGRAM_MESSAGE_LIMIT: usize = 4096;
 
@@ -86,20 +76,73 @@ async fn send_long_message(bot: &Bot, chat_id: ChatId, text: &str) {
     }
 }
 
-fn add_interval_from(now: i64, policy: &RepeatPolicy, start_hour: u8, start_minute: u8) -> i64 {
+fn next_every_n_minutes_at(n: u32, start_minute: u8) -> i64 {
+    let now = Utc::now();
+    let m = now.minute();
+    let s = now.second();
+    let mut add_min = (start_minute as i64 + 60 - m as i64) % n as i64;
+    if add_min == 0 && s > 0 { add_min = n as i64; }
+    let target = now + chrono::Duration::minutes(add_min);
+    target
+        .with_second(0)
+        .and_then(|dt| dt.with_nanosecond(0))
+        .unwrap()
+        .timestamp()
+}
+
+fn next_n_hourly_at(n_hours: i64, start_hour: u8, start_minute: u8) -> i64 {
+    let now = Utc::now();
+    let anchor = Utc
+        .with_ymd_and_hms(now.year(), now.month(), now.day(), start_hour as u32, start_minute as u32, 0)
+        .unwrap();
+    if now <= anchor {
+        return anchor.timestamp();
+    }
+    let step = n_hours * 3600;
+    let now_ts = now.timestamp();
+    let anch_ts = anchor.timestamp();
+    let k = ((now_ts - anch_ts) + step - 1) / step; // ceil division
+    anch_ts + k * step
+}
+
+fn next_weekly_at(start_hour: u8, start_minute: u8) -> i64 {
+    let now = Utc::now();
+    let anchor = Utc
+        .with_ymd_and_hms(now.year(), now.month(), now.day(), start_hour as u32, start_minute as u32, 0)
+        .unwrap();
+    if now <= anchor {
+        anchor.timestamp()
+    } else {
+        (anchor + chrono::Duration::days(7)).timestamp()
+    }
+}
+
+fn next_monthly_at(start_hour: u8, start_minute: u8) -> i64 {
+    let now = Utc::now();
+    let anchor = Utc
+        .with_ymd_and_hms(now.year(), now.month(), now.day(), start_hour as u32, start_minute as u32, 0)
+        .unwrap();
+    if now <= anchor {
+        anchor.timestamp()
+    } else {
+        (anchor + chrono::Duration::days(30)).timestamp()
+    }
+}
+
+fn add_interval_from(_from: i64, policy: &RepeatPolicy, start_hour: u8, start_minute: u8) -> i64 {
     match policy {
         RepeatPolicy::None => next_daily_at(start_hour, start_minute),
-        RepeatPolicy::Every5m => now + 5 * 60,
-        RepeatPolicy::Every15m => now + 15 * 60,
-        RepeatPolicy::Every30m => now + 30 * 60,
-        RepeatPolicy::Every45m => now + 45 * 60,
-        RepeatPolicy::Every1h => next_hourly_at(start_minute),
-        RepeatPolicy::Every3h => now + 3 * 3600,
-        RepeatPolicy::Every6h => now + 6 * 3600,
-        RepeatPolicy::Every12h => now + 12 * 3600,
+        RepeatPolicy::Every5m => next_every_n_minutes_at(5, start_minute),
+        RepeatPolicy::Every15m => next_every_n_minutes_at(15, start_minute),
+        RepeatPolicy::Every30m => next_every_n_minutes_at(30, start_minute),
+        RepeatPolicy::Every45m => next_every_n_minutes_at(45, start_minute),
+        RepeatPolicy::Every1h => next_n_hourly_at(1, start_hour, start_minute),
+        RepeatPolicy::Every3h => next_n_hourly_at(3, start_hour, start_minute),
+        RepeatPolicy::Every6h => next_n_hourly_at(6, start_hour, start_minute),
+        RepeatPolicy::Every12h => next_n_hourly_at(12, start_hour, start_minute),
         RepeatPolicy::Daily => next_daily_at(start_hour, start_minute),
-        RepeatPolicy::Weekly => now + 7 * 24 * 3600,
-        RepeatPolicy::Monthly => now + 30 * 24 * 3600,
+        RepeatPolicy::Weekly => next_weekly_at(start_hour, start_minute),
+        RepeatPolicy::Monthly => next_monthly_at(start_hour, start_minute),
     }
 }
 

@@ -18,12 +18,14 @@ pub fn build_hours_keyboard() -> InlineKeyboardMarkup {
 }
 
 pub fn build_minutes_keyboard() -> InlineKeyboardMarkup {
+    // Show minutes in 5-minute steps: 00..55
     let mut rows: Vec<Vec<InlineKeyboardButton>> = Vec::new();
     let mut row: Vec<InlineKeyboardButton> = Vec::new();
-    for m in 0u8..=59u8 {
+    for m in (0..=55).step_by(5) {
+        let m_u8 = m as u8;
         row.push(InlineKeyboardButton::callback(
-            format!("{:02}", m),
-            format!("sched_min:{}", m),
+            format!("{:02}", m_u8),
+            format!("sched_min:{}", m_u8),
         ));
         if row.len() == 10 {
             rows.push(row);

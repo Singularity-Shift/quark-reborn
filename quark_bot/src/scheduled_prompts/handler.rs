@@ -107,6 +107,18 @@ pub async fn finalize_and_register(
     bot_deps: BotDependencies,
     state: PendingWizardState,
 ) -> Result<()> {
+    // Enforce per-group cap: max 10 active schedules
+    let storage = ScheduledStorage::new(&bot_deps.db)?;
+    let active_count = storage.list_schedules_for_group(state.group_id).len();
+    if active_count >= 10 {
+        bot.send_message(
+            ChatId(state.group_id as i64),
+            "❌ You already have 10 active scheduled prompts in this group.\n\nPlease cancel one with /listscheduled before adding a new schedule.",
+        )
+        .await?;
+        return Ok(());
+    }
+
     let id = Uuid::new_v4().to_string();
     let mut rec = ScheduledPromptRecord {
         id: id.clone(),
@@ -127,7 +139,6 @@ pub async fn finalize_and_register(
         conversation_response_id: None,
     };
 
-    let storage = ScheduledStorage::new(&bot_deps.db)?;
     storage.put_schedule(&rec)?;
     register_schedule(bot.clone(), bot_deps.clone(), &mut rec).await?;
     storage.put_schedule(&rec)?;
