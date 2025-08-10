@@ -5,7 +5,9 @@ use crate::ai::vector_store::{
 };
 use crate::dao::handler::{handle_dao_preference_callback, handle_disable_notifications_callback};
 use crate::dependencies::BotDependencies;
+// use crate::scheduled_prompts; // not needed directly
 use crate::user_model_preferences::callbacks::handle_model_preferences_callback;
+use crate::scheduled_prompts::callbacks::handle_scheduled_prompts_callback;
 use crate::utils;
 use anyhow::Result;
 
@@ -300,6 +302,9 @@ pub async fn handle_callback_query(
         } else if data.starts_with("pay_accept:") || data.starts_with("pay_reject:") {
             // Handle payment confirmation callbacks
             handle_payment_callback(bot, query, bot_deps).await?;
+        } else if data.starts_with("sched_") {
+            // Handle scheduled prompts wizard and management callbacks
+            handle_scheduled_prompts_callback(bot, query, bot_deps).await?;
         } else {
             bot.answer_callback_query(query.id)
                 .text("❌ Unknown action")
