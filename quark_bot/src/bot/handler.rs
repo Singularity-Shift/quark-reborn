@@ -36,6 +36,9 @@ use teloxide::{
 };
 use tokio::fs::File;
 use tokio::time::sleep;
+use crate::scheduled_prompts::storage::ScheduledStorage;
+use crate::scheduled_prompts::dto::PendingStep;
+use crate::scheduled_prompts::wizard::build_hours_keyboard;
 
 const TELEGRAM_MESSAGE_LIMIT: usize = 4096;
 
@@ -1262,6 +1265,30 @@ pub async fn handle_message(bot: Bot, msg: Message, bot_deps: BotDependencies) -
                 )
                 .await?;
                 return Ok(());
+            }
+        }
+
+        // Scheduled prompts wizard: capture reply text for prompt entry
+        if let Some(_reply) = msg.reply_to_message() {
+            if let Some(user) = &msg.from {
+                if let Ok(storage) = ScheduledStorage::new(&bot_deps.db) {
+                    let key = (&msg.chat.id.0, &(user.id.0 as i64));
+                    if let Some(mut st) = storage.get_pending(key) {
+                        if st.step == PendingStep::AwaitingPrompt {
+                            let text = msg.text().or_else(|| msg.caption()).unwrap_or("").to_string();
+                            if !text.trim().is_empty() {
+                                st.prompt = Some(text);
+                                st.step = PendingStep::AwaitingHour;
+                                let _ = storage.put_pending(key, &st);
+                                let kb = build_hours_keyboard();
+                                bot.send_message(msg.chat.id, "Select start hour (UTC)")
+                                    .reply_markup(kb)
+                                    .await?;
+                                return Ok(());
+                            }
+                        }
+                    }
+                }
             }
         }
 

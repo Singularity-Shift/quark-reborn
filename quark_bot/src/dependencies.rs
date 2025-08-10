@@ -7,6 +7,7 @@ use crate::{
     pending_transactions::handler::PendingTransactions, services::handler::Services,
     user_conversation::handler::UserConversations, yield_ai::yield_ai::YieldAI,
 };
+use tokio_cron_scheduler::JobScheduler;
 
 #[derive(Clone)]
 pub struct BotDependencies {
@@ -25,4 +26,5 @@ pub struct BotDependencies {
     pub history_storage: HistoryStorage,
     pub pending_transactions: PendingTransactions,
     pub yield_ai: YieldAI,
+    pub scheduler: Arc<JobScheduler>,
 }

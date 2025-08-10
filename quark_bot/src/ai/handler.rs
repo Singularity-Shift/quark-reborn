@@ -73,7 +73,7 @@ impl AI {
 
     pub async fn generate_response(
         &self,
-        bot: Bot,
+        _bot: Bot,
         msg: Message,
         input: &str,
         image_url_from_reply: Option<String>,
@@ -240,7 +240,9 @@ impl AI {
         }
 
         // Add custom function tools (get_balance, withdraw_funds, etc.)
-        tools.extend(get_all_custom_tools());
+        // For scheduled prompts, we intentionally do not expose custom function tools
+        // to avoid requiring a full Telegram Message context. Built-in tools like
+        // web_search and file_search remain available.
 
         let user = if group_id.is_some() {
             format!("group-{}", group_id.clone().unwrap())
@@ -451,7 +453,7 @@ impl AI {
                     let result = execute_custom_tool(
                         &tool_call.name,
                         &args_value,
-                        bot.clone(),
+                        _bot.clone(),
                         msg.clone(),
                         group_id.clone(),
                         bot_deps.clone(),
@@ -600,5 +602,208 @@ impl AI {
             image_generation_count,
             code_interpreter_count,
         )))
+    }
+
+    /// Generate a response for a scheduled prompt in a group context, using a
+    /// per-schedule conversation thread. Returns the AIResponse and the new
+    /// response_id. Does not persist response_id in user_conversations.
+    pub async fn generate_response_for_schedule(
+        &self,
+        _bot: Bot,
+        input: &str,
+        model: Model,
+        max_tokens: u32,
+        temperature: Option<f32>,
+        reasoning: Option<ReasoningParams>,
+        bot_deps: BotDependencies,
+        group_id: String,
+        previous_response_id: Option<String>,
+        schedule_id: &str,
+        creator_user_id: i64,
+        creator_username: String,
+    ) -> Result<(AIResponse, String), anyhow::Error> {
+        // Validate group credentials
+        let group_chat_id_i64: i64 = group_id.parse().unwrap_or(0);
+        let group_chat_id = teloxide::types::ChatId(group_chat_id_i64 as i64);
+        let group_credentials = bot_deps
+            .group
+            .get_credentials(group_chat_id)
+            .ok_or_else(|| anyhow::anyhow!("Group credentials not found"))?;
+
+        // Token checks for group account
+        let address = group_credentials.resource_account_address;
+        let coin_address = bot_deps
+            .panora
+            .aptos
+            .get_token_address()
+            .await
+            .map_err(|_| anyhow::anyhow!("Coin address not found"))?;
+        let token = bot_deps.panora.get_token_ai_fees().await?;
+        let token_price = token
+            .usd_price
+            .ok_or_else(|| anyhow::anyhow!("Token price not found"))?
+            .parse::<f64>()?;
+        let token_decimals = token
+            .decimals
+            .ok_or_else(|| anyhow::anyhow!("Token decimals not found"))?;
+        let min_deposit = (bot_deps.panora.min_deposit / token_price) as f64;
+        let min_deposit = (min_deposit * 10_f64.powi(token_decimals as i32)) as u64;
+        let group_balance = bot_deps
+            .panora
+            .aptos
+            .get_account_balance(&address, &coin_address)
+            .await?;
+        if group_balance < min_deposit as i64 {
+            let min_deposit_formatted = format!(
+                "{:.2}",
+                min_deposit as f64 / 10_f64.powi(token_decimals as i32)
+            );
+            let group_balance_formatted = format!(
+                "{:.2}",
+                group_balance as f64 / 10_f64.powi(token_decimals as i32)
+            );
+            return Err(anyhow::anyhow!(format!(
+                "User balance is less than the minimum deposit. Please fund your account transfering {} to {} address. Minimum deposit: {} {} (Your balance: {} {})",
+                token.symbol.clone().unwrap_or("".to_string()),
+                address,
+                min_deposit_formatted,
+                token.symbol.clone().unwrap_or("".to_string()),
+                group_balance_formatted,
+                token.symbol.unwrap_or("".to_string())
+            )));
+        }
+
+        // Use the creator's vector store (if any)
+        let user_convos = UserConversations::new(&bot_deps.db)?;
+        let vector_store_id = user_convos.get_vector_store_id(creator_user_id);
+
+        // Tools setup
+        let mut tools = vec![];
+        if !matches!(
+            model,
+            Model::O3 | Model::O4Mini | Model::O1 | Model::O1Mini | Model::O1Preview
+        ) {
+            tools.push(Tool::image_generation());
+        }
+        tools.push(Tool::web_search_preview());
+        if let Some(vs_id) = vector_store_id.clone() {
+            if !vs_id.is_empty() {
+                tools.push(Tool::file_search(vec![vs_id]));
+            }
+        }
+        tools.extend(get_all_custom_tools());
+
+        // Label for per-schedule conversation identity (Responses API max length: 64)
+        // Use a compact, deterministic label based only on schedule_id
+        let sid_clean: String = schedule_id.chars().filter(|c| c.is_ascii_hexdigit()).collect();
+        let sid_short: String = sid_clean.chars().take(16).collect();
+        let user_label = format!("schedule-{}", sid_short);
+        let system_prompt = format!("Entity {}: {}", user_label, self.system_prompt);
+
+        let mut request_builder = Request::builder()
+            .model(model.clone())
+            .instructions(system_prompt)
+            .tools(tools.clone())
+            .tool_choice(ToolChoice::auto())
+            .parallel_tool_calls(true)
+            .max_output_tokens(max_tokens)
+            .user(&user_label)
+            .store(true)
+            .input(input);
+
+        match model {
+            Model::GPT41 | Model::GPT41Mini | Model::GPT4o => {
+                if let Some(temp) = temperature {
+                    request_builder = request_builder.temperature(temp);
+                }
+            }
+            Model::GPT5 | Model::GPT5Mini => {
+                {
+                    let prefs = bot_deps.user_model_prefs.get_preferences(&creator_username);
+                    let verbosity = prefs.gpt5_verbosity.unwrap_or(Verbosity::Medium);
+                    request_builder = request_builder.verbosity(verbosity);
+                    if let Some(mode) = prefs.gpt5_mode {
+                        if mode == crate::user_model_preferences::dto::Gpt5Mode::Reasoning {
+                            let eff = prefs.gpt5_effort.unwrap_or(ReasoningEffort::Medium);
+                            request_builder = request_builder.reasoning_effort(eff);
+                        }
+                    }
+                }
+            }
+            _ => {}
+        }
+
+        if let Some(reasoning_params) = reasoning.clone() {
+            request_builder = request_builder.reasoning(reasoning_params);
+        }
+        if vector_store_id.is_some() {
+            request_builder = request_builder.include(vec![Include::FileSearchResults]);
+        }
+        if let Some(prev_id) = previous_response_id.clone() {
+            request_builder = request_builder.previous_response_id(prev_id);
+        }
+
+        log::info!(
+            "[schedule] OpenAI call: user_label={}, model={:?}, prev_id_present={}, vector_store={}",
+            user_label,
+            model,
+            previous_response_id.is_some(),
+            vector_store_id.is_some()
+        );
+
+        let current_response: Response = self
+            .openai_client
+            .responses
+            .create(request_builder.build())
+            .await?;
+        let mut total_tokens_used = 0u32;
+        if let Some(usage) = &current_response.usage {
+            total_tokens_used += usage.total_tokens;
+        }
+
+        let mut reply = current_response.output_text();
+        let new_response_id = current_response.id().to_string();
+
+        let mut image_data: Option<Vec<u8>> = None;
+        for item in &current_response.output {
+            if let ResponseItem::ImageGenerationCall { result, .. } = item {
+                match general_purpose::STANDARD.decode(result) {
+                    Ok(bytes) => {
+                        image_data = Some(bytes);
+                        match self
+                            .cloud
+                            .upload_base64_image(result, "png", "quark/images")
+                            .await
+                        {
+                            Ok(url) => {
+                                reply = format!("{}\n\nImage URL: {}", reply, url);
+                            }
+                            Err(e) => log::error!("Failed to upload image to GCS: {}", e),
+                        }
+                        break;
+                    }
+                    Err(e) => {
+                        log::error!("Error decoding base64 image: {}", e);
+                    }
+                }
+            }
+        }
+
+        let (web_search_count, file_search_count, image_generation_count, code_interpreter_count) =
+            AIResponse::calculate_tool_usage(&current_response);
+
+        let ai_resp = AIResponse::from((
+            reply,
+            model,
+            image_data,
+            None,
+            total_tokens_used,
+            web_search_count,
+            file_search_count,
+            image_generation_count,
+            code_interpreter_count,
+        ));
+
+        Ok((ai_resp, new_response_id))
     }
 }

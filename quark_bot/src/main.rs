@@ -17,6 +17,7 @@ mod user_conversation;
 mod user_model_preferences;
 mod utils;
 mod yield_ai;
+mod scheduled_prompts;
 
 mod dependencies;
 
@@ -46,6 +47,8 @@ use teloxide::types::BotCommand;
 use crate::assets::command_image_collector;
 use crate::assets::media_aggregator;
 use crate::bot::handler_tree::handler_tree;
+use tokio_cron_scheduler::JobScheduler;
+use crate::scheduled_prompts::handler::bootstrap_scheduled_prompts;
 
 #[tokio::main(flavor = "multi_thread", worker_threads = 4)]
 async fn main() {
@@ -116,6 +119,15 @@ async fn main() {
         .await
         .expect("Failed to schedule jobs");
 
+    // Initialize a dedicated scheduler for user scheduled prompts
+    let user_scheduler = JobScheduler::new()
+        .await
+        .expect("Failed to create user scheduled prompts scheduler");
+    user_scheduler
+        .start()
+        .await
+        .expect("Failed to start user scheduled prompts scheduler");
+
     let service = Services::new();
 
     let cmd_collector = Arc::new(command_image_collector::CommandImageCollector::new(
@@ -141,6 +153,14 @@ async fn main() {
         BotCommand::new(
             "g",
             "prompt to chat AI with the bot in a group. (only admins can use this command)",
+        ),
+        BotCommand::new(
+            "scheduleprompt",
+            "Schedule a recurring or one-shot group prompt (admins only).",
+        ),
+        BotCommand::new(
+            "listscheduled",
+            "List active scheduled prompts (admins only).",
         ),
         BotCommand::new("walletaddress", "Get your wallet address."),
         // Removed selectreasoningmodel (unified under selectmodel)
@@ -189,7 +209,13 @@ async fn main() {
         history_storage: history_storage.clone(),
         pending_transactions: pending_transactions.clone(),
         yield_ai: yield_ai.clone(),
+        scheduler: std::sync::Arc::new(user_scheduler),
     };
+
+    // Bootstrap user-defined schedules (load and register)
+    if let Err(e) = bootstrap_scheduled_prompts(bot.clone(), bot_deps.clone()).await {
+        log::error!("Failed to bootstrap scheduled prompts: {}", e);
+    }
 
     Dispatcher::builder(bot.clone(), handler_tree())
         .dependencies(dptree::deps![InMemStorage::<QuarkState>::new(), bot_deps])
