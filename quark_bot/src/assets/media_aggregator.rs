@@ -116,19 +116,23 @@ impl MediaGroupAggregator {
                 u
             } else {
                 typing_indicator_handle.abort();
-                let _ = self
+                if let Err(e) = self
                     .bot
                     .send_message(chat_id, "❌ Unable to verify permissions.")
-                    .await;
+                    .await {
+                    log::warn!("Failed to send permission error: {}", e);
+                }
                 return;
             };
 
             if self.auth.get_credentials(username).is_none() {
                 typing_indicator_handle.abort();
-                let _ = self
+                if let Err(e) = self
                     .bot
                     .send_message(chat_id, "❌ Please login first.")
-                    .await;
+                    .await {
+                    log::warn!("Failed to send login required message: {}", e);
+                }
                 return;
             }
 
@@ -184,10 +188,12 @@ impl MediaGroupAggregator {
                 Ok(urls) => urls,
                 Err(e) => {
                     typing_indicator_handle.abort();
-                    let _ = self
+                    if let Err(e2) = self
                         .bot
                         .send_message(chat_id, "Failed to upload images.")
-                        .await;
+                        .await {
+                        log::warn!("Failed to send upload error message: {}", e2);
+                    }
                     log::error!("upload_user_images failed: {}", e);
                     return;
                 }
@@ -222,15 +228,21 @@ impl MediaGroupAggregator {
                         } else {
                             &ai_response.text
                         };
-                        let _ = self.bot.send_photo(chat_id, photo).caption(caption).await;
+                        if let Err(e) = self.bot.send_photo(chat_id, photo).caption(caption).await {
+                            log::warn!("Failed to send photo with caption: {}", e);
+                        }
                         if ai_response.text.len() > 1024 {
-                            let _ = self
+                            if let Err(e) = self
                                 .bot
                                 .send_message(chat_id, &ai_response.text[1024..])
-                                .await;
+                                .await {
+                                log::warn!("Failed to send overflow message: {}", e);
+                            }
                         }
                     } else {
-                        let _ = self.bot.send_message(chat_id, ai_response.text).await;
+                        if let Err(e) = self.bot.send_message(chat_id, ai_response.text).await {
+                            log::warn!("Failed to send AI response: {}", e);
+                        }
                     }
                 }
                 Err(e) => {

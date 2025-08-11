@@ -186,7 +186,9 @@ pub async fn handle_callback_query(
                 {
                     Ok(_) => {
                         // Delete the moderation notification message
-                        let _ = bot.delete_message(message.chat.id, message.id).await;
+                        if let Err(e) = bot.delete_message(message.chat.id, message.id).await {
+                            log::warn!("Failed to delete moderation notification: {}", e);
+                        }
 
                         bot.answer_callback_query(query.id)
                             .text("✅ User unmuted successfully")
@@ -240,7 +242,9 @@ pub async fn handle_callback_query(
                     Ok(_) => {
                         // If we know the offending message id, attempt to delete it
                         if let Some(offend_id) = offending_message_id {
-                            let _ = bot.delete_message(message.chat.id, offend_id).await;
+                            if let Err(e) = bot.delete_message(message.chat.id, offend_id).await {
+                                log::warn!("Failed to delete offending message {}: {}", offend_id.0, e);
+                            }
                         } else {
                             // Fallback: try to extract Message ID from the moderation text block
                             if let Some(text) = message.text() {
@@ -250,7 +254,9 @@ pub async fn handle_callback_query(
                                     if let (Some(code_open), Some(code_close)) = (after.find("<code>"), after.find("</code>")) {
                                         let inner = &after[code_open + "<code>".len()..code_close];
                                         if let Ok(mid) = inner.trim().parse::<i32>() {
-                                            let _ = bot.delete_message(message.chat.id, teloxide::types::MessageId(mid)).await;
+                                            if let Err(e) = bot.delete_message(message.chat.id, teloxide::types::MessageId(mid)).await {
+                                                log::warn!("Failed fallback delete for offending message {}: {}", mid, e);
+                                            }
                                         }
                                     }
                                 }
@@ -258,7 +264,9 @@ pub async fn handle_callback_query(
                         }
 
                         // Delete the moderation notification message itself
-                        let _ = bot.delete_message(message.chat.id, message.id).await;
+                        if let Err(e) = bot.delete_message(message.chat.id, message.id).await {
+                            log::warn!("Failed to delete moderation message {}: {}", message.id.0, e);
+                        }
 
                         bot.answer_callback_query(query.id)
                             .text("✅ User banned successfully")
@@ -382,9 +390,11 @@ pub async fn handle_payment_callback(
             .await?;
         
         // Edit the message to remove buttons
-        if let Some(message) = &query.message {
+            if let Some(message) = &query.message {
             if let teloxide::types::MaybeInaccessibleMessage::Regular(msg) = message {
-                let _ = bot.edit_message_reply_markup(msg.chat.id, msg.id).await;
+                if let Err(e) = bot.edit_message_reply_markup(msg.chat.id, msg.id).await {
+                    log::warn!("Failed to clear reply markup: {}", e);
+                }
             }
         }
         return Ok(());
@@ -405,7 +415,9 @@ pub async fn handle_payment_callback(
     // Check if transaction has expired
     if crate::pending_transactions::handler::PendingTransactions::is_expired(&pending_transaction) {
         // Remove expired transaction
-        let _ = bot_deps.pending_transactions.delete_pending_transaction(user_id, group_id_opt);
+        if let Err(e) = bot_deps.pending_transactions.delete_pending_transaction(user_id, group_id_opt) {
+            log::warn!("Failed to delete expired pending transaction: {}", e);
+        }
         
         bot.answer_callback_query(query.id)
             .text("❌ Transaction has expired (1 minute timeout)")
@@ -452,7 +464,9 @@ pub async fn handle_payment_callback(
             match result {
                 Ok(response) => {
                     // Delete the pending transaction ONLY after successful payment
-                    let _ = bot_deps.pending_transactions.delete_pending_transaction(user_id, group_id_opt);
+                    if let Err(e) = bot_deps.pending_transactions.delete_pending_transaction(user_id, group_id_opt) {
+                        log::warn!("Failed to delete pending transaction after payment: {}", e);
+                    }
                     
                     let network = std::env::var("APTOS_NETWORK")
                         .unwrap_or("mainnet".to_string())
@@ -510,7 +524,9 @@ pub async fn handle_payment_callback(
         }
         "pay_reject" => {
             // Delete the pending transaction
-            let _ = bot_deps.pending_transactions.delete_pending_transaction(user_id, group_id_opt);
+            if let Err(e) = bot_deps.pending_transactions.delete_pending_transaction(user_id, group_id_opt) {
+                log::warn!("Failed to delete pending transaction on cancel: {}", e);
+            }
 
             let recipients_text = if pending_transaction.original_usernames.len() == 1 {
                 format!("@{}", pending_transaction.original_usernames[0])

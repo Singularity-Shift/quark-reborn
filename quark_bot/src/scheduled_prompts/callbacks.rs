@@ -99,7 +99,9 @@ pub async fn handle_scheduled_prompts_callback(
             storage.put_schedule(&rec)?;
             bot.answer_callback_query(query.id).text("✅ Cancelled").await?;
             // Delete the message that contained the cancel button
-            let _ = bot.delete_message(message.chat.id, message.id).await;
+            if let Err(e) = bot.delete_message(message.chat.id, message.id).await {
+                log::warn!("Failed to delete schedule-cancel message {}: {}", message.id.0, e);
+            }
         }
     } else {
         bot.answer_callback_query(query.id).text("❌ Unknown action").await?;

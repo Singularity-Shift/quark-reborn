@@ -1279,7 +1279,12 @@ pub async fn handle_message(bot: Bot, msg: Message, bot_deps: BotDependencies) -
                             if !text.trim().is_empty() {
                                 st.prompt = Some(text);
                                 st.step = PendingStep::AwaitingHour;
-                                let _ = storage.put_pending(key, &st);
+                                if let Err(e) = storage.put_pending(key, &st) {
+                                    log::error!("Failed to persist scheduled wizard state: {}", e);
+                                    bot.send_message(msg.chat.id, "❌ Error saving schedule state. Please try /scheduleprompt again.")
+                                        .await?;
+                                    return Ok(());
+                                }
                                 let kb = build_hours_keyboard();
                                 bot.send_message(msg.chat.id, "Select start hour (UTC)")
                                     .reply_markup(kb)
