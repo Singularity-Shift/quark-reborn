@@ -98,8 +98,8 @@ pub async fn handle_scheduled_prompts_callback(
             rec.active = false;
             storage.put_schedule(&rec)?;
             bot.answer_callback_query(query.id).text("✅ Cancelled").await?;
-            // remove buttons
-            let _ = bot.edit_message_reply_markup(message.chat.id, message.id).await;
+            // Delete the message that contained the cancel button
+            let _ = bot.delete_message(message.chat.id, message.id).await;
         }
     } else {
         bot.answer_callback_query(query.id).text("❌ Unknown action").await?;

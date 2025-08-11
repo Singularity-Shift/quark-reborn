@@ -27,7 +27,8 @@ pub fn build_minutes_keyboard() -> InlineKeyboardMarkup {
             format!("{:02}", m_u8),
             format!("sched_min:{}", m_u8),
         ));
-        if row.len() == 10 {
+        // Keep rows uniform: 6 buttons per row → 2 rows total for 12 buttons
+        if row.len() == 6 {
             rows.push(row);
             row = Vec::new();
         }
