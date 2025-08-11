@@ -67,13 +67,21 @@ fn split_message(text: &str) -> Vec<String> {
     chunks
 }
 
-async fn send_long_message(bot: &Bot, chat_id: ChatId, text: &str) {
+async fn send_long_message(bot: &Bot, chat_id: ChatId, text: &str) -> usize {
     let html = markdown_to_html(text);
     let parts = split_message(&html);
     for (i, part) in parts.iter().enumerate() {
         if i > 0 { sleep(Duration::from_millis(100)).await; }
-        let _ = bot.send_message(chat_id, part).parse_mode(ParseMode::Html).await;
+        match bot.send_message(chat_id, part).parse_mode(ParseMode::Html).await {
+            Ok(msg) => {
+                log::info!("Sent chunk {}/{} to chat {} (msg_id={})", i + 1, parts.len(), chat_id.0, msg.id.0);
+            }
+            Err(e) => {
+                log::error!("Failed to send chunk {}/{} to chat {}: {}", i + 1, parts.len(), chat_id.0, e);
+            }
+        }
     }
+    parts.len()
 }
 
 fn next_every_n_minutes_at(n: u32, start_minute: u8) -> i64 {
@@ -321,11 +329,28 @@ pub async fn register_schedule(
                     let text_out = ai_response.text.clone();
                     if let Some(image_data) = ai_response.image_data.clone() {
                         let photo = teloxide::types::InputFile::memory(image_data);
-                        let caption = if text_out.len() > 1024 { &text_out[..1024] } else { &text_out };
-                        let _ = bot.send_photo(group_chat_id, photo).caption(caption).await;
-                        if text_out.len() > 1024 { send_long_message(&bot, group_chat_id, &text_out[1024..]).await; }
+                        if text_out.trim().is_empty() {
+                            match bot.send_photo(group_chat_id, photo).await {
+                                Ok(msg) => log::info!("[sched:{}] sent image to chat {} (msg_id={})", schedule_id, group_chat_id.0, msg.id.0),
+                                Err(e) => log::error!("[sched:{}] failed sending image to chat {}: {}", schedule_id, group_chat_id.0, e),
+                            }
+                        } else {
+                            let caption = if text_out.len() > 1024 { &text_out[..1024] } else { &text_out };
+                            match bot.send_photo(group_chat_id, photo).caption(caption).await {
+                                Ok(msg) => log::info!("[sched:{}] sent image with caption to chat {} (msg_id={})", schedule_id, group_chat_id.0, msg.id.0),
+                                Err(e) => log::error!("[sched:{}] failed sending image to chat {}: {}", schedule_id, group_chat_id.0, e),
+                            }
+                            if text_out.len() > 1024 {
+                                let chunks = send_long_message(&bot, group_chat_id, &text_out[1024..]).await;
+                                log::info!("[sched:{}] sent remainder text chunks={} total_len={} to chat {}", schedule_id, chunks, text_out.len().saturating_sub(1024), group_chat_id.0);
+                            }
+                        }
                     } else {
-                        send_long_message(&bot, group_chat_id, &text_out).await;
+                        let payload = if text_out.trim().is_empty() {
+                            "_(The model processed the request but returned no text.)_".to_string()
+                        } else { text_out };
+                        let chunks = send_long_message(&bot, group_chat_id, &payload).await;
+                        log::info!("[sched:{}] sent text chunks={} total_len={} to chat {}", schedule_id, chunks, payload.len(), group_chat_id.0);
                     }
 
                     // Billing: charge group resource account like /g

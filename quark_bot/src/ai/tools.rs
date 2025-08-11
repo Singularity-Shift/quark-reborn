@@ -302,11 +302,11 @@ pub fn create_proposal() -> Tool {
     )
 }
 
-/// Get recent group messages – returns last ≈20 lines
+/// Get recent group messages – returns last ≈30 lines
 pub fn get_recent_messages_tool() -> Tool {
     Tool::function(
         "get_recent_messages",
-        "Retrieve the most recent messages (up to 20) from this Telegram group chat. Use this tool whenever users ask about: 'what have I missed', 'recent activity', 'what happened', 'group updates', 'catching up', 'conversation history', or use vague references like 'that', 'it', 'what we discussed'. This tool is essential for providing context-aware responses and should be called automatically for situational awareness in group chats.",
+        "Retrieve the most recent messages (up to 30) from this Telegram group chat. Use this tool whenever users ask about: 'what have I missed', 'recent activity', 'what happened', 'group updates', 'catching up', 'conversation history', or use vague references like 'that', 'it', 'what we discussed'. This tool is essential for providing context-aware responses and should be called automatically for situational awareness in group chats.",
         serde_json::json!({}),
     )
 }
