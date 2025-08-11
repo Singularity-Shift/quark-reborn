@@ -39,6 +39,7 @@ fn next_daily_at(hour: u8, minute: u8) -> i64 {
 
 
 const TELEGRAM_MESSAGE_LIMIT: usize = 4096;
+const SCHEDULED_PROMPT_SUFFIX: &str = " - This is a presheduled prompt, DO NOT seek a response from anyone or offer follow ups.";
 
 fn split_message(text: &str) -> Vec<String> {
     if text.len() <= TELEGRAM_MESSAGE_LIMIT { return vec![text.to_string()]; }
@@ -314,8 +315,10 @@ pub async fn register_schedule(
 
             let creator_user_id = rec.creator_user_id;
 
+            // Append a safety note only to the API input; not shown in Telegram or stored
+            let prompt_for_api = format!("{}{}", rec.prompt, SCHEDULED_PROMPT_SUFFIX);
             let ai_call = bot_deps.ai.generate_response_for_schedule(
-                &rec.prompt,
+                &prompt_for_api,
                 chat_model,
                 8192,
                 temperature,
