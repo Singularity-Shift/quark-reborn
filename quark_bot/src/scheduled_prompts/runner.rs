@@ -160,8 +160,12 @@ pub async fn register_all_schedules(bot: Bot, bot_deps: BotDependencies) -> anyh
         if let Ok((_, ivec)) = item {
             if let Ok((mut rec, _)) = bincode::decode_from_slice::<ScheduledPromptRecord, _>(&ivec, bincode::config::standard()) {
                 if rec.active {
-                    let _ = register_schedule(bot.clone(), bot_deps.clone(), &mut rec).await;
-                    let _ = storage.put_schedule(&rec);
+                    if let Err(e) = register_schedule(bot.clone(), bot_deps.clone(), &mut rec).await {
+                        log::error!("Failed to register schedule {} on bootstrap: {}", rec.id, e);
+                    }
+                    if let Err(e) = storage.put_schedule(&rec) {
+                        log::warn!("Failed to persist schedule {} after bootstrap register: {}", rec.id, e);
+                    }
                 }
             }
         }
@@ -276,7 +280,9 @@ pub async fn register_schedule(
 
             // Lock for 120s
             rec.locked_until = Some(now_ts + 120);
-            let _ = storage.put_schedule(&rec);
+            if let Err(e) = storage.put_schedule(&rec) {
+                log::warn!("Failed to persist lock for schedule {}: {}", schedule_id, e);
+            }
 
             // Prepare AI execution
             let prefs = bot_deps
@@ -309,7 +315,6 @@ pub async fn register_schedule(
             let creator_user_id = rec.creator_user_id;
 
             let ai_call = bot_deps.ai.generate_response_for_schedule(
-                bot.clone(),
                 &rec.prompt,
                 chat_model,
                 8192,
@@ -402,7 +407,9 @@ pub async fn register_schedule(
                 _ => Some(add_interval_from(Utc::now().timestamp(), &rec.repeat, rec.start_hour_utc, rec.start_minute_utc)),
             };
 
-            let _ = storage.put_schedule(&rec);
+            if let Err(e) = storage.put_schedule(&rec) {
+                log::warn!("Failed to persist schedule {} after run: {}", schedule_id, e);
+            }
             log::debug!(
                 "[sched:{}] next_run_at={:?} active={}",
                 schedule_id, rec.next_run_at, rec.active

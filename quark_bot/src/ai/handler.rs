@@ -74,7 +74,7 @@ impl AI {
 
     pub async fn generate_response(
         &self,
-        _bot: Bot,
+        bot: Bot,
         msg: Message,
         input: &str,
         image_url_from_reply: Option<String>,
@@ -453,7 +453,7 @@ impl AI {
                     let result = execute_custom_tool(
                         &tool_call.name,
                         &args_value,
-                        _bot.clone(),
+                        bot.clone(),
                         msg.clone(),
                         group_id.clone(),
                         bot_deps.clone(),
@@ -609,7 +609,6 @@ impl AI {
     /// response_id. Does not persist response_id in user_conversations.
     pub async fn generate_response_for_schedule(
         &self,
-        _bot: Bot,
         input: &str,
         model: Model,
         max_tokens: u32,
