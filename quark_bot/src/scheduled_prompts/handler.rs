@@ -47,7 +47,16 @@ pub async fn handle_scheduleprompt_command(bot: Bot, msg: Message, bot_deps: Bot
     };
     storage.put_pending((&state.group_id, &state.creator_user_id), &state)?;
 
-    bot.send_message(msg.chat.id, "📝 Please reply to this message with the prompt you want to schedule.")
+    let note = "\n\nℹ️ Note about tools for scheduled prompts:\n\n• Unavailable: any tool that requires user confirmation or performs transactions (e.g., pay users, withdrawals, funding, creating proposals or other interactive flows).\n\nTip: Schedule informational queries, summaries, monitoring, or analytics. Avoid actions that need real-time human approval.";
+
+    bot
+        .send_message(
+            msg.chat.id,
+            format!(
+                "📝 Please reply to this message with the prompt you want to schedule.{}",
+                note
+            ),
+        )
         .await?;
     Ok(())
 }
