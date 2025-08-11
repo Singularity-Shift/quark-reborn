@@ -1497,6 +1497,10 @@ pub async fn handle_message(bot: Bot, msg: Message, bot_deps: BotDependencies) -
                             .parse_mode(ParseMode::Html)
                             .reply_markup(keyboard)
                             .await?;
+                            // Immediately remove the offending message from the chat
+                            if let Err(e) = bot.delete_message(msg.chat.id, msg.id).await {
+                                log::warn!("Failed to delete offending message {}: {}", msg.id.0, e);
+                            }
                         }
                     }
                 }
@@ -1776,6 +1780,14 @@ pub async fn handle_mod(bot: Bot, msg: Message, bot_deps: BotDependencies) -> An
                         .parse_mode(ParseMode::Html)
                         .reply_markup(keyboard)
                         .await?;
+                        // Immediately remove the offending message from the chat
+                        if let Err(e) = bot.delete_message(msg.chat.id, reply_to_msg.id).await {
+                            log::warn!(
+                                "Failed to delete offending replied message {}: {}",
+                                reply_to_msg.id.0,
+                                e
+                            );
+                        }
                     } else {
                         // Fallback if no user found in the replied message
                         bot.send_message(
@@ -1788,6 +1800,14 @@ pub async fn handle_mod(bot: Bot, msg: Message, bot_deps: BotDependencies) -> An
                         )
                         .parse_mode(ParseMode::Html)
                         .await?;
+                        // Remove the offending message regardless
+                        if let Err(e) = bot.delete_message(msg.chat.id, reply_to_msg.id).await {
+                            log::warn!(
+                                "Failed to delete offending replied message {}: {}",
+                                reply_to_msg.id.0,
+                                e
+                            );
+                        }
                     }
                 }
                 // Silent when passed (P) - no response

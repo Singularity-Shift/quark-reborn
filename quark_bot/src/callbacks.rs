@@ -206,16 +206,15 @@ pub async fn handle_callback_query(
             }
         } else if data.starts_with("ban:") {
             // Handle ban callback - admin only
-            // Support formats: "ban:<user_id>" and "ban:<user_id>:<offending_message_id>"
+            // Support formats: "ban:<user_id>" and legacy "ban:<user_id>:<message_id>" (offending message is already deleted on flag)
             let parts: Vec<&str> = data.split(':').collect();
-            if parts.len() < 2 { 
+            if parts.len() < 2 {
                 bot.answer_callback_query(query.id)
                     .text("❌ Invalid ban action")
                     .await?;
                 return Ok(());
             }
             let target_user_id: i64 = parts[1].parse().unwrap_or(0);
-            let offending_message_id: Option<teloxide::types::MessageId> = if parts.len() >= 3 { parts[2].parse::<i32>().ok().map(teloxide::types::MessageId) } else { None };
 
             if let Some(teloxide::types::MaybeInaccessibleMessage::Regular(message)) =
                 &query.message
@@ -240,29 +239,6 @@ pub async fn handle_callback_query(
                     .await
                 {
                     Ok(_) => {
-                        // If we know the offending message id, attempt to delete it
-                        if let Some(offend_id) = offending_message_id {
-                            if let Err(e) = bot.delete_message(message.chat.id, offend_id).await {
-                                log::warn!("Failed to delete offending message {}: {}", offend_id.0, e);
-                            }
-                        } else {
-                            // Fallback: try to extract Message ID from the moderation text block
-                            if let Some(text) = message.text() {
-                                if let Some(start) = text.find("Message ID: ") {
-                                    let after = &text[start + "Message ID: ".len()..];
-                                    // Attempt to capture the numeric ID between <code> and </code>
-                                    if let (Some(code_open), Some(code_close)) = (after.find("<code>"), after.find("</code>")) {
-                                        let inner = &after[code_open + "<code>".len()..code_close];
-                                        if let Ok(mid) = inner.trim().parse::<i32>() {
-                                            if let Err(e) = bot.delete_message(message.chat.id, teloxide::types::MessageId(mid)).await {
-                                                log::warn!("Failed fallback delete for offending message {}: {}", mid, e);
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }
-
                         // Delete the moderation notification message itself
                         if let Err(e) = bot.delete_message(message.chat.id, message.id).await {
                             log::warn!("Failed to delete moderation message {}: {}", message.id.0, e);
