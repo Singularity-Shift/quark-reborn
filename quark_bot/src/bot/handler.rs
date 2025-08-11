@@ -1477,14 +1477,14 @@ pub async fn handle_message(bot: Bot, msg: Message, bot_deps: BotDependencies) -
                                     format!("unmute:{}", flagged_user.id),
                                 ),
                                 InlineKeyboardButton::callback(
-                                    "🚫 Ban",
-                                    format!("ban:{}", flagged_user.id),
+                                "🚫 Ban",
+                                     format!("ban:{}:{}", flagged_user.id, msg.id.0),
                                 ),
                             ]]);
                             bot.send_message(
                                 msg.chat.id,
                                 format!(
-                                    "🛡️ <b>Content Flagged & User Muted</b>\n\n📝 Message ID: <code>{}</code>\n\n❌ Status: <b>FLAGGED</b> 🔴\n🔇 User has been muted\n\n💬 <i>Flagged message:</i>\n<blockquote>{}</blockquote>",
+                                    "🛡️ <b>Content Flagged & User Muted</b>\n\n📝 Message ID: <code>{}</code>\n\n❌ Status: <b>FLAGGED</b> 🔴\n🔇 User has been muted\n\n💬 <i>Flagged message:</i>\n<blockquote><span class=\"tg-spoiler\">{}</span></blockquote>",
                                     msg.id,
                                     teloxide::utils::html::escape(message_text)
                                 )
@@ -1755,7 +1755,7 @@ pub async fn handle_mod(bot: Bot, msg: Message, bot_deps: BotDependencies) -> An
                             ),
                             InlineKeyboardButton::callback(
                                 "🚫 Ban",
-                                format!("ban:{}", flagged_user.id),
+                                 format!("ban:{}:{}", flagged_user.id, reply_to_msg.id.0),
                             ),
                         ]]);
 
@@ -1763,7 +1763,7 @@ pub async fn handle_mod(bot: Bot, msg: Message, bot_deps: BotDependencies) -> An
                         bot.send_message(
                             msg.chat.id,
                             format!(
-                                "🛡️ <b>Content Flagged & User Muted</b>\n\n📝 Message ID: <code>{}</code>\n\n❌ Status: <b>FLAGGED</b> 🔴\n🔇 User has been muted\n\n💬 <i>Flagged message:</i>\n<blockquote>{}</blockquote>",
+                                "🛡️ <b>Content Flagged & User Muted</b>\n\n📝 Message ID: <code>{}</code>\n\n❌ Status: <b>FLAGGED</b> 🔴\n🔇 User has been muted\n\n💬 <i>Flagged message:</i>\n<blockquote><span class=\"tg-spoiler\">{}</span></blockquote>",
                                 reply_to_msg.id,
                                 teloxide::utils::html::escape(message_text)
                             )
@@ -1776,7 +1776,7 @@ pub async fn handle_mod(bot: Bot, msg: Message, bot_deps: BotDependencies) -> An
                         bot.send_message(
                             msg.chat.id,
                             format!(
-                                "🛡️ <b>Content Flagged</b>\n\n📝 Message ID: <code>{}</code>\n\n❌ Status: <b>FLAGGED</b> 🔴\n⚠️ Could not identify user to mute\n\n💬 <i>Flagged message:</i>\n<blockquote>{}</blockquote>",
+                                "🛡️ <b>Content Flagged</b>\n\n📝 Message ID: <code>{}</code>\n\n❌ Status: <b>FLAGGED</b> 🔴\n⚠️ Could not identify user to mute\n\n💬 <i>Flagged message:</i>\n<blockquote><span class=\"tg-spoiler\">{}</span></blockquote>",
                                 reply_to_msg.id,
                                 teloxide::utils::html::escape(message_text)
                             )
