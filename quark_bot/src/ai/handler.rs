@@ -245,7 +245,7 @@ impl AI {
         let user = if group_id.is_some() {
             format!("group-{}", group_id.clone().unwrap())
         } else {
-            format!("user-{}", user_id)
+            format!("user-{}-{}", user_id, msg.chat.id.to_string())
         };
 
         let system_prompt = format!("Entity {}: {}", user, self.system_prompt);

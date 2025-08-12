@@ -32,7 +32,7 @@ module quark::user {
     struct Config has key {
         coin_addr: Option<address>,
     }
-
+    
     #[event]
     struct CreateAccountEvent has drop, store {
         owner: address,
@@ -168,6 +168,16 @@ module quark::user {
         pay_ai_fee<CoinType>(user, amount);
     }
 
+    public entry fun pay_ai_v2(admin: &signer, reviewer: &signer, user: address, amount: u64, currency: address) acquires Account {
+        let admin_address = signer::address_of(admin);
+        assert!(admin::is_admin(admin_address), EONLY_ADMIN_CAN_CALL);
+
+        let reviewer_address = signer::address_of(reviewer);
+        assert!(admin::is_reviewer(reviewer_address), EONLY_REVIEWER_CAN_CALL);
+
+        pay_ai_fee_v2(user, amount, currency);
+    }
+
     public entry fun pay_to_users_v1<CoinType>(admin: &signer, reviewer: &signer, user: address, amount: u64, recipients: vector<address>) acquires Account {
         assert!(vector::length(&recipients) > 0, ENOT_USER_PASSED);
         let admin_address = signer::address_of(admin);
@@ -236,7 +246,7 @@ module quark::user {
         let coin_type = type_info::type_of<CoinType>();
         let coin_type_addr = type_info::account_address(&coin_type);     
         let coin_addr = option::borrow(&config.coin_addr);
-        assert!(&coin_type_addr == coin_addr, ECOINS_NOT_MATCH);
+        assert!(&coin_type_addr == coin_addr || admin::exist_fees_currency_payment_list(coin_type_addr), ECOINS_NOT_MATCH);
 
         let user_account = borrow_global<Account>(user);
         let resource_account = account::create_signer_with_capability(&user_account.signer_cap);
@@ -253,6 +263,33 @@ module quark::user {
             user,
             amount,
             currency: coin_type_addr,
+            recipient: resource_account_fees,
+            created_at: timestamp::now_seconds(),
+        });
+    }
+
+    fun pay_ai_fee_v2(user: address, amount: u64, currency: address) acquires Account {
+        assert!(admin::exist_fees_currency_payment_list(currency), ECOINS_NOT_MATCH);
+        assert!(fees::resource_account_exists(), ERESOURCE_ACCOUNT_NOT_EXISTS);
+        assert!(amount > 0, EAMOUNT_MUST_BE_GREATER_THAN_ZERO);
+
+        let fa_metadata = object::address_to_object<Metadata>(currency);
+
+        let user_account = borrow_global<Account>(user);
+        let resource_account = account::create_signer_with_capability(&user_account.signer_cap);
+
+        let resource_account_address = signer::address_of(&resource_account);
+
+        assert!(primary_fungible_store::balance(resource_account_address, fa_metadata) >= amount, ENOT_ENOUGH_FUNDS);
+
+        let resource_account_fees = fees::get_resource_account_address();
+
+        aptos_account::transfer_fungible_assets(&resource_account, fa_metadata, resource_account_fees, amount);
+
+        event::emit(PayAiEvent {
+            user,
+            amount,
+            currency,
             recipient: resource_account_fees,
             created_at: timestamp::now_seconds(),
         });
