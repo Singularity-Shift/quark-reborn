@@ -199,7 +199,7 @@ impl AI {
             );
 
             return Err(anyhow::anyhow!(format!(
-                "User balance is less than the minimum deposit. Please fund your account transfering {} to {} address. Minimum deposit: {} {} (Your balance: {} {})",
+                "User balance is less than the minimum deposit. Please fund your account transfering {} to <code>{}</code> address. Minimum deposit: {} {} (Your balance: {} {})",
                 token.symbol.clone().unwrap_or("".to_string()),
                 address,
                 min_deposit_formatted,
@@ -662,7 +662,7 @@ impl AI {
                 group_balance as f64 / 10_f64.powi(token_decimals as i32)
             );
             return Err(anyhow::anyhow!(format!(
-                "User balance is less than the minimum deposit. Please fund your account transfering {} to {} address. Minimum deposit: {} {} (Your balance: {} {})",
+                "User balance is less than the minimum deposit. Please fund your account transfering {} to <code>{}</code> address. Minimum deposit: {} {} (Your balance: {} {})",
                 token.symbol.clone().unwrap_or("".to_string()),
                 address,
                 min_deposit_formatted,
