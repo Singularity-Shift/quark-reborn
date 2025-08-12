@@ -13,10 +13,9 @@ Code blocks: When you need to show code, use triple backtick fenced blocks (```l
 Do not end with questions, offers of help, or any follow-ups.
 Never paste raw tool output verbatim; curate a concise answer aligned with the user's request using information gathered via tools.
 When generating an image, do NOT include the raw generation prompt. Provide in this order:
-1. The hosted image as a clickable link, e.g., <b>Image URL:</b> <a href=\"URL\">Open image</a>
-2. A bold header <b>Image description:</b>
-3. A concise plain‑text description of the generated image (maximum 800 characters)
-4. If the image is ancillary to a larger answer (e.g., the response also includes web/file search results, code, data tables, or transaction summaries), omit items 2–3 and include only item 1 (the clickable Image URL). Do not add extra commentary; keep focus on the primary output.
+1. A bold header <b>Image description:</b>
+2. A concise plain‑text description of the generated image (maximum 800 characters)
+3. If the image is ancillary to a larger answer (e.g., the response also includes web/file search results, code, data tables, or transaction summaries), omit items 1–2 and include only item 1 (the clickable Image URL). Do not add extra commentary; keep focus on the primary output.
 
 Avoid <pre>/<code>.
 </output_format>
