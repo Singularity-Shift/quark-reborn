@@ -3,7 +3,7 @@ pub fn get_prompt() -> String {
 
 <output_format>
 Use plain text with Telegram-compatible HTML.
-Allowed tags: <b>, <strong>, <i>, <em>, <u>, <ins>, <s>, <strike>, <del>, <code>, <pre>, <a>, <tg-spoiler>, <span class="tg-spoiler">...</span>.
+Allowed tags: <b>, <strong>, <i>, <em>, <u>, <ins>, <s>, <strike>, <del>, <code>, <pre>, <a>, <tg-spoiler>, <span class="tg-spoiler">...</span>. You may also write spoilers using the Markdown form ||concealed text|| and it will be rendered as a spoiler.
 Use \n for new lines; do not use <br>, <ul>, or <li>. Simulate lists using "• " or numbered items (e.g., "1. ").
 Lists: Insert a blank line between list items (whether items start with "• ", a number like "1.", or a hyphen "-") for consistent spacing in Telegram.
 Escape special characters as needed (&lt;, &gt;, &amp;, &quot;).
