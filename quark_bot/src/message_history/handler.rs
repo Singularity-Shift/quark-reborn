@@ -11,7 +11,7 @@ pub struct MessageEntry {
     pub text: String,
 }
 
-/// Per-chat buffer (max 20).
+/// Per-chat buffer (max 30).
 #[derive(Clone, Default, Serialize, Deserialize)]
 pub struct MessageHistory(pub Vec<MessageEntry>);
 
@@ -29,7 +29,7 @@ pub async fn fetch(chat_id: ChatId, storage: HistoryStorage) -> Vec<MessageEntry
         .0
 }
 
-/// Store a new message entry in the rolling buffer (max 20 messages).
+/// Store a new message entry in the rolling buffer (max 30 messages).
 pub async fn store_message(
     chat_id: ChatId,
     entry: MessageEntry,
@@ -47,9 +47,9 @@ pub async fn store_message(
     let mut messages = current_history.0;
     messages.push(entry);
     
-    // Keep only the most recent 20 entries.
-    if messages.len() > 20 {
-        let excess = messages.len() - 20;
+    // Keep only the most recent 30 entries.
+    if messages.len() > 30 {
+        let excess = messages.len() - 30;
         messages.drain(0..excess);
     }
     

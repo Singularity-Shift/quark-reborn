@@ -56,6 +56,10 @@ pub enum Command {
     Announcement(String),
     #[command(description = "Migrate group id.")]
     MigrateGroupId,
+    #[command(description = "Schedule a recurring or one-shot group prompt (admins only).")]
+    SchedulePrompt,
+    #[command(description = "List active scheduled prompts (admins only).")]
+    ListScheduled,
 }
 
 #[derive(Debug, Clone, Default)]

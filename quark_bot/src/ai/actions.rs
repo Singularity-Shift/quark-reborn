@@ -2,7 +2,7 @@ use std::env;
 
 use chrono::Utc;
 use quark_core::helpers::dto::CoinVersion;
-use teloxide::types::Message;
+use teloxide::types::{Message, ChatId};
 
 use crate::dependencies::BotDependencies;
 use crate::message_history::handler::fetch;
@@ -1738,13 +1738,30 @@ pub async fn execute_prices(_arguments: &serde_json::Value) -> String {
         .to_string()
 }
 
-/// Fetch the recent messages from the rolling buffer (up to 20 lines)
+/// Fetch the recent messages from the rolling buffer (up to 30 lines)
 pub async fn execute_get_recent_messages(msg: Message, bot_deps: BotDependencies) -> String {
     if msg.chat.is_private() {
         return "This tool is only available in group chats.".into();
     }
 
     let lines = fetch(msg.chat.id, bot_deps.history_storage.clone()).await;
+    if lines.is_empty() {
+        return "(No recent messages stored.)".into();
+    }
+
+    lines
+        .into_iter()
+        .map(|e| match e.sender {
+            Some(name) => format!("{name}: {}", e.text),
+            None => e.text,
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+/// Core helper for schedules: fetch recent messages by ChatId (no Message required)
+pub async fn execute_get_recent_messages_for_chat(chat_id: ChatId, bot_deps: BotDependencies) -> String {
+    let lines = fetch(chat_id, bot_deps.history_storage.clone()).await;
     if lines.is_empty() {
         return "(No recent messages stored.)".into();
     }
