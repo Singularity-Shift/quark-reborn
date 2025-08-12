@@ -1394,7 +1394,7 @@ pub async fn handle_message(bot: Bot, msg: Message, bot_deps: BotDependencies) -
                 bot.send_message(
                     msg.chat.id,
                     format!(
-                        "User balance is less than the minimum deposit. Please fund your account transfering {} to {} address. Minimum deposit: {} {} (Your balance: {} {})",
+                        "User balance is less than the minimum deposit. Please fund your account transfering {} to <code>{}</code> address. Minimum deposit: {} {} (Your balance: {} {})",
                         token.symbol.clone().unwrap_or("".to_string()),
                         address,
                         min_deposit_formatted,
@@ -1403,6 +1403,7 @@ pub async fn handle_message(bot: Bot, msg: Message, bot_deps: BotDependencies) -
                         token.symbol.unwrap_or("".to_string())
                     )
                 )
+                .parse_mode(ParseMode::Html)
                 .await?;
                 return Ok(());
             }
@@ -1486,11 +1487,20 @@ pub async fn handle_message(bot: Bot, msg: Message, bot_deps: BotDependencies) -
                                      format!("ban:{}:{}", flagged_user.id, msg.id.0),
                                 ),
                             ]]);
+                            // Build a visible user mention (prefer @username, else clickable name)
+                            let user_mention = if let Some(username) = &flagged_user.username {
+                                format!("@{}", username)
+                            } else {
+                                let name = teloxide::utils::html::escape(&flagged_user.first_name);
+                                format!("<a href=\"tg://user?id={}\">{}</a>", flagged_user.id.0, name)
+                            };
+
                             bot.send_message(
                                 msg.chat.id,
                                 format!(
-                                    "🛡️ <b>Content Flagged & User Muted</b>\n\n📝 Message ID: <code>{}</code>\n\n❌ Status: <b>FLAGGED</b> 🔴\n🔇 User has been muted\n\n💬 <i>Flagged message:</i>\n<blockquote><span class=\"tg-spoiler\">{}</span></blockquote>",
+                                    "🛡️ <b>Content Flagged & User Muted</b>\n\n📝 Message ID: <code>{}</code>\n\n❌ Status: <b>FLAGGED</b> 🔴\n🔇 User has been muted\n👤 <b>User:</b> {}\n\n💬 <i>Flagged message:</i>\n<blockquote><span class=\"tg-spoiler\">{}</span></blockquote>",
                                     msg.id,
+                                    user_mention,
                                     teloxide::utils::html::escape(message_text)
                                 )
                             )
@@ -1768,12 +1778,21 @@ pub async fn handle_mod(bot: Bot, msg: Message, bot_deps: BotDependencies) -> An
                             ),
                         ]]);
 
+                        // Build a visible user mention (prefer @username, else clickable name)
+                        let user_mention = if let Some(username) = &flagged_user.username {
+                            format!("@{}", username)
+                        } else {
+                            let name = teloxide::utils::html::escape(&flagged_user.first_name);
+                            format!("<a href=\"tg://user?id={}\">{}</a>", flagged_user.id.0, name)
+                        };
+
                         // Send the flagged message response
                         bot.send_message(
                             msg.chat.id,
                             format!(
-                                "🛡️ <b>Content Flagged & User Muted</b>\n\n📝 Message ID: <code>{}</code>\n\n❌ Status: <b>FLAGGED</b> 🔴\n🔇 User has been muted\n\n💬 <i>Flagged message:</i>\n<blockquote><span class=\"tg-spoiler\">{}</span></blockquote>",
+                                "🛡️ <b>Content Flagged & User Muted</b>\n\n📝 Message ID: <code>{}</code>\n\n❌ Status: <b>FLAGGED</b> 🔴\n🔇 User has been muted\n👤 <b>User:</b> {}\n\n💬 <i>Flagged message:</i>\n<blockquote><span class=\"tg-spoiler\">{}</span></blockquote>",
                                 reply_to_msg.id,
+                                user_mention,
                                 teloxide::utils::html::escape(message_text)
                             )
                         )
@@ -1945,7 +1964,7 @@ pub async fn handle_balance(
 
     bot.send_message(
         msg.chat.id,
-        format!("💰 **Balance**: {:.6} {}", human_balance, token_symbol),
+        format!("💰 <b>Balance</b>: {:.6} {}", human_balance, token_symbol),
     )
     .parse_mode(ParseMode::Html)
     .await?;
@@ -2040,7 +2059,7 @@ pub async fn handle_group_balance(
 
     bot.send_message(
         msg.chat.id,
-        format!("💰 **Balance**: {:.6} {}", human_balance, token_symbol),
+        format!("💰 <b>Balance</b>: {:.6} {}", human_balance, token_symbol),
     )
     .parse_mode(ParseMode::Html)
     .await?;
