@@ -104,11 +104,12 @@ pub fn markdown_to_html(input: &str) -> String {
             continue;
         }
         if in_code {
+            // Only escape within code blocks
             html.push_str(&teloxide::utils::html::escape(line));
             html.push('\n');
         } else {
-            // Basic escaping and keep line breaks
-            html.push_str(&teloxide::utils::html::escape(line));
+            // Preserve non-code content as-is so valid Telegram-HTML (e.g., <a href=...>) remains clickable
+            html.push_str(line);
             html.push('\n');
         }
     }
