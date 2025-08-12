@@ -121,6 +121,7 @@ pub fn handler_tree() -> Handler<'static, Result<()>, DpHandlerDescription> {
                                 cmd,
                                 Command::G(_) 
                                     | Command::Mod | Command::Sentinel(_) | Command::GroupBalance(_) | Command::GroupWalletAddress | Command::ModerationRules | Command::DaoPreferences | Command::MigrateGroupId
+                                    | Command::SchedulePrompt | Command::ListScheduled
                             )
                         })
                         .filter_async(|msg: Message, bot_deps: BotDependencies| async move {

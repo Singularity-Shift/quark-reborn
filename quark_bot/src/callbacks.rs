@@ -5,7 +5,9 @@ use crate::ai::vector_store::{
 };
 use crate::dao::handler::{handle_dao_preference_callback, handle_disable_notifications_callback};
 use crate::dependencies::BotDependencies;
+// use crate::scheduled_prompts; // not needed directly
 use crate::user_model_preferences::callbacks::handle_model_preferences_callback;
+use crate::scheduled_prompts::callbacks::handle_scheduled_prompts_callback;
 use crate::utils;
 use anyhow::Result;
 
@@ -183,15 +185,10 @@ pub async fn handle_callback_query(
                     .await
                 {
                     Ok(_) => {
-                        // Update the message to show user was unmuted
-                        let updated_text = message
-                            .text()
-                            .unwrap_or("")
-                            .replace("🔇 User has been muted", "🔊 User has been unmuted");
-
-                        bot.edit_message_text(message.chat.id, message.id, updated_text)
-                            .parse_mode(teloxide::types::ParseMode::Html)
-                            .await?;
+                        // Delete the moderation notification message
+                        if let Err(e) = bot.delete_message(message.chat.id, message.id).await {
+                            log::warn!("Failed to delete moderation notification: {}", e);
+                        }
 
                         bot.answer_callback_query(query.id)
                             .text("✅ User unmuted successfully")
@@ -209,8 +206,15 @@ pub async fn handle_callback_query(
             }
         } else if data.starts_with("ban:") {
             // Handle ban callback - admin only
-            let user_id_str = data.strip_prefix("ban:").unwrap();
-            let target_user_id: i64 = user_id_str.parse().unwrap_or(0);
+            // Support formats: "ban:<user_id>" and legacy "ban:<user_id>:<message_id>" (offending message is already deleted on flag)
+            let parts: Vec<&str> = data.split(':').collect();
+            if parts.len() < 2 {
+                bot.answer_callback_query(query.id)
+                    .text("❌ Invalid ban action")
+                    .await?;
+                return Ok(());
+            }
+            let target_user_id: i64 = parts[1].parse().unwrap_or(0);
 
             if let Some(teloxide::types::MaybeInaccessibleMessage::Regular(message)) =
                 &query.message
@@ -235,19 +239,10 @@ pub async fn handle_callback_query(
                     .await
                 {
                     Ok(_) => {
-                        // Update the message to show user was banned
-                        let updated_text = message
-                            .text()
-                            .unwrap_or("")
-                            .replace("🔇 User has been muted", "🚫 User has been banned");
-
-                        // Remove the buttons since actions are complete
-                        bot.edit_message_text(message.chat.id, message.id, updated_text)
-                            .parse_mode(teloxide::types::ParseMode::Html)
-                            .reply_markup(InlineKeyboardMarkup::new(
-                                vec![] as Vec<Vec<InlineKeyboardButton>>
-                            ))
-                            .await?;
+                        // Delete the moderation notification message itself
+                        if let Err(e) = bot.delete_message(message.chat.id, message.id).await {
+                            log::warn!("Failed to delete moderation message {}: {}", message.id.0, e);
+                        }
 
                         bot.answer_callback_query(query.id)
                             .text("✅ User banned successfully")
@@ -300,6 +295,9 @@ pub async fn handle_callback_query(
         } else if data.starts_with("pay_accept:") || data.starts_with("pay_reject:") {
             // Handle payment confirmation callbacks
             handle_payment_callback(bot, query, bot_deps).await?;
+        } else if data.starts_with("sched_") {
+            // Handle scheduled prompts wizard and management callbacks
+            handle_scheduled_prompts_callback(bot, query, bot_deps).await?;
         } else {
             bot.answer_callback_query(query.id)
                 .text("❌ Unknown action")
@@ -368,9 +366,11 @@ pub async fn handle_payment_callback(
             .await?;
         
         // Edit the message to remove buttons
-        if let Some(message) = &query.message {
+            if let Some(message) = &query.message {
             if let teloxide::types::MaybeInaccessibleMessage::Regular(msg) = message {
-                let _ = bot.edit_message_reply_markup(msg.chat.id, msg.id).await;
+                if let Err(e) = bot.edit_message_reply_markup(msg.chat.id, msg.id).await {
+                    log::warn!("Failed to clear reply markup: {}", e);
+                }
             }
         }
         return Ok(());
@@ -391,7 +391,9 @@ pub async fn handle_payment_callback(
     // Check if transaction has expired
     if crate::pending_transactions::handler::PendingTransactions::is_expired(&pending_transaction) {
         // Remove expired transaction
-        let _ = bot_deps.pending_transactions.delete_pending_transaction(user_id, group_id_opt);
+        if let Err(e) = bot_deps.pending_transactions.delete_pending_transaction(user_id, group_id_opt) {
+            log::warn!("Failed to delete expired pending transaction: {}", e);
+        }
         
         bot.answer_callback_query(query.id)
             .text("❌ Transaction has expired (1 minute timeout)")
@@ -438,7 +440,9 @@ pub async fn handle_payment_callback(
             match result {
                 Ok(response) => {
                     // Delete the pending transaction ONLY after successful payment
-                    let _ = bot_deps.pending_transactions.delete_pending_transaction(user_id, group_id_opt);
+                    if let Err(e) = bot_deps.pending_transactions.delete_pending_transaction(user_id, group_id_opt) {
+                        log::warn!("Failed to delete pending transaction after payment: {}", e);
+                    }
                     
                     let network = std::env::var("APTOS_NETWORK")
                         .unwrap_or("mainnet".to_string())
@@ -496,7 +500,9 @@ pub async fn handle_payment_callback(
         }
         "pay_reject" => {
             // Delete the pending transaction
-            let _ = bot_deps.pending_transactions.delete_pending_transaction(user_id, group_id_opt);
+            if let Err(e) = bot_deps.pending_transactions.delete_pending_transaction(user_id, group_id_opt) {
+                log::warn!("Failed to delete pending transaction on cancel: {}", e);
+            }
 
             let recipients_text = if pending_transaction.original_usernames.len() == 1 {
                 format!("@{}", pending_transaction.original_usernames[0])

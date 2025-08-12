@@ -17,6 +17,7 @@ use crate::bot::handler::{
 use crate::dao::handler::handle_dao_preferences;
 use crate::dependencies::BotDependencies;
 use crate::user_model_preferences::handler::{handle_my_settings, handle_select_model};
+use crate::scheduled_prompts::handler::{handle_scheduleprompt_command, handle_listscheduled_command};
 
 pub async fn answers(
     bot: Bot,
@@ -143,6 +144,12 @@ pub async fn answers(
         }
         Command::MigrateGroupId => {
             handle_migrate_group_id(bot, msg, bot_deps.clone()).await?;
+        }
+        Command::SchedulePrompt => {
+            handle_scheduleprompt_command(bot, msg, bot_deps.clone()).await?;
+        }
+        Command::ListScheduled => {
+            handle_listscheduled_command(bot, msg, bot_deps.clone()).await?;
         }
     };
     Ok(())

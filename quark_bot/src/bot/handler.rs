@@ -36,6 +36,9 @@ use teloxide::{
 };
 use tokio::fs::File;
 use tokio::time::sleep;
+use crate::scheduled_prompts::storage::ScheduledStorage;
+use crate::scheduled_prompts::dto::PendingStep;
+use crate::scheduled_prompts::wizard::build_hours_keyboard;
 
 const TELEGRAM_MESSAGE_LIMIT: usize = 4096;
 
@@ -1265,6 +1268,35 @@ pub async fn handle_message(bot: Bot, msg: Message, bot_deps: BotDependencies) -
             }
         }
 
+        // Scheduled prompts wizard: capture reply text for prompt entry
+        if let Some(_reply) = msg.reply_to_message() {
+            if let Some(user) = &msg.from {
+                if let Ok(storage) = ScheduledStorage::new(&bot_deps.db) {
+                    let key = (&msg.chat.id.0, &(user.id.0 as i64));
+                    if let Some(mut st) = storage.get_pending(key) {
+                        if st.step == PendingStep::AwaitingPrompt {
+                            let text = msg.text().or_else(|| msg.caption()).unwrap_or("").to_string();
+                            if !text.trim().is_empty() {
+                                st.prompt = Some(text);
+                                st.step = PendingStep::AwaitingHour;
+                                if let Err(e) = storage.put_pending(key, &st) {
+                                    log::error!("Failed to persist scheduled wizard state: {}", e);
+                                    bot.send_message(msg.chat.id, "❌ Error saving schedule state. Please try /scheduleprompt again.")
+                                        .await?;
+                                    return Ok(());
+                                }
+                                let kb = build_hours_keyboard();
+                                bot.send_message(msg.chat.id, "Select start hour (UTC)")
+                                    .reply_markup(kb)
+                                    .await?;
+                                return Ok(());
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
         // Check if sentinel is on for this group
         let sentinel_on = sentinel_tree
             .get(chat_id)
@@ -1450,14 +1482,14 @@ pub async fn handle_message(bot: Bot, msg: Message, bot_deps: BotDependencies) -
                                     format!("unmute:{}", flagged_user.id),
                                 ),
                                 InlineKeyboardButton::callback(
-                                    "🚫 Ban",
-                                    format!("ban:{}", flagged_user.id),
+                                "🚫 Ban",
+                                     format!("ban:{}:{}", flagged_user.id, msg.id.0),
                                 ),
                             ]]);
                             bot.send_message(
                                 msg.chat.id,
                                 format!(
-                                    "🛡️ <b>Content Flagged & User Muted</b>\n\n📝 Message ID: <code>{}</code>\n\n❌ Status: <b>FLAGGED</b> 🔴\n🔇 User has been muted\n\n💬 <i>Flagged message:</i>\n<blockquote>{}</blockquote>",
+                                    "🛡️ <b>Content Flagged & User Muted</b>\n\n📝 Message ID: <code>{}</code>\n\n❌ Status: <b>FLAGGED</b> 🔴\n🔇 User has been muted\n\n💬 <i>Flagged message:</i>\n<blockquote><span class=\"tg-spoiler\">{}</span></blockquote>",
                                     msg.id,
                                     teloxide::utils::html::escape(message_text)
                                 )
@@ -1465,6 +1497,10 @@ pub async fn handle_message(bot: Bot, msg: Message, bot_deps: BotDependencies) -
                             .parse_mode(ParseMode::Html)
                             .reply_markup(keyboard)
                             .await?;
+                            // Immediately remove the offending message from the chat
+                            if let Err(e) = bot.delete_message(msg.chat.id, msg.id).await {
+                                log::warn!("Failed to delete offending message {}: {}", msg.id.0, e);
+                            }
                         }
                     }
                 }
@@ -1728,7 +1764,7 @@ pub async fn handle_mod(bot: Bot, msg: Message, bot_deps: BotDependencies) -> An
                             ),
                             InlineKeyboardButton::callback(
                                 "🚫 Ban",
-                                format!("ban:{}", flagged_user.id),
+                                 format!("ban:{}:{}", flagged_user.id, reply_to_msg.id.0),
                             ),
                         ]]);
 
@@ -1736,7 +1772,7 @@ pub async fn handle_mod(bot: Bot, msg: Message, bot_deps: BotDependencies) -> An
                         bot.send_message(
                             msg.chat.id,
                             format!(
-                                "🛡️ <b>Content Flagged & User Muted</b>\n\n📝 Message ID: <code>{}</code>\n\n❌ Status: <b>FLAGGED</b> 🔴\n🔇 User has been muted\n\n💬 <i>Flagged message:</i>\n<blockquote>{}</blockquote>",
+                                "🛡️ <b>Content Flagged & User Muted</b>\n\n📝 Message ID: <code>{}</code>\n\n❌ Status: <b>FLAGGED</b> 🔴\n🔇 User has been muted\n\n💬 <i>Flagged message:</i>\n<blockquote><span class=\"tg-spoiler\">{}</span></blockquote>",
                                 reply_to_msg.id,
                                 teloxide::utils::html::escape(message_text)
                             )
@@ -1744,18 +1780,34 @@ pub async fn handle_mod(bot: Bot, msg: Message, bot_deps: BotDependencies) -> An
                         .parse_mode(ParseMode::Html)
                         .reply_markup(keyboard)
                         .await?;
+                        // Immediately remove the offending message from the chat
+                        if let Err(e) = bot.delete_message(msg.chat.id, reply_to_msg.id).await {
+                            log::warn!(
+                                "Failed to delete offending replied message {}: {}",
+                                reply_to_msg.id.0,
+                                e
+                            );
+                        }
                     } else {
                         // Fallback if no user found in the replied message
                         bot.send_message(
                             msg.chat.id,
                             format!(
-                                "🛡️ <b>Content Flagged</b>\n\n📝 Message ID: <code>{}</code>\n\n❌ Status: <b>FLAGGED</b> 🔴\n⚠️ Could not identify user to mute\n\n💬 <i>Flagged message:</i>\n<blockquote>{}</blockquote>",
+                                "🛡️ <b>Content Flagged</b>\n\n📝 Message ID: <code>{}</code>\n\n❌ Status: <b>FLAGGED</b> 🔴\n⚠️ Could not identify user to mute\n\n💬 <i>Flagged message:</i>\n<blockquote><span class=\"tg-spoiler\">{}</span></blockquote>",
                                 reply_to_msg.id,
                                 teloxide::utils::html::escape(message_text)
                             )
                         )
                         .parse_mode(ParseMode::Html)
                         .await?;
+                        // Remove the offending message regardless
+                        if let Err(e) = bot.delete_message(msg.chat.id, reply_to_msg.id).await {
+                            log::warn!(
+                                "Failed to delete offending replied message {}: {}",
+                                reply_to_msg.id.0,
+                                e
+                            );
+                        }
                     }
                 }
                 // Silent when passed (P) - no response
