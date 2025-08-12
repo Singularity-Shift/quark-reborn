@@ -4,6 +4,7 @@ use chrono::{DateTime, Utc};
 use open_ai_rust_responses_by_sshift::Model;
 use quark_core::helpers::dto::{AITool, PurchaseRequest, ToolUsage};
 use std::env;
+use regex::Regex;
 
 use crate::services::handler::Services;
 
@@ -112,6 +113,23 @@ pub fn markdown_to_html(input: &str) -> String {
         }
     }
     html
+}
+
+/// Ensure the image 'Open image' anchor points to the public Google Cloud Storage URL
+/// If a line like `Image URL: <a href="...">Open image</a>` exists and a
+/// `https://storage.googleapis.com/...` URL is present anywhere in the text,
+/// rewrite that anchor's href to use the GCS URL.
+pub fn normalize_image_url_anchor(text: &str) -> String {
+    let re_gcs = Regex::new(r#"https://storage\.googleapis\.com/[^\s<>\"]+"#).unwrap();
+    let gcs = if let Some(m) = re_gcs.find(text) {
+        m.as_str().to_string()
+    } else {
+        return text.to_string();
+    };
+
+    let re_anchor = Regex::new(r#"(?i)(Image URL:\s*)<a\s+href=\"[^\"]+\">([^<]*)</a>"#).unwrap();
+    let replacement = format!(r#"$1<a href=\"{}\">$2</a>"#, gcs);
+    re_anchor.replace(text, replacement.as_str()).to_string()
 }
 
 pub async fn create_purchase_request(

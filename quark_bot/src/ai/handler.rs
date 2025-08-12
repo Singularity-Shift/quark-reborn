@@ -556,7 +556,10 @@ impl AI {
                             .await
                         {
                             Ok(url) => {
-                                reply = format!("{}\n\nImage URL: {}", reply, url);
+                                reply = format!(
+                                    "{}\n\n<a href=\"{}\">Your image for download</a>",
+                                    reply, url
+                                );
                             }
                             Err(e) => log::error!("Failed to upload image to GCS: {}", e),
                         }
@@ -851,7 +854,10 @@ impl AI {
                             .await
                         {
                             Ok(url) => {
-                                reply = format!("{}\n\nImage URL: {}", reply, url);
+                                reply = format!(
+                                    "{}\n\n<a href=\"{}\">Your image for download</a>",
+                                    reply, url
+                                );
                             }
                             Err(e) => log::error!("Failed to upload image to GCS: {}", e),
                         }
