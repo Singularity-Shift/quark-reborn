@@ -369,7 +369,7 @@ async fn fetch_and_send_dao_results(
 
             let coin_data = coin_data.unwrap();
 
-            let coin = coin_data.iter().find(|coin| coin.token_address.as_ref().unwrap_or(&"".to_string()).to_lowercase() == coin_type.to_lowercase() || coin.fa_address.to_lowercase() == coin_type.to_lowercase());
+            let coin = coin_data.iter().find(|coin| coin.token_address.as_ref().unwrap_or(&"".to_string()).to_lowercase() == coin_type.to_lowercase() || coin.token_address.as_ref().unwrap_or(&"".to_string()).starts_with(coin_type.to_lowercase().as_str()) || coin.fa_address.to_lowercase() == coin_type.to_lowercase());
 
             if coin.is_none() {
                 log::error!("Failed to find coin data for DAO {}: {}", proposal_entry.proposal_id, coin_type);

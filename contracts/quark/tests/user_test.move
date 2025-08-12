@@ -20,6 +20,10 @@ module quark::account_test {
 
     struct TestCoin {}
 
+    struct TestCoin2 {}
+
+    struct FakeCoin {}
+
     struct FAController has key {
         mint_ref: MintRef,
         transfer_ref: TransferRef,
@@ -28,6 +32,7 @@ module quark::account_test {
     fun init_module(sender: &signer) {
         admin::test_init_admin(sender);
         user::test_init_account(sender);
+        admin::init_fees_currency_payment_list(sender);
     }
 
     fun mint_coin<CoinType>(admin: &signer, amount: u64, to: &signer) {
@@ -198,6 +203,88 @@ module quark::account_test {
         coin::destroy_mint_cap(mint_cap);
     }
 
+    #[test(aptos_framework = @0x1, sshift_gpt = @sshift_gpt, quark = @quark, admin = @0x2, reviewer = @0x3, user = @0x4)]
+    fun test_pay_ai_v2(aptos_framework: &signer, sshift_gpt: &signer, quark: &signer, admin: &signer, reviewer: &signer, user: &signer) acquires FAController {
+        let (burn_cap, mint_cap) = aptos_coin::initialize_for_test(aptos_framework);
+        timestamp::set_time_has_started_for_testing(aptos_framework);
+
+        let user_address = signer::address_of(user);
+
+        account::create_account_for_test(user_address);
+        coin::register<AptosCoin>(user);
+
+        let fa_obj = create_fa();
+        let fa_addr = object::object_address(&fa_obj);
+        let fa_controller = borrow_global<FAController>(fa_addr);
+        let fa_metadata = object::address_to_object<Metadata>(fa_addr);
+
+        mint_fa(user, &fa_controller.mint_ref, 5000);
+
+        init_module(quark);
+        create_resource_account(sshift_gpt, admin);
+
+        user::create_account(user, string::utf8(b"1234567890"));
+
+        admin::set_pending_admin(quark, signer::address_of(admin));
+        admin::accept_admin(admin);
+
+        admin::set_reviewer_pending_admin(quark, signer::address_of(reviewer));
+        admin::accept_reviewer_pending_admin(reviewer);
+
+        admin::add_fees_currency_v2_payment_list(admin, fa_addr);
+
+        let resource_account_address = user::get_resource_account(user_address);
+
+        aptos_account::transfer_fungible_assets(user, fa_metadata, resource_account_address, 2000);
+
+        user::pay_ai_v2(admin, reviewer, user_address, 1000, fa_addr);
+
+        assert!(primary_fungible_store::balance(resource_account_address, fa_metadata) == 1000, EIS_BALANCE_NOT_EQUAL);
+        coin::destroy_burn_cap(burn_cap);
+        coin::destroy_mint_cap(mint_cap);
+    }
+
+    #[test(aptos_framework = @0x1, sshift_gpt = @sshift_gpt, quark = @quark, admin = @0x2, reviewer = @0x3, user = @0x4)]
+    fun test_pay_ai_v1_with_token_from_list(aptos_framework: &signer, sshift_gpt: &signer, quark: &signer, admin: &signer, reviewer: &signer, user: &signer) {
+        let (burn_cap, mint_cap) = aptos_coin::initialize_for_test(aptos_framework);
+        timestamp::set_time_has_started_for_testing(aptos_framework);
+        
+        let user_address = signer::address_of(user);
+
+        account::create_account_for_test(user_address);
+        coin::register<AptosCoin>(user);
+
+        mint_coin<TestCoin>(quark, 5000, user);
+
+        init_module(quark);
+        user::create_account(user, string::utf8(b"1234567890"));
+
+        admin::set_pending_admin(quark, signer::address_of(admin));
+        admin::accept_admin(admin);
+
+        admin::set_reviewer_pending_admin(quark, signer::address_of(reviewer));
+        admin::accept_reviewer_pending_admin(reviewer);
+
+        admin::add_fees_currency_v1_payment_list<TestCoin>(admin);
+
+        user::set_coin_address<AptosCoin>(admin);
+
+        create_resource_account(sshift_gpt, admin);
+
+        let resource_account_fees = fees::get_resource_account_address();
+
+        let resource_account_address = user::get_resource_account(user_address);
+
+        aptos_account::transfer_coins<TestCoin>(user, resource_account_address, 5000);
+
+        user::pay_ai<TestCoin>(admin, reviewer, user_address, 1000);
+
+        assert!(coin::balance<TestCoin>(resource_account_address) == 4000, EIS_BALANCE_NOT_EQUAL);
+        assert!(coin::balance<TestCoin>(resource_account_fees) == 1000, EIS_BALANCE_NOT_EQUAL);
+        coin::destroy_burn_cap(burn_cap);
+        coin::destroy_mint_cap(mint_cap);
+    }
+
     #[test(aptos_framework = @0x1, quark = @quark, reviewer = @0x2, user = @0x3, user2 = @0x4, user3 = @0x5)]
     fun test_pay_to_users_v1(aptos_framework: &signer, quark: &signer, reviewer: &signer, user: &signer, user2: &signer, user3: &signer) {
         let (burn_cap, mint_cap) = aptos_coin::initialize_for_test(aptos_framework);
@@ -316,6 +403,87 @@ module quark::account_test {
         create_resource_account(sshift_gpt, admin);
 
         user::pay_ai<TestCoin>(user2, reviewer, user_address, 1000);
+
+        coin::destroy_burn_cap(burn_cap);
+        coin::destroy_mint_cap(mint_cap);
+    }
+
+    #[test(aptos_framework = @0x1, sshift_gpt = @sshift_gpt, quark = @quark, admin = @0x2, reviewer = @0x3, user = @0x4)]
+    #[expected_failure(abort_code = 5, location = user)]
+    fun test_should_not_user_pay_ai_v1_with_fees_currency_not_in_list(aptos_framework: &signer, sshift_gpt: &signer, quark: &signer, admin: &signer, reviewer: &signer, user: &signer) {
+        let (burn_cap, mint_cap) = aptos_coin::initialize_for_test(aptos_framework);
+        timestamp::set_time_has_started_for_testing(aptos_framework);
+
+        let user_address = signer::address_of(user);
+
+        account::create_account_for_test(user_address);
+        coin::register<AptosCoin>(user);
+
+        mint_coin<FakeCoin>(quark, 5000, user);
+
+        init_module(quark);
+        user::create_account(user, string::utf8(b"1234567890"));
+
+        admin::set_reviewer_pending_admin(quark, signer::address_of(reviewer));
+        admin::accept_reviewer_pending_admin(reviewer);
+
+        admin::set_pending_admin(quark, signer::address_of(admin));
+        admin::accept_admin(admin);
+
+        user::set_coin_address<AptosCoin>(admin);
+        admin::add_fees_currency_v1_payment_list<AptosCoin>(admin);
+
+        create_resource_account(sshift_gpt, admin);
+
+        let user_resource_account_address = user::get_resource_account(user_address);
+
+        aptos_account::transfer_coins<FakeCoin>(user, user_resource_account_address, 1000);
+
+        user::pay_ai<FakeCoin>(admin, reviewer, user_address, 1000);
+
+        coin::destroy_burn_cap(burn_cap);
+        coin::destroy_mint_cap(mint_cap);
+    }
+
+    #[test(aptos_framework = @0x1, quark = @quark, admin = @0x2, reviewer = @0x3, user = @0x4)]
+    #[expected_failure(abort_code = 5, location = user)]
+    fun test_should_not_user_pay_ai_v2_with_fees_currency_not_in_list(aptos_framework: &signer, quark: &signer, admin: &signer, reviewer: &signer, user: &signer) acquires FAController {
+        let (burn_cap, mint_cap) = aptos_coin::initialize_for_test(aptos_framework);
+        timestamp::set_time_has_started_for_testing(aptos_framework);
+
+        let user_address = signer::address_of(user);
+
+        account::create_account_for_test(user_address);
+        coin::register<AptosCoin>(user);
+
+        let fa_obj = create_fa();
+        let fa_addr = object::object_address(&fa_obj);
+        let fa_controller = borrow_global<FAController>(fa_addr);
+
+        let fa_obj2 = create_fa();
+        let fa_addr2 = object::object_address(&fa_obj2);
+        let fa_controller2 = borrow_global<FAController>(fa_addr2);
+        let fa_metadata2 = object::address_to_object<Metadata>(fa_addr2);
+
+        mint_fa(user, &fa_controller.mint_ref, 5000);
+        mint_fa(user, &fa_controller2.mint_ref, 5000);
+
+        init_module(quark);
+        user::create_account(user, string::utf8(b"1234567890"));
+
+        admin::set_pending_admin(quark, signer::address_of(admin));
+        admin::accept_admin(admin);
+
+        admin::set_reviewer_pending_admin(quark, signer::address_of(reviewer));
+        admin::accept_reviewer_pending_admin(reviewer);
+
+        admin::add_fees_currency_v2_payment_list(admin, fa_addr);
+
+        let resource_account_address = user::get_resource_account(user_address);
+
+        aptos_account::transfer_fungible_assets(user, fa_metadata2, resource_account_address, 2000);
+
+        user::pay_ai_v2(admin, reviewer, user_address, 1000, fa_addr2);
 
         coin::destroy_burn_cap(burn_cap);
         coin::destroy_mint_cap(mint_cap);
