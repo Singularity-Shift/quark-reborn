@@ -102,9 +102,8 @@ fn split_message(text: &str) -> Vec<String> {
 
 /// Send a potentially long message, splitting it into multiple messages if necessary
 async fn send_long_message(bot: &Bot, chat_id: ChatId, text: &str) -> AnyResult<()> {
-    // Convert markdown to HTML to avoid Telegram parsing issues
-    let html_text = utils::markdown_to_html(text);
-    let chunks = split_message(&html_text);
+    // AI responses are already Telegram-HTML formatted; send as-is
+    let chunks = split_message(text);
 
     for (i, chunk) in chunks.iter().enumerate() {
         if i > 0 {
@@ -665,7 +664,7 @@ pub async fn handle_list_files(bot: Bot, msg: Message, bot_deps: BotDependencies
                 };
                 bot.send_photo(msg.chat.id, photo)
                     .caption(caption)
-                    .parse_mode(ParseMode::MarkdownV2)
+                    .parse_mode(ParseMode::Html)
                     .await?;
                 // If the text is longer than 1024, send the rest as a follow-up message
                 if ai_response.text.len() > 1024 {
@@ -1020,7 +1019,10 @@ pub async fn handle_chat(
                 } else {
                     &ai_response.text
                 };
-                bot.send_photo(msg.chat.id, photo).caption(caption).await?;
+                bot.send_photo(msg.chat.id, photo)
+                    .caption(caption)
+                    .parse_mode(ParseMode::Html)
+                    .await?;
                 // If the text is longer than 1024, send the rest as a follow-up message
                 if ai_response.text.len() > 1024 {
                     send_long_message(&bot, msg.chat.id, &ai_response.text[1024..]).await?;

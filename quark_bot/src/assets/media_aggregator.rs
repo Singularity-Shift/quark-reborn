@@ -228,19 +228,32 @@ impl MediaGroupAggregator {
                         } else {
                             &ai_response.text
                         };
-                        if let Err(e) = self.bot.send_photo(chat_id, photo).caption(caption).await {
+                        if let Err(e) = self
+                            .bot
+                            .send_photo(chat_id, photo)
+                            .caption(caption)
+                            .parse_mode(teloxide::types::ParseMode::Html)
+                            .await
+                        {
                             log::warn!("Failed to send photo with caption: {}", e);
                         }
                         if ai_response.text.len() > 1024 {
                             if let Err(e) = self
                                 .bot
                                 .send_message(chat_id, &ai_response.text[1024..])
-                                .await {
+                                .parse_mode(teloxide::types::ParseMode::Html)
+                                .await
+                            {
                                 log::warn!("Failed to send overflow message: {}", e);
                             }
                         }
                     } else {
-                        if let Err(e) = self.bot.send_message(chat_id, ai_response.text).await {
+                        if let Err(e) = self
+                            .bot
+                            .send_message(chat_id, ai_response.text)
+                            .parse_mode(teloxide::types::ParseMode::Html)
+                            .await
+                        {
                             log::warn!("Failed to send AI response: {}", e);
                         }
                     }
