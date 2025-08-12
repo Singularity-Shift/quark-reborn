@@ -85,7 +85,34 @@ pub fn clean_filename(filename: &str) -> String {
 
 
 
-// markdown_to_html removed: AI now emits Telegram-compatible HTML directly
+// Minimal markdown to Telegram-HTML converter supporting triple backtick fences
+pub fn markdown_to_html(input: &str) -> String {
+    // Handle fenced code blocks ```lang\n...\n```
+    let mut html = String::new();
+    let mut lines = input.lines();
+    let mut in_code = false;
+    while let Some(line) = lines.next() {
+        if line.trim_start().starts_with("```") {
+            if !in_code {
+                in_code = true;
+                html.push_str("<pre>");
+            } else {
+                in_code = false;
+                html.push_str("</pre>\n");
+            }
+            continue;
+        }
+        if in_code {
+            html.push_str(&teloxide::utils::html::escape(line));
+            html.push('\n');
+        } else {
+            // Basic escaping and keep line breaks
+            html.push_str(&teloxide::utils::html::escape(line));
+            html.push('\n');
+        }
+    }
+    html
+}
 
 pub async fn create_purchase_request(
     file_search_calls: u32,

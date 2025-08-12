@@ -223,10 +223,19 @@ impl MediaGroupAggregator {
                 Ok(ai_response) => {
                     if let Some(image_data) = ai_response.image_data {
                         let photo = teloxide::types::InputFile::memory(image_data);
-                        let caption = if ai_response.text.len() > 1024 {
-                            &ai_response.text[..1024]
+                        // Remove <pre> blocks from caption to avoid unbalanced HTML when truncated
+                        let re = regex::Regex::new(r"(?s)<pre[^>]*>(.*?)</pre>").unwrap();
+                        let mut pre_blocks: Vec<String> = Vec::new();
+                        let text_without_pre = re
+                            .replace_all(&ai_response.text, |caps: &regex::Captures| {
+                                pre_blocks.push(caps.get(1).map(|m| m.as_str()).unwrap_or("").to_string());
+                                "".to_string()
+                            })
+                            .to_string();
+                        let caption = if text_without_pre.len() > 1024 {
+                            &text_without_pre[..1024]
                         } else {
-                            &ai_response.text
+                            &text_without_pre
                         };
                         if let Err(e) = self
                             .bot
@@ -237,10 +246,23 @@ impl MediaGroupAggregator {
                         {
                             log::warn!("Failed to send photo with caption: {}", e);
                         }
-                        if ai_response.text.len() > 1024 {
+                        // Send any extracted <pre> blocks safely in full
+                        for pre in pre_blocks {
+                            let escaped = teloxide::utils::html::escape(&pre);
+                            let msg = format!("<pre>{}</pre>", escaped);
                             if let Err(e) = self
                                 .bot
-                                .send_message(chat_id, &ai_response.text[1024..])
+                                .send_message(chat_id, msg)
+                                .parse_mode(teloxide::types::ParseMode::Html)
+                                .await
+                            {
+                                log::warn!("Failed to send pre block: {}", e);
+                            }
+                        }
+                        if text_without_pre.len() > 1024 {
+                            if let Err(e) = self
+                                .bot
+                                .send_message(chat_id, &text_without_pre[1024..])
                                 .parse_mode(teloxide::types::ParseMode::Html)
                                 .await
                             {
