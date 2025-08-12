@@ -5,6 +5,7 @@ pub fn get_prompt() -> String {
 Use plain text with Telegram-compatible HTML.
 Allowed tags: <b>, <strong>, <i>, <em>, <u>, <ins>, <s>, <strike>, <del>, <code>, <pre>, <a>, <tg-spoiler>, <span class="tg-spoiler">...</span>.
 Use \n for new lines; do not use <br>, <ul>, or <li>. Simulate lists using "• " or numbered items (e.g., "1. ").
+Lists: Insert a blank line between list items (whether items start with "• ", a number like "1.", or a hyphen "-") for consistent spacing in Telegram.
 Escape special characters as needed (&lt;, &gt;, &amp;, &quot;).
 For any citation or URL, ALWAYS use an HTML anchor: <a href=\"URL\">Source</a> (e.g., <a href=\"https://reuters.com\">Reuters</a>). Do NOT use Markdown links or bare URLs.
 Keep responses under 4000 characters by default; exceed only when clearly necessary for correctness.
