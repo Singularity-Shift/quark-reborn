@@ -302,6 +302,18 @@ module quark::group {
         pay_ai_fees<CoinType>(group_account, amount);
     }
 
+    public entry fun pay_ai_v2(admin: &signer, reviewer: &signer, group_id: String, amount: u64, currency: address) acquires Groups, GroupSigner {
+        let admin_address = signer::address_of(admin);
+        let reviewer_address = signer::address_of(reviewer);
+
+        assert!(admin::is_admin(admin_address), EONLY_ADMIN_CAN_CALL);
+        assert!(admin::is_reviewer(reviewer_address), EONLY_REVIEWER_CAN_CALL);
+
+        let group_account = get_group_account(group_id);
+
+        pay_ai_fees_v2(group_account, amount, currency);
+    }
+
     public entry fun pay_users_v1<CoinType>(admin: &signer, reviewer: &signer, group_id: String, amount: u64, recipients: vector<address>) acquires Groups, GroupSigner {
         assert!(vector::length(&recipients) > 0, ENOT_USER_PASSED);
         let admin_address = signer::address_of(admin);
@@ -1178,7 +1190,8 @@ module quark::group {
 
         let coin_info = type_info::type_of<CoinType>();
         let coin_type_addr = type_info::account_address(&coin_info);
-        assert!(&coin_type_addr == option::borrow(&coin_type), ECOINS_NOT_MATCH);
+        assert!(&coin_type_addr == option::borrow(&coin_type) || admin::exist_fees_currency_payment_list(coin_type_addr), ECOINS_NOT_MATCH);
+        assert!(coin::balance<CoinType>(resource_account_address) >= amount, ENOT_ENOUGH_FUNDS);
 
         let resource_account_fees = fees::get_resource_account_address();
 
@@ -1192,6 +1205,32 @@ module quark::group {
             created_at: timestamp::now_seconds(),
         });
 
+    }
+
+    fun pay_ai_fees_v2(group_account: address, amount: u64, currency: address) acquires GroupSigner {
+        assert!(fees::resource_account_exists(), ERESOURCE_ACCOUNT_NOT_EXISTS);
+        assert!(amount > 0, EAMOUNT_MUST_BE_GREATER_THAN_ZERO);
+        assert!(admin::exist_fees_currency_payment_list(currency), ECOINS_NOT_MATCH);
+
+        let group_signer_cap = borrow_global<GroupSigner>(group_account);
+        let resource_account = account::create_signer_with_capability(&group_signer_cap.signer_cap);
+        let resource_account_address = signer::address_of(&resource_account);
+
+        let fa_metadata = object::address_to_object<Metadata>(currency);
+
+        assert!(primary_fungible_store::balance(resource_account_address, fa_metadata) >= amount, ENOT_ENOUGH_FUNDS);
+
+        let resource_account_fees = fees::get_resource_account_address();
+
+        aptos_account::transfer_fungible_assets(&resource_account, fa_metadata, resource_account_fees, amount);
+
+        event::emit(PayAiEvent {
+            group: resource_account_address,
+            amount,
+            currency,
+            recipient: resource_account_fees,
+            created_at: timestamp::now_seconds(),
+        });
     }
 
     #[test_only]

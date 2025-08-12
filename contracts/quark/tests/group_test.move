@@ -58,6 +58,8 @@ module quark::group_test {
     
 
     struct TestCoin {}
+    struct TestCoin2 {}
+    struct FakeCoin {}
 
     struct FAController has key {
         mint_ref: MintRef,
@@ -97,6 +99,7 @@ module quark::group_test {
         admin::test_init_admin(sender);
         user::test_init_account(sender);
         group::test_init_group(sender);
+        admin::init_fees_currency_payment_list(sender);
     }
 
     fun mint_coin<CoinType>(admin: &signer, amount: u64, to: &signer) {
@@ -414,6 +417,141 @@ module quark::group_test {
         
         assert!(final_group_balance == initial_group_balance - TEST_AMOUNT, EIS_BALANCE_NOT_EQUAL);
         assert!(fees_balance == TEST_AMOUNT, EIS_BALANCE_NOT_EQUAL);
+
+        coin::destroy_burn_cap(burn_cap);
+        coin::destroy_mint_cap(mint_cap);
+    }
+
+    #[test(aptos_framework = @0x1, sshift_gpt = @sshift_gpt, quark = @quark)]
+    fun test_pay_ai_v1_from_other_coin_on_list(aptos_framework: &signer, sshift_gpt: &signer, quark: &signer) {
+        let (burn_cap, mint_cap) = aptos_coin::initialize_for_test(aptos_framework);
+        timestamp::set_time_has_started_for_testing(aptos_framework);
+        init_module(quark);
+        create_resource_account(sshift_gpt, quark);
+
+        let group_id = string::utf8(TEST_GROUP_ID);
+        
+        // Set the coin address in the config first
+        user::set_coin_address<AptosCoin>(quark);
+        
+        group::create_group(quark, quark, group_id);
+
+        let group_account_addr = group::get_group_account(group_id);
+        account::create_account_for_test(group_account_addr);
+        let group_account = account::create_signer_for_test(group_account_addr);
+        coin::register<AptosCoin>(&group_account);
+
+        // Fund group with enough TestCoin2 to cover TEST_AMOUNT
+        mint_coin<TestCoin2>(quark, TEST_AMOUNT * 5, &group_account);
+
+        admin::add_fees_currency_v1_payment_list<TestCoin2>(quark);
+
+        group::pay_ai<TestCoin2>(quark, quark, group_id, TEST_AMOUNT);
+
+        let fees_account = fees::get_resource_account_address();
+
+        assert!(coin::balance<TestCoin2>(group_account_addr) == (TEST_AMOUNT * 4), EIS_BALANCE_NOT_EQUAL);
+        assert!(coin::balance<TestCoin2>(fees_account) == TEST_AMOUNT, EIS_BALANCE_NOT_EQUAL);
+
+        coin::destroy_burn_cap(burn_cap);
+        coin::destroy_mint_cap(mint_cap);
+    }
+
+
+    #[test(aptos_framework = @0x1, sshift_gpt = @sshift_gpt, quark = @quark)]
+    #[expected_failure(abort_code = 5, location = quark::group)]
+    fun test_should_not_pay_ai_v1_with_currency_not_in_list(aptos_framework: &signer, sshift_gpt: &signer, quark: &signer) {
+        let (burn_cap, mint_cap) = aptos_coin::initialize_for_test(aptos_framework);
+        timestamp::set_time_has_started_for_testing(aptos_framework);
+        init_module(quark);
+                create_resource_account(sshift_gpt, quark);
+        let group_id = string::utf8(TEST_GROUP_ID);
+
+        user::set_coin_address<AptosCoin>(quark);
+
+        group::create_group(quark, quark, group_id);
+
+        let group_account_addr = group::get_group_account(group_id);
+        account::create_account_for_test(group_account_addr);
+        let group_account = account::create_signer_for_test(group_account_addr);
+        
+        admin::add_fees_currency_v1_payment_list<AptosCoin>(quark);
+
+        mint_coin<FakeCoin>(quark, 5000, &group_account);
+
+        group::pay_ai<FakeCoin>(quark, quark, group_id, 1000);
+
+        coin::destroy_burn_cap(burn_cap);
+        coin::destroy_mint_cap(mint_cap);
+    }
+
+    #[test(aptos_framework = @0x1, sshift_gpt = @sshift_gpt, quark = @quark)]
+    fun test_pay_ai_v2(aptos_framework: &signer, sshift_gpt: &signer, quark: &signer) acquires FAController {
+        let (burn_cap, mint_cap) = aptos_coin::initialize_for_test(aptos_framework);
+        timestamp::set_time_has_started_for_testing(aptos_framework);
+        init_module(quark);
+        create_resource_account(sshift_gpt, quark);
+        let group_id = string::utf8(TEST_GROUP_ID);
+
+        let fa_obj = create_fa();
+        let fa_addr = object::object_address(&fa_obj);
+        let fa_controller = borrow_global<FAController>(fa_addr);
+        
+        group::create_group(quark, quark, group_id);
+
+        let group_account_addr = group::get_group_account(group_id);
+        account::create_account_for_test(group_account_addr);
+        let group_account = account::create_signer_for_test(group_account_addr);
+        coin::register<AptosCoin>(&group_account);
+
+        mint_fa(&group_account, &fa_controller.mint_ref, TEST_AMOUNT * 10);
+
+        // Allow FA currency in fees list and pay
+        admin::add_fees_currency_v2_payment_list(quark, fa_addr);
+        group::pay_ai_v2(quark, quark, group_id, TEST_AMOUNT, fa_addr);
+
+        let fa_metadata = object::address_to_object<Metadata>(fa_addr);
+        assert!(primary_fungible_store::balance<Metadata>(group_account_addr, fa_metadata) == TEST_AMOUNT * 9, EIS_BALANCE_NOT_EQUAL);
+        assert!(primary_fungible_store::balance<Metadata>(fees::get_resource_account_address(), fa_metadata) == TEST_AMOUNT, EIS_BALANCE_NOT_EQUAL);
+
+        coin::destroy_burn_cap(burn_cap);
+        coin::destroy_mint_cap(mint_cap);
+    }
+
+    #[test(aptos_framework = @0x1, sshift_gpt = @sshift_gpt, quark = @quark)]
+    #[expected_failure(abort_code = 5, location = quark::group)]
+    fun test_should_not_pay_ai_v2_with_currency_not_in_list(aptos_framework: &signer, sshift_gpt: &signer, quark: &signer) acquires FAController {
+        let (burn_cap, mint_cap) = aptos_coin::initialize_for_test(aptos_framework);
+        timestamp::set_time_has_started_for_testing(aptos_framework);
+        init_module(quark);
+        create_resource_account(sshift_gpt, quark);
+        
+        let group_id = string::utf8(TEST_GROUP_ID);
+
+        user::set_coin_address<AptosCoin>(quark);
+
+        group::create_group(quark, quark, group_id);
+
+        let group_account_addr = group::get_group_account(group_id);
+        account::create_account_for_test(group_account_addr);
+        let group_account = account::create_signer_for_test(group_account_addr);
+
+        let fa_obj = create_fa();
+        let fa_addr = object::object_address(&fa_obj);
+
+        admin::add_fees_currency_v2_payment_list(quark, fa_addr);
+
+        let fa_obj2 = create_fa();
+        let fa_addr2 = object::object_address(&fa_obj2);
+        let fa_controller2 = borrow_global<FAController>(fa_addr2);
+
+        mint_fa(&group_account, &fa_controller2.mint_ref, TEST_AMOUNT * 10);
+
+        group::pay_ai_v2(quark, quark, group_id, TEST_AMOUNT, fa_addr2);
+
+        assert!(coin::balance<AptosCoin>(group_account_addr) == TEST_AMOUNT * 9, EIS_BALANCE_NOT_EQUAL);
+        assert!(coin::balance<AptosCoin>(fees::get_resource_account_address()) == TEST_AMOUNT, EIS_BALANCE_NOT_EQUAL);
+
 
         coin::destroy_burn_cap(burn_cap);
         coin::destroy_mint_cap(mint_cap);

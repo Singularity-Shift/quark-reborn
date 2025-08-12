@@ -9,9 +9,9 @@ demo_script.rs
 .env
 .aptos/
 .vscode/
+.cursor/
 
 cargo-check.log
 *.asc
 *.gpg
-
 
