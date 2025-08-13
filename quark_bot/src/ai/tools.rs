@@ -16,7 +16,7 @@ use teloxide::{Bot, types::Message};
 pub fn get_balance_tool() -> Tool {
     Tool::function(
         "get_balance",
-        "Get the current account balance for the user. MUST use this tool for all balance check requests.",
+        "Get the current account balance for the user. MUST use this tool for all balance check requests. Present the result concisely (e.g., '<b>Balance</b>: <code>{amount}</code> {SYMBOL}'). Do not paste raw JSON; curate the answer. Keep within the overall 4000-character budget and do not add follow-up questions.",
         json!({
             "type": "object",
             "properties": {
@@ -25,7 +25,8 @@ pub fn get_balance_tool() -> Tool {
                     "description": "The symbol of the token to get the balance for"
                 }
             },
-            "required": ["symbol"]
+            "required": ["symbol"],
+            "additionalProperties": false
         }),
     )
 }
@@ -33,7 +34,7 @@ pub fn get_balance_tool() -> Tool {
 pub fn get_wallet_address_tool() -> Tool {
     Tool::function(
         "get_wallet_address",
-        "Get the current wallet address for the user. MUST use this tool for all wallet address check requests.",
+        "Get the current wallet address for the user. MUST use this tool for all wallet address check requests. Present the address in <code>...</code>. Do not paste raw JSON; keep concise and avoid follow-up questions.",
         json!({}),
     )
 }
@@ -42,7 +43,7 @@ pub fn get_wallet_address_tool() -> Tool {
 pub fn withdraw_funds_tool() -> Tool {
     Tool::function(
         "withdraw_funds",
-        "Withdraw funds from the user's account. Strictly follow the protocol described in this tool's description. Always return the url provided to withdraw funds.",
+        "Withdraw funds from the user's account. Strictly follow the protocol described in this tool's description. Always include the provided URL as a clickable link (e.g., '<a href=\"URL\">Withdraw funds</a>'). Present concisely and avoid follow-up questions.",
         json!({
             "type": "object",
             "properties": {
@@ -55,7 +56,8 @@ pub fn withdraw_funds_tool() -> Tool {
                     "description": "The amount of coins to withdraw"
                 }
             },
-            "required": ["symbol", "amount"]
+            "required": ["symbol", "amount"],
+            "additionalProperties": false
         }),
     )
 }
@@ -64,7 +66,7 @@ pub fn withdraw_funds_tool() -> Tool {
 pub fn fund_account_tool() -> Tool {
     Tool::function(
         "fund_account",
-        "Fund the user's resource account with tokens from their main wallet. Strictly follow the protocol described in this tool's description. Always return the url provided to fund account.",
+        "Fund the user's resource account with tokens from their main wallet. Strictly follow the protocol described in this tool's description. Always include the provided URL as a clickable link (e.g., '<a href=\"URL\">Fund account</a>'). Present concisely and avoid follow-up questions.",
         json!({
             "type": "object",
             "properties": {
@@ -77,7 +79,8 @@ pub fn fund_account_tool() -> Tool {
                     "description": "The amount of coins to fund"
                 }
             },
-            "required": ["symbol", "amount"]
+            "required": ["symbol", "amount"],
+            "additionalProperties": false
         }),
     )
 }
@@ -86,7 +89,7 @@ pub fn fund_account_tool() -> Tool {
 pub fn get_trending_pools_tool() -> Tool {
     Tool::function(
         "get_trending_pools",
-        "Get the top trending DEX pools on a specific blockchain network from GeckoTerminal",
+        "Get the top trending DEX pools on a specific blockchain network from GeckoTerminal. Curate results sized by verbosity (Low: up to 5, Medium: up to 8, High: up to 10). For each item include name/symbol, 1–2 key stats (e.g., 24h change, liquidity), and a link. Do not dump raw JSON.",
         json!({
             "type": "object",
             "properties": {
@@ -116,7 +119,8 @@ pub fn get_trending_pools_tool() -> Tool {
                     "default": "24h"
                 }
             },
-            "required": ["network"]
+            "required": ["network"],
+            "additionalProperties": false
         }),
     )
 }
@@ -125,7 +129,7 @@ pub fn get_trending_pools_tool() -> Tool {
 pub fn get_search_pools_tool() -> Tool {
     Tool::function(
         "search_pools",
-        "Search for DEX pools on GeckoTerminal by text, token symbol, contract address, or pool address.",
+        "Search for DEX pools on GeckoTerminal by text, token symbol, contract address, or pool address. Curate results sized by verbosity (Low: up to 5, Medium: up to 8, High: up to 10). For each item include name/symbol, 1–2 key stats, and a link. Do not dump raw JSON.",
         json!({
             "type": "object",
             "properties": {
@@ -144,7 +148,8 @@ pub fn get_search_pools_tool() -> Tool {
                     "default": 1
                 }
             },
-            "required": ["query"]
+            "required": ["query"],
+            "additionalProperties": false
         }),
     )
 }
@@ -153,7 +158,7 @@ pub fn get_search_pools_tool() -> Tool {
 pub fn get_new_pools_tool() -> Tool {
     Tool::function(
         "get_new_pools",
-        "Get the latest pools on a specific blockchain network from GeckoTerminal.",
+        "Get the latest pools on a specific blockchain network from GeckoTerminal. Curate results sized by verbosity (Low: up to 5, Medium: up to 8, High: up to 10). For each item include name/symbol and a link; avoid low-signal fields. Do not dump raw JSON.",
         json!({
             "type": "object",
             "properties": {
@@ -170,7 +175,8 @@ pub fn get_new_pools_tool() -> Tool {
                     "default": 1
                 }
             },
-            "required": ["network"]
+            "required": ["network"],
+            "additionalProperties": false
         }),
     )
 }
@@ -189,7 +195,8 @@ pub fn get_time_tool() -> Tool {
                     "default": "UTC"
                     }
                 },
-            "required": []
+            "required": [],
+            "additionalProperties": false
         }),
     )
 }
@@ -198,7 +205,7 @@ pub fn get_time_tool() -> Tool {
 pub fn get_fear_and_greed_index_tool() -> Tool {
     Tool::function(
         "get_fear_and_greed_index",
-        "Retrieve the current or historical Fear & Greed Index for the crypto market. Specify the number of days to fetch historical sentiment data.",
+        "Retrieve the current or historical Fear & Greed Index for the crypto market. Report as 'Index: NN/100 – {Greed|Fear|Neutral}' plus a 1–2 line interpretation; do not dump raw JSON.",
         json!({
             "type": "object",
             "properties": {
@@ -210,7 +217,8 @@ pub fn get_fear_and_greed_index_tool() -> Tool {
                     "default": 1
                 }
             },
-            "required": []
+            "required": [],
+            "additionalProperties": false
         }),
     )
 }
@@ -219,7 +227,7 @@ pub fn get_fear_and_greed_index_tool() -> Tool {
 pub fn get_pay_users_tool() -> Tool {
     Tool::function(
         "get_pay_users",
-        "Token Send Tool — Streamlined Protocol\n\nThis tool prepares token transfers to multiple Telegram users by username. The contract automatically splits the total amount evenly among all recipients.\n\nResponse Protocol:\n• After calling this tool, ALWAYS describe the prepared transaction using this exact format:\n  - For individual sends: 'Confirm sending [X] [TOKEN] to [USERNAME].'\n  - For shared sends: 'Confirm sending [X] [TOKEN] total, split evenly among [Y] users ([Z] each).'\n• Do NOT ask for confirmation again - the user will confirm via buttons\n• Do NOT repeat the tool call - execute it once and provide the summary\n• The transaction will be prepared and awaiting user confirmation via inline buttons, YOU WILL now consider the transaction completed since control is now with the user.\n\n",
+        "Token Send Tool — Streamlined Protocol\n\nThis tool prepares token transfers to multiple Telegram users by username. The contract automatically splits the total amount evenly among all recipients.\n\nResponse Protocol:\n• After calling this tool, ALWAYS describe the prepared transaction using this exact format:\n  - For individual sends: 'Confirm sending [X] [TOKEN] to [USERNAME].'\n  - For shared sends: 'Confirm sending [X] [TOKEN] total, split evenly among [Y] users ([Z] each).'\n• Do NOT ask for confirmation again - the user will confirm via buttons\n• Do NOT repeat the tool call - execute it once and provide the summary\n• The transaction will be prepared and awaiting user confirmation via inline buttons, YOU WILL now consider the transaction completed since control is now with the user.\n• Do not add closing pleasantries or follow-up questions.\n\n",
         json!({
             "type": "object",
             "properties": {
@@ -264,7 +272,7 @@ pub fn get_pay_users_tool() -> Tool {
 pub fn create_proposal() -> Tool {
     Tool::function(
         "create_proposal",
-        "Create a new voting proposal for the with the given name, description, start date, end date, currency and options to vote for. CRITICAL: You MUST use get_current_time tool with timezone 'UTC' FIRST to get the current time before calling this tool. All dates must be calculated from the current UTC time and converted to seconds since epoch. The symbol parameter is optional - if not provided, the tool will use the saved DAO token preference for the group. If no specific vote duration is mentioned, you can use the saved vote duration preference for the group. If no start time is provided the proposal should start 5 mins from the current time, apply this same rule if the user says to start now, immediately of similar.",
+        "Create a new voting proposal for the with the given name, description, start date, end date, currency and options to vote for. CRITICAL: You MUST use get_current_time tool with timezone 'UTC' FIRST to get the current time before calling this tool. All dates must be calculated from the current UTC time and converted to seconds since epoch. The symbol parameter is optional - if not provided, the tool will use the saved DAO token preference for the group. If no specific vote duration is mentioned, you can use the saved vote duration preference for the group. If no start time is provided the proposal should start 5 mins from the current time (apply the same rule for 'now'/'immediately'). In your response, show both human-readable UTC times and epoch seconds in <code>...</code>, presented concisely.",
         json!({
             "type": "object",
             "properties": {
@@ -306,7 +314,7 @@ pub fn create_proposal() -> Tool {
 pub fn get_recent_messages_tool() -> Tool {
     Tool::function(
         "get_recent_messages",
-        "Retrieve the most recent messages (up to 30) from this Telegram group chat. Use this tool whenever users ask about: 'what have I missed', 'recent activity', 'what happened', 'group updates', 'catching up', 'conversation history', or use vague references like 'that', 'it', 'what we discussed'. This tool is essential for providing context-aware responses and should be called automatically for situational awareness in group chats.",
+        "Retrieve the most recent messages (up to 30) from this Telegram group chat. Use this tool whenever users ask about: 'what have I missed', 'recent activity', 'what happened', 'group updates', 'catching up', 'conversation history', or use vague references like 'that', 'it', 'what we discussed'. Provide a concise situational summary (key decisions, mentions, dates). Quote selectively using <pre> for short snippets; do not dump raw logs.",
         serde_json::json!({}),
     )
 }

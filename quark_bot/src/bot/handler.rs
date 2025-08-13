@@ -42,68 +42,209 @@ use crate::scheduled_prompts::wizard::build_hours_keyboard;
 
 const TELEGRAM_MESSAGE_LIMIT: usize = 4096;
 
-/// Split a message into chunks that fit within Telegram's message limit
+/// Split a Telegram-HTML message into chunks without cutting inside tags/entities.
 fn split_message(text: &str) -> Vec<String> {
     if text.len() <= TELEGRAM_MESSAGE_LIMIT {
         return vec![text.to_string()];
     }
 
-    let mut chunks = Vec::new();
-    let mut current_chunk = String::new();
+    // Track whether a tag requires closing
+    fn is_closing_required(tag: &str) -> bool {
+        matches!(
+            tag,
+            "b" | "strong" | "i" | "em" | "u" | "ins" | "s" | "strike" | "del" | "code" | "pre" | "a" | "tg-spoiler" | "span" | "blockquote"
+        )
+    }
 
-    // Split by lines first to avoid breaking in the middle of sentences
-    for line in text.lines() {
-        // If adding this line would exceed the limit, save current chunk and start new one
-        if current_chunk.len() + line.len() + 1 > TELEGRAM_MESSAGE_LIMIT {
-            if !current_chunk.is_empty() {
-                chunks.push(current_chunk.trim().to_string());
-                current_chunk.clear();
+    let mut chunks: Vec<String> = Vec::new();
+    let mut buf = String::new();
+    let mut last_safe_break: Option<usize> = None; // index in buf safe to split
+    let mut inside_tag = false;
+    let mut inside_entity = false;
+    let mut tag_buf = String::new();
+    let mut open_stack: Vec<String> = Vec::new();
+    let mut tag_start_in_buf: usize = 0; // start index of current tag
+    let mut last_anchor_start: Option<usize> = None; // avoid splitting inside <a>
+
+    let push_chunk = |buf: &mut String, chunks: &mut Vec<String>| {
+        if !buf.trim().is_empty() {
+            chunks.push(buf.trim().to_string());
+        }
+        buf.clear();
+    };
+
+    for ch in text.chars() {
+        match ch {
+            '<' => {
+                inside_tag = true;
+                tag_buf.clear();
+                tag_start_in_buf = buf.len();
+                buf.push(ch);
             }
-
-            // If a single line is too long, split it by words
-            if line.len() > TELEGRAM_MESSAGE_LIMIT {
-                let words: Vec<&str> = line.split_whitespace().collect();
-                let mut word_chunk = String::new();
-
-                for word in words {
-                    if word_chunk.len() + word.len() + 1 > TELEGRAM_MESSAGE_LIMIT {
-                        if !word_chunk.is_empty() {
-                            chunks.push(word_chunk.trim().to_string());
-                            word_chunk.clear();
+            '>' => {
+                buf.push(ch);
+                if inside_tag {
+                    // parse tag name
+                    let tag_content = tag_buf.trim();
+                    let is_end = tag_content.starts_with('/')
+                        || tag_content.starts_with("/ ")
+                        || tag_content.starts_with(" /");
+                    let name = tag_content
+                        .trim_start_matches('/')
+                        .split_whitespace()
+                        .next()
+                        .unwrap_or("")
+                        .to_lowercase();
+                    if !name.is_empty() && is_closing_required(&name) {
+                        if is_end {
+                            if let Some(pos) = open_stack.iter().rposition(|t| t == &name) {
+                                open_stack.remove(pos);
+                            }
+                            if name == "a" {
+                                last_anchor_start = None;
+                            }
+                        } else {
+                            open_stack.push(name.clone());
+                            if name == "a" {
+                                last_anchor_start = Some(tag_start_in_buf);
+                            }
                         }
                     }
-
-                    if !word_chunk.is_empty() {
-                        word_chunk.push(' ');
+                }
+                inside_tag = false;
+                if !inside_entity && open_stack.is_empty() {
+                    last_safe_break = Some(buf.len());
+                }
+            }
+            '&' => {
+                inside_entity = true;
+                buf.push(ch);
+            }
+            ';' => {
+                buf.push(ch);
+                if inside_entity {
+                    inside_entity = false;
+                    if !inside_tag && open_stack.is_empty() {
+                        last_safe_break = Some(buf.len());
                     }
-                    word_chunk.push_str(word);
                 }
+            }
+            _ => {
+                if inside_tag {
+                    tag_buf.push(ch);
+                }
+                buf.push(ch);
+                if (ch == ' ' || ch == '\n' || ch == '\t') && !inside_tag && !inside_entity && open_stack.is_empty() {
+                    last_safe_break = Some(buf.len());
+                }
+            }
+        }
 
-                if !word_chunk.is_empty() {
-                    current_chunk = word_chunk;
+        if buf.len() >= TELEGRAM_MESSAGE_LIMIT {
+            if let Some(idx) = last_safe_break {
+                let remainder = buf.split_off(idx);
+                let chunk = buf.trim().to_string();
+                if !chunk.is_empty() {
+                    chunks.push(chunk);
                 }
+                buf = remainder;
+            } else if last_anchor_start.is_some() {
+                // Split before the anchor started to avoid cutting inside <a>
+                let pos = last_anchor_start.unwrap();
+                if pos > 0 {
+                    let remainder = buf.split_off(pos);
+                    let chunk = buf.trim().to_string();
+                    if !chunk.is_empty() {
+                        chunks.push(chunk);
+                    }
+                    buf = remainder;
+                } else {
+                    // Anchor starts at 0; fall back to pushing the whole buffer to make progress
+                    push_chunk(&mut buf, &mut chunks);
+                }
+            } else if open_stack.iter().any(|t| t == "pre" || t == "code") {
+                // Close pre/code at boundary and reopen in next chunk
+                let closable: Vec<&str> = open_stack
+                    .iter()
+                    .map(|s| s.as_str())
+                    .filter(|t| *t == "pre" || *t == "code")
+                    .collect();
+                for t in closable.iter().rev() {
+                    buf.push_str(&format!("</{}>", t));
+                }
+                let reopen = closable
+                    .iter()
+                    .map(|t| format!("<{}>", t))
+                    .collect::<Vec<_>>()
+                    .join("");
+                let chunk = buf.trim().to_string();
+                if !chunk.is_empty() {
+                    chunks.push(chunk);
+                }
+                buf.clear();
+                buf.push_str(&reopen);
             } else {
-                current_chunk = line.to_string();
+                // Last resort: push whatever we have (should be rare)
+                push_chunk(&mut buf, &mut chunks);
             }
-        } else {
-            if !current_chunk.is_empty() {
-                current_chunk.push('\n');
-            }
-            current_chunk.push_str(line);
+            last_safe_break = None;
         }
     }
 
-    if !current_chunk.is_empty() {
-        chunks.push(current_chunk.trim().to_string());
+    if !buf.trim().is_empty() {
+        chunks.push(buf.trim().to_string());
     }
 
     chunks
 }
 
+/// Extract all <pre>...</pre> blocks and return the text without them, plus the list of pre contents
+fn split_off_pre_blocks(text: &str) -> (String, Vec<String>) {
+    let re = regex::Regex::new(r"(?s)<pre[^>]*>(.*?)</pre>").unwrap();
+    let mut pre_blocks: Vec<String> = Vec::new();
+    let without_pre = re
+        .replace_all(text, |caps: &regex::Captures| {
+            pre_blocks.push(caps.get(1).map(|m| m.as_str()).unwrap_or("").to_string());
+            "".to_string()
+        })
+        .to_string();
+    (without_pre, pre_blocks)
+}
+
+/// Send a long <pre> block safely by chunking and wrapping each chunk in <pre> tags
+async fn send_pre_block(bot: &Bot, chat_id: ChatId, title: &str, content: &str) -> AnyResult<()> {
+    // Escape HTML special chars inside the <pre> block
+    let escaped = teloxide::utils::html::escape(content);
+    let prefix = format!("{}\n<pre>", title);
+    let suffix = "</pre>";
+    // Leave some headroom for prefix/suffix
+    let max_payload = TELEGRAM_MESSAGE_LIMIT.saturating_sub(prefix.len() + suffix.len() + 16);
+    let mut current = String::new();
+    for ch in escaped.chars() {
+        if current.chars().count() + 1 > max_payload {
+            let msg = format!("{}{}{}", prefix, current, suffix);
+            bot.send_message(chat_id, msg)
+                .parse_mode(ParseMode::Html)
+                .await?;
+            current.clear();
+        }
+        current.push(ch);
+    }
+    if !current.is_empty() {
+        let msg = format!("{}{}{}", prefix, current, suffix);
+        bot.send_message(chat_id, msg)
+            .parse_mode(ParseMode::Html)
+            .await?;
+    }
+    Ok(())
+}
+
 /// Send a potentially long message, splitting it into multiple messages if necessary
 async fn send_long_message(bot: &Bot, chat_id: ChatId, text: &str) -> AnyResult<()> {
-    // Convert markdown to HTML to avoid Telegram parsing issues
+    // Convert markdown (including ``` code fences) to Telegram-compatible HTML
     let html_text = utils::markdown_to_html(text);
+    // Normalize image anchor to point to the public GCS URL when present
+    let html_text = utils::normalize_image_url_anchor(&html_text);
     let chunks = split_message(&html_text);
 
     for (i, chunk) in chunks.iter().enumerate() {
@@ -658,18 +799,24 @@ pub async fn handle_list_files(bot: Bot, msg: Message, bot_deps: BotDependencies
             // Check for image data and send as a photo if present
             if let Some(image_data) = ai_response.image_data {
                 let photo = InputFile::memory(image_data);
-                let caption = if ai_response.text.len() > 1024 {
-                    &ai_response.text[..1024]
+                // Strip <pre> blocks from caption to avoid unbalanced HTML when truncated
+                let (text_without_pre, pre_blocks) = split_off_pre_blocks(&ai_response.text);
+                let caption = if text_without_pre.len() > 1024 {
+                    &text_without_pre[..1024]
                 } else {
-                    &ai_response.text
+                    &text_without_pre
                 };
                 bot.send_photo(msg.chat.id, photo)
                     .caption(caption)
-                    .parse_mode(ParseMode::MarkdownV2)
+                    .parse_mode(ParseMode::Html)
                     .await?;
-                // If the text is longer than 1024, send the rest as a follow-up message
-                if ai_response.text.len() > 1024 {
-                    send_long_message(&bot, msg.chat.id, &ai_response.text[1024..]).await?;
+                // Send any extracted <pre> blocks safely in full
+                for pre in pre_blocks {
+                    send_pre_block(&bot, msg.chat.id, "", &pre).await?;
+                }
+                // If the text_without_pre is longer than 1024, send the remainder
+                if text_without_pre.len() > 1024 {
+                    send_long_message(&bot, msg.chat.id, &text_without_pre[1024..]).await?;
                 }
             } else if let Some(ref tool_calls) = ai_response.tool_calls {
                 if tool_calls
@@ -1015,15 +1162,24 @@ pub async fn handle_chat(
 
             if let Some(image_data) = ai_response.image_data {
                 let photo = InputFile::memory(image_data);
-                let caption = if ai_response.text.len() > 1024 {
-                    &ai_response.text[..1024]
+                // Strip <pre> blocks from caption to avoid unbalanced HTML when truncated
+                let (text_without_pre, pre_blocks) = split_off_pre_blocks(&ai_response.text);
+                let caption = if text_without_pre.len() > 1024 {
+                    &text_without_pre[..1024]
                 } else {
-                    &ai_response.text
+                    &text_without_pre
                 };
-                bot.send_photo(msg.chat.id, photo).caption(caption).await?;
-                // If the text is longer than 1024, send the rest as a follow-up message
-                if ai_response.text.len() > 1024 {
-                    send_long_message(&bot, msg.chat.id, &ai_response.text[1024..]).await?;
+                bot.send_photo(msg.chat.id, photo)
+                    .caption(caption)
+                    .parse_mode(ParseMode::Html)
+                    .await?;
+                // Send any extracted <pre> blocks safely in full
+                for pre in pre_blocks {
+                    send_pre_block(&bot, msg.chat.id, "", &pre).await?;
+                }
+                // If the text_without_pre is longer than 1024, send the remainder
+                if text_without_pre.len() > 1024 {
+                    send_long_message(&bot, msg.chat.id, &text_without_pre[1024..]).await?;
                 }
             } else if let Some(ref tool_calls) = ai_response.tool_calls {
                 if tool_calls
@@ -1394,7 +1550,7 @@ pub async fn handle_message(bot: Bot, msg: Message, bot_deps: BotDependencies) -
                 bot.send_message(
                     msg.chat.id,
                     format!(
-                        "User balance is less than the minimum deposit. Please fund your account transfering {} to {} address. Minimum deposit: {} {} (Your balance: {} {})",
+                        "User balance is less than the minimum deposit. Please fund your account transfering {} to <code>{}</code> address. Minimum deposit: {} {} (Your balance: {} {})",
                         token.symbol.clone().unwrap_or("".to_string()),
                         address,
                         min_deposit_formatted,
@@ -1403,6 +1559,7 @@ pub async fn handle_message(bot: Bot, msg: Message, bot_deps: BotDependencies) -
                         token.symbol.unwrap_or("".to_string())
                     )
                 )
+                .parse_mode(ParseMode::Html)
                 .await?;
                 return Ok(());
             }
@@ -1486,11 +1643,20 @@ pub async fn handle_message(bot: Bot, msg: Message, bot_deps: BotDependencies) -
                                      format!("ban:{}:{}", flagged_user.id, msg.id.0),
                                 ),
                             ]]);
+                            // Build a visible user mention (prefer @username, else clickable name)
+                            let user_mention = if let Some(username) = &flagged_user.username {
+                                format!("@{}", username)
+                            } else {
+                                let name = teloxide::utils::html::escape(&flagged_user.first_name);
+                                format!("<a href=\"tg://user?id={}\">{}</a>", flagged_user.id.0, name)
+                            };
+
                             bot.send_message(
                                 msg.chat.id,
                                 format!(
-                                    "🛡️ <b>Content Flagged & User Muted</b>\n\n📝 Message ID: <code>{}</code>\n\n❌ Status: <b>FLAGGED</b> 🔴\n🔇 User has been muted\n\n💬 <i>Flagged message:</i>\n<blockquote><span class=\"tg-spoiler\">{}</span></blockquote>",
+                                    "🛡️ <b>Content Flagged & User Muted</b>\n\n📝 Message ID: <code>{}</code>\n\n❌ Status: <b>FLAGGED</b> 🔴\n🔇 User has been muted\n👤 <b>User:</b> {}\n\n💬 <i>Flagged message:</i>\n<blockquote><span class=\"tg-spoiler\">{}</span></blockquote>",
                                     msg.id,
+                                    user_mention,
                                     teloxide::utils::html::escape(message_text)
                                 )
                             )
@@ -1768,12 +1934,21 @@ pub async fn handle_mod(bot: Bot, msg: Message, bot_deps: BotDependencies) -> An
                             ),
                         ]]);
 
+                        // Build a visible user mention (prefer @username, else clickable name)
+                        let user_mention = if let Some(username) = &flagged_user.username {
+                            format!("@{}", username)
+                        } else {
+                            let name = teloxide::utils::html::escape(&flagged_user.first_name);
+                            format!("<a href=\"tg://user?id={}\">{}</a>", flagged_user.id.0, name)
+                        };
+
                         // Send the flagged message response
                         bot.send_message(
                             msg.chat.id,
                             format!(
-                                "🛡️ <b>Content Flagged & User Muted</b>\n\n📝 Message ID: <code>{}</code>\n\n❌ Status: <b>FLAGGED</b> 🔴\n🔇 User has been muted\n\n💬 <i>Flagged message:</i>\n<blockquote><span class=\"tg-spoiler\">{}</span></blockquote>",
+                                "🛡️ <b>Content Flagged & User Muted</b>\n\n📝 Message ID: <code>{}</code>\n\n❌ Status: <b>FLAGGED</b> 🔴\n🔇 User has been muted\n👤 <b>User:</b> {}\n\n💬 <i>Flagged message:</i>\n<blockquote><span class=\"tg-spoiler\">{}</span></blockquote>",
                                 reply_to_msg.id,
+                                user_mention,
                                 teloxide::utils::html::escape(message_text)
                             )
                         )
@@ -1945,7 +2120,7 @@ pub async fn handle_balance(
 
     bot.send_message(
         msg.chat.id,
-        format!("💰 **Balance**: {:.6} {}", human_balance, token_symbol),
+        format!("💰 <b>Balance</b>: {:.6} {}", human_balance, token_symbol),
     )
     .parse_mode(ParseMode::Html)
     .await?;
@@ -2040,7 +2215,7 @@ pub async fn handle_group_balance(
 
     bot.send_message(
         msg.chat.id,
-        format!("💰 **Balance**: {:.6} {}", human_balance, token_symbol),
+        format!("💰 <b>Balance</b>: {:.6} {}", human_balance, token_symbol),
     )
     .parse_mode(ParseMode::Html)
     .await?;

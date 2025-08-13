@@ -3,8 +3,8 @@
 use chrono::{DateTime, Utc};
 use open_ai_rust_responses_by_sshift::Model;
 use quark_core::helpers::dto::{AITool, PurchaseRequest, ToolUsage};
+use std::env;
 use regex::Regex;
-use std::{collections::HashMap, env};
 
 use crate::services::handler::Services;
 
@@ -86,80 +86,51 @@ pub fn clean_filename(filename: &str) -> String {
 
 
 
-/// Convert a limited subset of Markdown (headings, bold, links, horizontal rule, code blocks)
-/// into Telegram-compatible HTML so we can send messages with `ParseMode::Html`.
-/// This is intentionally simple and avoids escaping edge-cases; it covers the
-/// patterns we expect GPT-generated content to use.
-pub fn markdown_to_html(md: &str) -> String {
-    let mut html = teloxide::utils::html::escape(md);
-
-    // --- Step 1: Isolate code blocks (both inline and multi-line) to prevent nested parsing ---
-    // We replace code content with placeholders and process them last to avoid
-    // issues where markdown (like links) inside a code block is processed,
-    // or a link URL containing special characters is broken.
-
-    let mut code_blocks = HashMap::new();
-    let mut counter = 0;
-
-    // Handle multi-line code blocks first (```...```)
-    let re_code_block = Regex::new(r"```(?:[a-zA-Z0-9_+-]*\n)?((?s).*?)```").unwrap();
-    html = re_code_block
-        .replace_all(&html, |caps: &regex::Captures| {
-            let placeholder = format!("__QUARK_CODE_BLOCK_{}__", counter);
-            let code_content = &caps[1];
-            // For multi-line code blocks, we use <pre> tags for proper formatting
-            code_blocks.insert(placeholder.clone(), format!("<pre>{}</pre>", code_content));
-            counter += 1;
-            placeholder
-        })
-        .to_string();
-
-    // Handle inline code (single backticks)
-    let re_code = Regex::new(r"`(.*?)`").unwrap();
-    html = re_code
-        .replace_all(&html, |caps: &regex::Captures| {
-            let placeholder = format!("__QUARK_CODE_{}__", counter);
-            let code_content = &caps[1];
-            // For inline code, we use <code> tags
-            code_blocks.insert(
-                placeholder.clone(),
-                format!("<code>{}</code>", code_content),
-            );
-            counter += 1;
-            placeholder
-        })
-        .to_string();
-
-    // --- Step 2: Process standard Markdown on the remaining text ---
-
-    // Horizontal rule --- → plain em-dash line (HTML <hr> not allowed by Telegram)
-    let re_hr = Regex::new(r"(?m)^---+").unwrap();
-    html = re_hr.replace_all(&html, "———").to_string();
-
-    // Headings (#, ##, ###) → <b>…</b>
-    let re_h1 = Regex::new(r"(?m)^#{1,3}\s+(.*)").unwrap();
-    html = re_h1
-        .replace_all(&html, |caps: &regex::Captures| {
-            format!("<b>{}</b>", &caps[1])
-        })
-        .to_string();
-
-    // Bold **text** → <b>text</b>
-    let re_bold = Regex::new(r"\*\*(.*?)\*\*").unwrap();
-    html = re_bold.replace_all(&html, "<b>$1</b>").to_string();
-
-    // Links [text](url) → <a href="url">text</a>
-    let re_link = Regex::new(r"\[(.*?)\]\((.*?)\)").unwrap();
-    html = re_link
-        .replace_all(&html, "<a href=\"$2\">$1</a>")
-        .to_string();
-
-    // --- Step 3: Restore code blocks with proper HTML tags ---
-    for (placeholder, code_html) in code_blocks {
-        html = html.replace(&placeholder, &code_html);
+// Minimal markdown to Telegram-HTML converter supporting triple backtick fences
+pub fn markdown_to_html(input: &str) -> String {
+    // Handle fenced code blocks ```lang\n...\n```
+    let mut html = String::new();
+    let mut lines = input.lines();
+    let mut in_code = false;
+    while let Some(line) = lines.next() {
+        if line.trim_start().starts_with("```") {
+            if !in_code {
+                in_code = true;
+                html.push_str("<pre>");
+            } else {
+                in_code = false;
+                html.push_str("</pre>\n");
+            }
+            continue;
+        }
+        if in_code {
+            // Only escape within code blocks
+            html.push_str(&teloxide::utils::html::escape(line));
+            html.push('\n');
+        } else {
+            // Preserve non-code content as-is so valid Telegram-HTML (e.g., <a href=...>) remains clickable
+            html.push_str(line);
+            html.push('\n');
+        }
     }
-
     html
+}
+
+/// Ensure the image 'Open image' anchor points to the public Google Cloud Storage URL
+/// If a line like `Image URL: <a href="...">Open image</a>` exists and a
+/// `https://storage.googleapis.com/...` URL is present anywhere in the text,
+/// rewrite that anchor's href to use the GCS URL.
+pub fn normalize_image_url_anchor(text: &str) -> String {
+    let re_gcs = Regex::new(r#"https://storage\.googleapis\.com/[^\s<>\"]+"#).unwrap();
+    let gcs = if let Some(m) = re_gcs.find(text) {
+        m.as_str().to_string()
+    } else {
+        return text.to_string();
+    };
+
+    let re_anchor = Regex::new(r#"(?i)(Image URL:\s*)<a\s+href=\"[^\"]+\">([^<]*)</a>"#).unwrap();
+    let replacement = format!(r#"$1<a href=\"{}\">$2</a>"#, gcs);
+    re_anchor.replace(text, replacement.as_str()).to_string()
 }
 
 pub async fn create_purchase_request(

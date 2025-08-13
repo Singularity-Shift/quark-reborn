@@ -1483,7 +1483,7 @@ pub async fn execute_get_balance(
         raw_balance, human_balance
     );
 
-    format!("💰 **Balance**: {:.6} {}", human_balance, token_symbol)
+    format!("💰 <b>Balance</b>: {:.6} {}", human_balance, token_symbol)
 }
 
 pub async fn execute_withdraw_funds(

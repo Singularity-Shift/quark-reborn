@@ -226,7 +226,7 @@ pub async fn handle_model_preferences_callback(
                     msg.chat.id,
                     msg.id,
                     format!(
-                        "✅ Effort set: {}\n\n🗣️ <b>Select GPT‑5 Verbosity:</b>\n<i>Lower verbosity is cheaper; higher verbosity uses more LLM tokens and may cost more.</i>",
+                        "🗣️ <b>Select GPT‑5 Verbosity:</b>\n<i>Lower verbosity is cheaper; higher verbosity uses more LLM tokens and may cost more.</i>\n\n✅ <b>Reasoning Effort:</b> {}",
                         gpt5_effort_to_display_string(&eff)
                     )
                 )
