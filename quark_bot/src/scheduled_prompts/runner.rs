@@ -1,17 +1,20 @@
-use chrono::{Datelike, Timelike, Utc, TimeZone};
-use teloxide::{prelude::*, types::{ChatId, ParseMode}};
+use chrono::{Datelike, TimeZone, Timelike, Utc};
+use teloxide::{
+    prelude::*,
+    types::{ChatId, ParseMode},
+};
 use tokio_cron_scheduler::Job;
 
+use crate::utils::create_purchase_request;
 use crate::{
     dependencies::BotDependencies,
     scheduled_prompts::dto::{RepeatPolicy, ScheduledPromptRecord},
     scheduled_prompts::storage::ScheduledStorage,
     user_model_preferences::dto::ChatModel,
 };
-use crate::utils::create_purchase_request;
-use tokio::time::{sleep, Duration};
-use std::env;
 use open_ai_rust_responses_by_sshift::Model;
+use std::env;
+use tokio::time::{Duration, sleep};
 
 fn next_daily_at(hour: u8, minute: u8) -> i64 {
     let now = Utc::now();
@@ -37,34 +40,52 @@ fn next_daily_at(hour: u8, minute: u8) -> i64 {
     dt.timestamp()
 }
 
-
 const TELEGRAM_MESSAGE_LIMIT: usize = 4096;
-const SCHEDULED_PROMPT_SUFFIX: &str = " - This is a presheduled prompt, DO NOT seek a response from anyone or offer follow ups.";
+const SCHEDULED_PROMPT_SUFFIX: &str =
+    " - This is a presheduled prompt, DO NOT seek a response from anyone or offer follow ups.";
 
 fn split_message(text: &str) -> Vec<String> {
-    if text.len() <= TELEGRAM_MESSAGE_LIMIT { return vec![text.to_string()]; }
+    if text.len() <= TELEGRAM_MESSAGE_LIMIT {
+        return vec![text.to_string()];
+    }
     let mut chunks = Vec::new();
     let mut current = String::new();
     for line in text.lines() {
         if current.len() + line.len() + 1 > TELEGRAM_MESSAGE_LIMIT {
-            if !current.is_empty() { chunks.push(current.trim().to_string()); current.clear(); }
+            if !current.is_empty() {
+                chunks.push(current.trim().to_string());
+                current.clear();
+            }
             if line.len() > TELEGRAM_MESSAGE_LIMIT {
                 let mut word_chunk = String::new();
                 for w in line.split_whitespace() {
                     if word_chunk.len() + w.len() + 1 > TELEGRAM_MESSAGE_LIMIT {
-                        if !word_chunk.is_empty() { chunks.push(word_chunk.trim().to_string()); word_chunk.clear(); }
+                        if !word_chunk.is_empty() {
+                            chunks.push(word_chunk.trim().to_string());
+                            word_chunk.clear();
+                        }
                     }
-                    if !word_chunk.is_empty() { word_chunk.push(' '); }
+                    if !word_chunk.is_empty() {
+                        word_chunk.push(' ');
+                    }
                     word_chunk.push_str(w);
                 }
-                if !word_chunk.is_empty() { current = word_chunk; }
-            } else { current = line.to_string(); }
+                if !word_chunk.is_empty() {
+                    current = word_chunk;
+                }
+            } else {
+                current = line.to_string();
+            }
         } else {
-            if !current.is_empty() { current.push('\n'); }
+            if !current.is_empty() {
+                current.push('\n');
+            }
             current.push_str(line);
         }
     }
-    if !current.is_empty() { chunks.push(current.trim().to_string()); }
+    if !current.is_empty() {
+        chunks.push(current.trim().to_string());
+    }
     chunks
 }
 
@@ -72,13 +93,31 @@ async fn send_long_message(bot: &Bot, chat_id: ChatId, text: &str) -> usize {
     // AI responses are already Telegram-HTML formatted; send as-is
     let parts = split_message(text);
     for (i, part) in parts.iter().enumerate() {
-        if i > 0 { sleep(Duration::from_millis(100)).await; }
-        match bot.send_message(chat_id, part).parse_mode(ParseMode::Html).await {
+        if i > 0 {
+            sleep(Duration::from_millis(100)).await;
+        }
+        match bot
+            .send_message(chat_id, part)
+            .parse_mode(ParseMode::Html)
+            .await
+        {
             Ok(msg) => {
-                log::info!("Sent chunk {}/{} to chat {} (msg_id={})", i + 1, parts.len(), chat_id.0, msg.id.0);
+                log::info!(
+                    "Sent chunk {}/{} to chat {} (msg_id={})",
+                    i + 1,
+                    parts.len(),
+                    chat_id.0,
+                    msg.id.0
+                );
             }
             Err(e) => {
-                log::error!("Failed to send chunk {}/{} to chat {}: {}", i + 1, parts.len(), chat_id.0, e);
+                log::error!(
+                    "Failed to send chunk {}/{} to chat {}: {}",
+                    i + 1,
+                    parts.len(),
+                    chat_id.0,
+                    e
+                );
             }
         }
     }
@@ -90,7 +129,9 @@ fn next_every_n_minutes_at(n: u32, start_minute: u8) -> i64 {
     let m = now.minute();
     let s = now.second();
     let mut add_min = (start_minute as i64 + 60 - m as i64) % n as i64;
-    if add_min == 0 && s > 0 { add_min = n as i64; }
+    if add_min == 0 && s > 0 {
+        add_min = n as i64;
+    }
     let target = now + chrono::Duration::minutes(add_min);
     target
         .with_second(0)
@@ -102,7 +143,14 @@ fn next_every_n_minutes_at(n: u32, start_minute: u8) -> i64 {
 fn next_n_hourly_at(n_hours: i64, start_hour: u8, start_minute: u8) -> i64 {
     let now = Utc::now();
     let anchor = Utc
-        .with_ymd_and_hms(now.year(), now.month(), now.day(), start_hour as u32, start_minute as u32, 0)
+        .with_ymd_and_hms(
+            now.year(),
+            now.month(),
+            now.day(),
+            start_hour as u32,
+            start_minute as u32,
+            0,
+        )
         .unwrap();
     if now <= anchor {
         return anchor.timestamp();
@@ -117,7 +165,14 @@ fn next_n_hourly_at(n_hours: i64, start_hour: u8, start_minute: u8) -> i64 {
 fn next_weekly_at(start_hour: u8, start_minute: u8) -> i64 {
     let now = Utc::now();
     let anchor = Utc
-        .with_ymd_and_hms(now.year(), now.month(), now.day(), start_hour as u32, start_minute as u32, 0)
+        .with_ymd_and_hms(
+            now.year(),
+            now.month(),
+            now.day(),
+            start_hour as u32,
+            start_minute as u32,
+            0,
+        )
         .unwrap();
     if now <= anchor {
         anchor.timestamp()
@@ -129,7 +184,14 @@ fn next_weekly_at(start_hour: u8, start_minute: u8) -> i64 {
 fn next_monthly_at(start_hour: u8, start_minute: u8) -> i64 {
     let now = Utc::now();
     let anchor = Utc
-        .with_ymd_and_hms(now.year(), now.month(), now.day(), start_hour as u32, start_minute as u32, 0)
+        .with_ymd_and_hms(
+            now.year(),
+            now.month(),
+            now.day(),
+            start_hour as u32,
+            start_minute as u32,
+            0,
+        )
         .unwrap();
     if now <= anchor {
         anchor.timestamp()
@@ -159,13 +221,21 @@ pub async fn register_all_schedules(bot: Bot, bot_deps: BotDependencies) -> anyh
     let storage = ScheduledStorage::new(&bot_deps.db)?;
     for item in storage.scheduled.iter() {
         if let Ok((_, ivec)) = item {
-            if let Ok((mut rec, _)) = bincode::decode_from_slice::<ScheduledPromptRecord, _>(&ivec, bincode::config::standard()) {
+            if let Ok((mut rec, _)) = bincode::decode_from_slice::<ScheduledPromptRecord, _>(
+                &ivec,
+                bincode::config::standard(),
+            ) {
                 if rec.active {
-                    if let Err(e) = register_schedule(bot.clone(), bot_deps.clone(), &mut rec).await {
+                    if let Err(e) = register_schedule(bot.clone(), bot_deps.clone(), &mut rec).await
+                    {
                         log::error!("Failed to register schedule {} on bootstrap: {}", rec.id, e);
                     }
                     if let Err(e) = storage.put_schedule(&rec) {
-                        log::warn!("Failed to persist schedule {} after bootstrap register: {}", rec.id, e);
+                        log::warn!(
+                            "Failed to persist schedule {} after bootstrap register: {}",
+                            rec.id,
+                            e
+                        );
                     }
                 }
             }
@@ -181,7 +251,11 @@ pub async fn register_schedule(
 ) -> anyhow::Result<()> {
     log::info!(
         "Registering schedule: id={}, group={}, repeat={:?}, start={:02}:{:02} UTC",
-        record.id, record.group_id, record.repeat, record.start_hour_utc, record.start_minute_utc
+        record.id,
+        record.group_id,
+        record.repeat,
+        record.start_hour_utc,
+        record.start_minute_utc
     );
     let schedule_id = record.id.clone();
     let scheduler = bot_deps.scheduler.clone();
@@ -189,7 +263,12 @@ pub async fn register_schedule(
 
     // Compute next_run_at if missing (UTC)
     if record.next_run_at.is_none() {
-        let ts = add_interval_from(Utc::now().timestamp(), &record.repeat, record.start_hour_utc, record.start_minute_utc);
+        let ts = add_interval_from(
+            Utc::now().timestamp(),
+            &record.repeat,
+            record.start_hour_utc,
+            record.start_minute_utc,
+        );
         record.next_run_at = Some(ts);
     }
 
@@ -225,7 +304,9 @@ pub async fn register_schedule(
                 if now_ts < locked {
                     log::debug!(
                         "[sched:{}] locked_until={} > now={}; skipping",
-                        schedule_id, locked, now_ts
+                        schedule_id,
+                        locked,
+                        now_ts
                     );
                     return;
                 }
@@ -259,7 +340,9 @@ pub async fn register_schedule(
                         if now_ts < next_at {
                             log::trace!(
                                 "[sched:{}] not yet due now={} next_at={}",
-                                schedule_id, now_ts, next_at
+                                schedule_id,
+                                now_ts,
+                                next_at
                             );
                             return;
                         }
@@ -271,7 +354,9 @@ pub async fn register_schedule(
                         if now_ts < next_at {
                             log::trace!(
                                 "[sched:{}] not yet due (interval) now={} next_at={}",
-                                schedule_id, now_ts, next_at
+                                schedule_id,
+                                now_ts,
+                                next_at
                             );
                             return;
                         }
@@ -291,7 +376,9 @@ pub async fn register_schedule(
                 .get_preferences(&rec.creator_username);
             let _model = prefs.chat_model.to_openai_model();
             let temperature = match prefs.chat_model {
-                ChatModel::GPT41 | ChatModel::GPT41Mini | ChatModel::GPT4o => Some(prefs.temperature),
+                ChatModel::GPT41 | ChatModel::GPT41Mini | ChatModel::GPT4o => {
+                    Some(prefs.temperature)
+                }
                 _ => None,
             };
 
@@ -317,19 +404,22 @@ pub async fn register_schedule(
 
             // Append a safety note only to the API input; not shown in Telegram or stored
             let prompt_for_api = format!("{}{}", rec.prompt, SCHEDULED_PROMPT_SUFFIX);
-            let ai_call = bot_deps.ai.generate_response_for_schedule(
-                &prompt_for_api,
-                chat_model,
-                8192,
-                temperature,
-                None,
-                bot_deps.clone(),
-                rec.group_id.to_string(),
-                rec.conversation_response_id.clone(),
-                &rec.id,
-                creator_user_id,
-                rec.creator_username.clone(),
-            ).await;
+            let ai_call = bot_deps
+                .ai
+                .generate_response_for_schedule(
+                    &prompt_for_api,
+                    chat_model,
+                    8192,
+                    temperature,
+                    None,
+                    bot_deps.clone(),
+                    rec.group_id.to_string(),
+                    rec.conversation_response_id.clone(),
+                    &rec.id,
+                    creator_user_id,
+                    rec.creator_username.clone(),
+                )
+                .await;
 
             match ai_call {
                 Ok((ai_response, new_resp_id)) => {
@@ -339,54 +429,106 @@ pub async fn register_schedule(
                         let photo = teloxide::types::InputFile::memory(image_data);
                         if text_out.trim().is_empty() {
                             match bot.send_photo(group_chat_id, photo).await {
-                                Ok(msg) => log::info!("[sched:{}] sent image to chat {} (msg_id={})", schedule_id, group_chat_id.0, msg.id.0),
-                                Err(e) => log::error!("[sched:{}] failed sending image to chat {}: {}", schedule_id, group_chat_id.0, e),
+                                Ok(msg) => log::info!(
+                                    "[sched:{}] sent image to chat {} (msg_id={})",
+                                    schedule_id,
+                                    group_chat_id.0,
+                                    msg.id.0
+                                ),
+                                Err(e) => log::error!(
+                                    "[sched:{}] failed sending image to chat {}: {}",
+                                    schedule_id,
+                                    group_chat_id.0,
+                                    e
+                                ),
                             }
                         } else {
-                            let caption = if text_out.len() > 1024 { &text_out[..1024] } else { &text_out };
+                            let caption = if text_out.len() > 1024 {
+                                &text_out[..1024]
+                            } else {
+                                &text_out
+                            };
                             match bot
                                 .send_photo(group_chat_id, photo)
                                 .caption(caption)
                                 .parse_mode(ParseMode::Html)
                                 .await
                             {
-                                Ok(msg) => log::info!("[sched:{}] sent image with caption to chat {} (msg_id={})", schedule_id, group_chat_id.0, msg.id.0),
-                                Err(e) => log::error!("[sched:{}] failed sending image to chat {}: {}", schedule_id, group_chat_id.0, e),
+                                Ok(msg) => log::info!(
+                                    "[sched:{}] sent image with caption to chat {} (msg_id={})",
+                                    schedule_id,
+                                    group_chat_id.0,
+                                    msg.id.0
+                                ),
+                                Err(e) => log::error!(
+                                    "[sched:{}] failed sending image to chat {}: {}",
+                                    schedule_id,
+                                    group_chat_id.0,
+                                    e
+                                ),
                             }
                             if text_out.len() > 1024 {
-                                let chunks = send_long_message(&bot, group_chat_id, &text_out[1024..]).await;
-                                log::info!("[sched:{}] sent remainder text chunks={} total_len={} to chat {}", schedule_id, chunks, text_out.len().saturating_sub(1024), group_chat_id.0);
+                                let chunks =
+                                    send_long_message(&bot, group_chat_id, &text_out[1024..]).await;
+                                log::info!(
+                                    "[sched:{}] sent remainder text chunks={} total_len={} to chat {}",
+                                    schedule_id,
+                                    chunks,
+                                    text_out.len().saturating_sub(1024),
+                                    group_chat_id.0
+                                );
                             }
                         }
                     } else {
                         let payload = if text_out.trim().is_empty() {
                             "_(The model processed the request but returned no text.)_".to_string()
-                        } else { text_out };
+                        } else {
+                            text_out
+                        };
                         let chunks = send_long_message(&bot, group_chat_id, &payload).await;
-                        log::info!("[sched:{}] sent text chunks={} total_len={} to chat {}", schedule_id, chunks, payload.len(), group_chat_id.0);
+                        log::info!(
+                            "[sched:{}] sent text chunks={} total_len={} to chat {}",
+                            schedule_id,
+                            chunks,
+                            payload.len(),
+                            group_chat_id.0
+                        );
                     }
 
                     // Billing: charge group resource account like /g
                     let profile = env::var("PROFILE").unwrap_or_else(|_| "prod".to_string());
                     if profile != "dev" {
-                        if let Some(group_credentials) = bot_deps.group.get_credentials(group_chat_id) {
-                            let (web_search, file_search, image_gen, _) = ai_response.get_tool_usage_counts();
+                        if let Some(group_credentials) =
+                            bot_deps.group.get_credentials(group_chat_id)
+                        {
+                            let (web_search, file_search, image_gen, _) =
+                                ai_response.get_tool_usage_counts();
                             if let Err(e) = create_purchase_request(
                                 file_search,
                                 web_search,
                                 image_gen,
-                                bot_deps.service.clone(),
                                 ai_response.total_tokens,
                                 ai_response.model,
                                 &group_credentials.jwt,
                                 Some(rec.group_id.to_string()),
-                            ).await {
-                                log::error!("[sched:{}] purchase request failed: {}", schedule_id, e);
+                                creator_user_id.to_string(),
+                                bot_deps,
+                            )
+                            .await
+                            {
+                                log::error!(
+                                    "[sched:{}] purchase request failed: {}",
+                                    schedule_id,
+                                    e
+                                );
                             } else {
                                 log::info!("[sched:{}] group purchase recorded", schedule_id);
                             }
                         } else {
-                            log::error!("[sched:{}] group credentials not found for billing", schedule_id);
+                            log::error!(
+                                "[sched:{}] group credentials not found for billing",
+                                schedule_id
+                            );
                         }
                     }
 
@@ -411,16 +553,30 @@ pub async fn register_schedule(
 
             // Compute next_run_at
             rec.next_run_at = match rec.repeat {
-                RepeatPolicy::None => { rec.active = false; None }
-                _ => Some(add_interval_from(Utc::now().timestamp(), &rec.repeat, rec.start_hour_utc, rec.start_minute_utc)),
+                RepeatPolicy::None => {
+                    rec.active = false;
+                    None
+                }
+                _ => Some(add_interval_from(
+                    Utc::now().timestamp(),
+                    &rec.repeat,
+                    rec.start_hour_utc,
+                    rec.start_minute_utc,
+                )),
             };
 
             if let Err(e) = storage.put_schedule(&rec) {
-                log::warn!("Failed to persist schedule {} after run: {}", schedule_id, e);
+                log::warn!(
+                    "Failed to persist schedule {} after run: {}",
+                    schedule_id,
+                    e
+                );
             }
             log::debug!(
                 "[sched:{}] next_run_at={:?} active={}",
-                schedule_id, rec.next_run_at, rec.active
+                schedule_id,
+                rec.next_run_at,
+                rec.active
             );
         })
     })?;
@@ -429,5 +585,3 @@ pub async fn register_schedule(
     record.scheduler_job_id = Some(id.to_string());
     Ok(())
 }
-
-
