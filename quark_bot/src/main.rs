@@ -171,15 +171,12 @@ async fn main() {
         // Removed selectreasoningmodel (unified under selectmodel)
         // selectmodel and mysettings entries merged under /usersettings
         BotCommand::new("usersettings", "Open user settings menu (DM only)."),
-        BotCommand::new("sentinel", "Monitor system status (on/off)."),
+        
         BotCommand::new("mod", "Moderate content (reply to message)."),
+        
         BotCommand::new(
             "moderationrules",
             "Display the moderation rules to avoid getting muted.",
-        ),
-        BotCommand::new(
-            "moderationsettings",
-            "Configure group-specific moderation rules (admins only).",
         ),
         BotCommand::new("balance", "Get your balance of a token."),
         BotCommand::new("groupwalletaddress", "Get the group's wallet address."),
