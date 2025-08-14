@@ -178,6 +178,10 @@ async fn main() {
             "moderationrules",
             "Display the moderation rules to avoid getting muted.",
         ),
+        BotCommand::new(
+            "moderationsettings",
+            "Configure group-specific moderation rules (admins only).",
+        ),
         BotCommand::new("balance", "Get your balance of a token."),
         BotCommand::new("groupwalletaddress", "Get the group's wallet address."),
         BotCommand::new("groupbalance", "Get the group's balance of a token."),

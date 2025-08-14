@@ -12,7 +12,7 @@ use aptos_rust_sdk_types::api_types::view::ViewRequest;
 use serde_json::value;
 
 use crate::{
-    ai::{moderation::ModerationService, vector_store::list_user_files_with_names},
+    ai::{moderation::{ModerationService, ModerationOverrides}, vector_store::list_user_files_with_names},
     user_model_preferences::handler::initialize_user_preferences,
 };
 
@@ -39,6 +39,8 @@ use tokio::time::sleep;
 use crate::scheduled_prompts::storage::ScheduledStorage;
 use crate::scheduled_prompts::dto::PendingStep;
 use crate::scheduled_prompts::wizard::build_hours_keyboard;
+use serde::{Deserialize, Serialize};
+use chrono;
 
 const TELEGRAM_MESSAGE_LIMIT: usize = 4096;
 
@@ -1328,6 +1330,7 @@ pub async fn handle_message(bot: Bot, msg: Message, bot_deps: BotDependencies) -
         let sentinel_tree = bot_deps.db.open_tree("sentinel_state").unwrap();
         let chat_id = msg.chat.id.0.to_be_bytes();
         let user = msg.from.clone();
+        let formatted_group_id = format!("{}-{}", msg.chat.id.0, bot_deps.group.account_seed);
 
         let group_credentials = bot_deps.group.get_credentials(msg.chat.id);
 
@@ -1424,6 +1427,111 @@ pub async fn handle_message(bot: Bot, msg: Message, bot_deps: BotDependencies) -
             }
         }
 
+        // Moderation settings wizard: capture replies
+        if let Some(user) = &msg.from {
+            let mod_wizard_tree = bot_deps.db.open_tree("moderation_settings_wizard").unwrap();
+            let wizard_key = format!("{}_{}", user.id.0, formatted_group_id);
+            if let Ok(Some(raw)) = mod_wizard_tree.get(wizard_key.as_bytes()) {
+                #[derive(Serialize, Deserialize, Clone)]
+                struct WizardState { step: String, allowed_items: Option<Vec<String>> }
+                let mut state: WizardState = serde_json::from_slice(&raw).unwrap_or(WizardState { step: "AwaitingAllowed".to_string(), allowed_items: None });
+                let text = msg.text().or_else(|| msg.caption()).unwrap_or("").trim().to_string();
+                if !text.is_empty() {
+                    let parse_items = |s: &str| -> Vec<String> {
+                        s.split(';')
+                            .map(|x| x.trim())
+                            .filter(|x| !x.is_empty())
+                            .take(50)
+                            .map(|x| x.to_string())
+                            .collect::<Vec<_>>()
+                    };
+                    if state.step == "AwaitingAllowed" {
+                        let is_skip = text.eq_ignore_ascii_case("na");
+                        let items = if is_skip { Vec::new() } else { parse_items(&text) };
+                        state.allowed_items = Some(items);
+                        state.step = "AwaitingDisallowed".to_string();
+                        let payload = serde_json::to_vec(&state).unwrap();
+                        mod_wizard_tree.insert(wizard_key.as_bytes(), payload).unwrap();
+                        bot.send_message(
+                            msg.chat.id,
+                            "🛡️ <b>Moderation Settings — Step 2/2</b>\n\n<b>Now send DISALLOWED items</b> for this group.\n\n<b>Be specific</b>: include concrete phrases, patterns, and examples you want flagged.\n\n<b>Format</b>:\n- Send them in a <b>single message</b>\n- Separate each item with <code>;</code>\n- To skip this section, send <code>na</code>\n\n<b>Example</b>:\n<code>dark distasteful/disrespectful humour; racism; homophobia; any apparent personal attack on the character of an individual group member</code>\n\nSend your list now.",
+                        )
+                        .parse_mode(ParseMode::Html)
+                        .await?;
+                        return Ok(());
+                    } else if state.step == "AwaitingDisallowed" {
+                        let is_skip = text.eq_ignore_ascii_case("na");
+                        let disallowed = if is_skip { Vec::new() } else { parse_items(&text) };
+                        let allowed = state.allowed_items.unwrap_or_default();
+                        // Save to moderation_settings tree
+                        #[derive(Serialize, Deserialize)]
+                        struct ModerationSettings { allowed_items: Vec<String>, disallowed_items: Vec<String>, updated_by_user_id: i64, updated_at_unix_ms: i64 }
+                        let settings = ModerationSettings {
+                            allowed_items: allowed.clone(),
+                            disallowed_items: disallowed.clone(),
+                            updated_by_user_id: user.id.0 as i64,
+                            updated_at_unix_ms: chrono::Utc::now().timestamp_millis(),
+                        };
+                        let settings_tree = bot_deps.db.open_tree("moderation_settings").unwrap();
+                        let value = serde_json::to_vec(&settings).unwrap();
+                        settings_tree.insert(formatted_group_id.as_bytes(), value).unwrap();
+                        // Clear wizard
+                        mod_wizard_tree.remove(wizard_key.as_bytes()).unwrap();
+                        let allowed_list = if allowed.is_empty() {
+                            "<i>(none)</i>".to_string()
+                        } else {
+                            allowed
+                                .iter()
+                                .map(|x| format!("• {}", teloxide::utils::html::escape(x)))
+                                .collect::<Vec<_>>()
+                                .join("\n")
+                        };
+                        let disallowed_list = if disallowed.is_empty() {
+                            "<i>(none)</i>".to_string()
+                        } else {
+                            disallowed
+                                .iter()
+                                .map(|x| format!("• {}", teloxide::utils::html::escape(x)))
+                                .collect::<Vec<_>>()
+                                .join("\n")
+                        };
+                        let mut summary = format!(
+                            "✅ <b>Custom moderation rules saved.</b>\n\n<b>Allowed ({})</b>:\n{}\n\n<b>Disallowed ({})</b>:\n{}",
+                            allowed.len(),
+                            allowed_list,
+                            disallowed.len(),
+                            disallowed_list,
+                        );
+                        if allowed.is_empty() && disallowed.is_empty() {
+                            summary.push_str("\n\n<i>No custom rules recorded. Default moderation rules remain fully in effect.</i>");
+                        }
+                        bot.send_message(msg.chat.id, summary)
+                            .parse_mode(ParseMode::Html)
+                            .await?;
+                        return Ok(());
+                    }
+                } else {
+                    // Ask again depending on step
+                    if state.step == "AwaitingAllowed" {
+                        bot.send_message(
+                            msg.chat.id,
+                            "Please send allowed items in one message, separated by <code>;</code>.\n\n<b>Be specific</b>: include concrete phrases and examples.\n\n<b>Note</b>: Allowed items can reduce moderation strictness and add instability if done poorly — recommended to skip for novice prompters. To skip, send <code>na</code>.",
+                        )
+                        .parse_mode(ParseMode::Html)
+                        .await?;
+                    } else {
+                        bot.send_message(
+                            msg.chat.id,
+                            "Please send disallowed items in one message, separated by <code>;</code>.\n\n<b>Be specific</b>: include concrete phrases, patterns, and examples.\n\nTo skip, send <code>na</code>.",
+                        )
+                        .parse_mode(ParseMode::Html)
+                        .await?;
+                    }
+                    return Ok(());
+                }
+            }
+        }
+
         // Scheduled prompts wizard: capture reply text for prompt entry
         if let Some(_reply) = msg.reply_to_message() {
             if let Some(user) = &msg.from {
@@ -1460,6 +1568,14 @@ pub async fn handle_message(bot: Bot, msg: Message, bot_deps: BotDependencies) -
             .map(|v| v == b"on")
             .unwrap_or(false);
         if sentinel_on {
+            // Skip moderation if this user is in moderation settings wizard
+            if let Some(user) = &msg.from {
+                let mod_wizard_tree = bot_deps.db.open_tree("moderation_settings_wizard").unwrap();
+                let wizard_key = format!("{}_{}", user.id.0, formatted_group_id);
+                if let Ok(Some(_)) = mod_wizard_tree.get(wizard_key.as_bytes()) {
+                    return Ok(());
+                }
+            }
             // Don't moderate admin or bot messages
             if let Some(user) = &msg.from {
                 if user.is_bot {
@@ -1567,9 +1683,18 @@ pub async fn handle_message(bot: Bot, msg: Message, bot_deps: BotDependencies) -
             // Use the same moderation logic as /mod
             let moderation_service =
                 ModerationService::new(std::env::var("OPENAI_API_KEY").unwrap()).unwrap();
+            // Load overrides
+            let settings_tree = bot_deps.db.open_tree("moderation_settings").unwrap();
+            let overrides = if let Ok(Some(raw)) = settings_tree.get(formatted_group_id.as_bytes()) {
+                #[derive(Serialize, Deserialize)]
+                struct ModerationSettings { allowed_items: Vec<String>, disallowed_items: Vec<String>, updated_by_user_id: i64, updated_at_unix_ms: i64 }
+                if let Ok(ms) = serde_json::from_slice::<ModerationSettings>(&raw) {
+                    Some(ModerationOverrides { allowed_items: ms.allowed_items, disallowed_items: ms.disallowed_items })
+                } else { None }
+            } else { None };
             let message_text = msg.text().or_else(|| msg.caption()).unwrap_or("");
             match moderation_service
-                .moderate_message(message_text, &bot, &msg, &msg)
+                .moderate_message(message_text, &bot, &msg, &msg, overrides)
                 .await
             {
                 Ok(result) => {
@@ -1762,6 +1887,70 @@ pub async fn handle_sentinel(
     Ok(())
 }
 
+pub async fn handle_moderation_settings(
+    bot: Bot,
+    msg: Message,
+    bot_deps: BotDependencies,
+    arg: String,
+ ) -> AnyResult<()> {
+    if msg.chat.is_private() {
+        bot.send_message(msg.chat.id, "❌ This command can only be used in a group.").await?;
+        return Ok(());
+    }
+    // Only admins/owners can use
+    let admins = bot.get_chat_administrators(msg.chat.id).await?;
+    let requester_id = msg.from.as_ref().map(|u| u.id);
+    let is_admin = requester_id
+        .map(|uid| admins.iter().any(|member| member.user.id == uid))
+        .unwrap_or(false);
+    if !is_admin {
+        bot.send_message(
+            msg.chat.id,
+            "❌ <b>Permission Denied</b>\n\nOnly group administrators can use /moderationsettings.",
+        )
+        .parse_mode(ParseMode::Html)
+        .await?;
+        return Ok(());
+    }
+    let user = match &msg.from { Some(u) => u, None => {
+        bot.send_message(msg.chat.id, "❌ User not found").await?;
+        return Ok(());
+    }};
+    let formatted_group_id = format!("{}-{}", msg.chat.id.0, bot_deps.group.account_seed);
+
+    // Optional subcommand: reset
+    let arg_trimmed = arg.trim().to_lowercase();
+    if arg_trimmed == "reset" {
+        let settings_tree = bot_deps.db.open_tree("moderation_settings").unwrap();
+        let _ = settings_tree.remove(formatted_group_id.as_bytes());
+        // Clear active wizard state for the requester (if any)
+        let mod_wizard_tree = bot_deps.db.open_tree("moderation_settings_wizard").unwrap();
+        let wizard_key = format!("{}_{}", user.id.0, formatted_group_id);
+        let _ = mod_wizard_tree.remove(wizard_key.as_bytes());
+        bot.send_message(
+            msg.chat.id,
+            "🧹 <b>Moderation Settings Reset</b>\n\nCustom group rules have been cleared. Default moderation rules are now in effect.",
+        )
+        .parse_mode(ParseMode::Html)
+        .await?;
+        return Ok(());
+    }
+    let mod_wizard_tree = bot_deps.db.open_tree("moderation_settings_wizard").unwrap();
+    let wizard_key = format!("{}_{}", user.id.0, formatted_group_id);
+    #[derive(Serialize, Deserialize)]
+    struct WizardState { step: String, allowed_items: Option<Vec<String>> }
+    let state = WizardState { step: "AwaitingAllowed".to_string(), allowed_items: None };
+    let payload = serde_json::to_vec(&state).unwrap();
+    mod_wizard_tree.insert(wizard_key.as_bytes(), payload).unwrap();
+    bot.send_message(
+        msg.chat.id,
+        "🛡️ <b>Moderation Settings — Step 1/2</b>\n\n<b>Send ALLOWED items</b> for this group.\n\n<b>Be specific</b>: include concrete phrases and examples.\n\n<b>Warning</b>: Allowed items can reduce moderation strictness; we've included a <b>copy & paste</b> template below to safely allow discussion of your token. To skip this step, send <code>na</code>.\n\n<b>Format</b>:\n- Send them in a <b>single message</b>\n- Separate each item with <code>;</code>\n\n<b>Example</b>:\n<b>promotion of 📒/ledger token and related content that does not include external links combined with CTAs (vote, sign, proposal, claim, mint, verify, connect wallet, airdrop, whitelist) and does not request to move to private DMs</b>\n\n<b>Quick template (copy/paste) to allow your own token</b>:\n<code>promotion of [YOUR_TOKEN] token and related content that does not include external links combined with CTAs (vote, sign, proposal, claim, mint, verify, connect wallet, airdrop, whitelist) and does not request to move to private DMs; discussion related to [YOUR_TOKEN] community/ecosystem (non-phishing, no DM invites)</code>\n\n<i>Important:</i> Cross-reference with the <b>Default Rules</b>: phishing/CTA links, requests to move to private DMs, and generic commercial solicitations remain disallowed.\n\nWhen ready, send your list now.\n\n<i>Tip: run <code>/moderationsettings reset</code> anytime to clear custom rules.</i>",
+    )
+    .parse_mode(ParseMode::Html)
+    .await?;
+    Ok(())
+ }
+
 pub async fn handle_wallet_address(
     bot: Bot,
     msg: Message,
@@ -1865,8 +2054,18 @@ pub async fn handle_mod(bot: Bot, msg: Message, bot_deps: BotDependencies) -> An
             .map_err(|e| anyhow::anyhow!("Failed to create moderation service: {}", e))?;
 
         // Moderate the message
+        // Load overrides
+        let formatted_group_id = format!("{}-{}", msg.chat.id.0, bot_deps.group.account_seed);
+        let settings_tree = bot_deps.db.open_tree("moderation_settings").unwrap();
+        let overrides = if let Ok(Some(raw)) = settings_tree.get(formatted_group_id.as_bytes()) {
+            #[derive(Serialize, Deserialize)]
+            struct ModerationSettings { allowed_items: Vec<String>, disallowed_items: Vec<String>, updated_by_user_id: i64, updated_at_unix_ms: i64 }
+            if let Ok(ms) = serde_json::from_slice::<ModerationSettings>(&raw) {
+                Some(ModerationOverrides { allowed_items: ms.allowed_items, disallowed_items: ms.disallowed_items })
+            } else { None }
+        } else { None };
         match moderation_service
-            .moderate_message(message_text, &bot, &msg, &reply_to_msg)
+            .moderate_message(message_text, &bot, &msg, &reply_to_msg, overrides)
             .await
         {
             Ok(result) => {

@@ -1,4 +1,5 @@
 use anyhow::Result;
+use serde::{Deserialize, Serialize};
 use open_ai_rust_responses_by_sshift::{Client, Model, Request, ReasoningEffort, Verbosity};
 use teloxide::{Bot, prelude::*, types::Message};
 
@@ -10,6 +11,12 @@ pub struct ModerationService {
 pub struct ModerationResult {
     pub verdict: String, // "P" or "F"
     pub total_tokens: u32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct ModerationOverrides {
+    pub allowed_items: Vec<String>,
+    pub disallowed_items: Vec<String>,
 }
 
 impl ModerationService {
@@ -24,6 +31,7 @@ impl ModerationService {
         bot: &Bot,
         original_msg: &Message,
         replied_msg: &Message,
+        overrides: Option<ModerationOverrides>,
     ) -> Result<ModerationResult> {
         // Check if the user who sent the replied message has admin role
         if let Some(user) = &replied_msg.from {
@@ -43,18 +51,62 @@ impl ModerationService {
             }
         }
 
+        // Build group override section if provided
+        let override_section = if let Some(o) = overrides {
+            let allowed_list = if o.allowed_items.is_empty() {
+                "- (none)".to_string()
+            } else {
+                o.allowed_items
+                    .iter()
+                    .map(|x| format!("- {}", x))
+                    .collect::<Vec<_>>()
+                    .join("\n")
+            };
+            let disallowed_list = if o.disallowed_items.is_empty() {
+                "- (none)".to_string()
+            } else {
+                o.disallowed_items
+                    .iter()
+                    .map(|x| format!("- {}", x))
+                    .collect::<Vec<_>>()
+                    .join("\n")
+            };
+            format!(
+                concat!(
+                    "Group Overrides (these supersede defaults; strict precedence applies: Group Disallowed > Group Allowed > Default Rules):\n\n",
+                    "Group Disallowed (always flag if any match):\n",
+                    "{disallowed_list}\n\n",
+                    "Group Allowed (do not flag due to default rules if matched and no Group Disallowed matched):\n",
+                    "{allowed_list}\n\n",
+                    "Decision rule:\n",
+                    "- If any Group Disallowed item matches the message (including semantically), return 'F'.\n",
+                    "- Else if any Group Allowed item matches the message (including semantically), return 'P'.\n",
+                    "- Else apply Default Rules below.\n"
+                ),
+                disallowed_list = disallowed_list,
+                allowed_list = allowed_list,
+            )
+        } else {
+            String::new()
+        };
+
         // Proceed with AI moderation for non-admin users
         let prompt = format!(
-            r#"You are a high-precision content moderator for a crypto community.
-
-Return EXACTLY one character:
+            r#"Return EXACTLY one character:
 
 'F' if ANY rule is violated
 
 'P' if completely clean
 (No explanations, no punctuation, no extra text.)
 
-Rules (flag 'F' on any match):
+STRICT PRIORITY ORDER (apply in this order):
+- Group Disallowed > Group Allowed > Default Rules
+
+You are a high-precision content moderator for a crypto community.
+
+{override_section}
+
+Default Moderation Rules (flag 'F' on any match):
 
 Promotion / Selling:
 - Offering services, products, access, or benefits
@@ -82,8 +134,8 @@ Notes:
 - Do not flag neutral short expressions ("Let's go", "gm", etc.) unless they clearly violate rules.
 - Use minimal but sufficient reasoning: if clear risk signals (link + CTA/urgency) are present, choose 'F'. If uncertain, rationalise based on the rules before deciding; otherwise choose 'P'.
 
-Message: "{}""#,
-            message_text
+  Message: "{}""#,
+            message_text, override_section = override_section
         );
 
         let request = Request::builder()
