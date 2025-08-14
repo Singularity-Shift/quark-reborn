@@ -16,11 +16,11 @@ use crate::{
     user_model_preferences::handler::initialize_user_preferences,
 };
 
+use crate::scheduled_prompts::dto::PendingStep;
+use crate::scheduled_prompts::storage::ScheduledStorage;
+use crate::scheduled_prompts::wizard::build_hours_keyboard;
 use open_ai_rust_responses_by_sshift::Model;
-use quark_core::helpers::{
-    bot_commands::Command,
-    dto::{CreateGroupRequest, PurchaseRequest},
-};
+use quark_core::helpers::{bot_commands::Command, dto::CreateGroupRequest};
 use regex;
 use reqwest::Url;
 use std::env;
@@ -36,9 +36,6 @@ use teloxide::{
 };
 use tokio::fs::File;
 use tokio::time::sleep;
-use crate::scheduled_prompts::storage::ScheduledStorage;
-use crate::scheduled_prompts::dto::PendingStep;
-use crate::scheduled_prompts::wizard::build_hours_keyboard;
 
 const TELEGRAM_MESSAGE_LIMIT: usize = 4096;
 
@@ -384,353 +381,6 @@ pub async fn handle_list_files(bot: Bot, msg: Message, bot_deps: BotDependencies
     Ok(())
 }
 
-/*
-// Legacy handle_reasoning_chat removed in unified flow
-/* pub async fn handle_reasoning_chat(
-    bot: Bot,
-    msg: Message,
-    prompt: String,
-    bot_deps: BotDependencies,
-) -> AnyResult<()> {
-    // --- Start Typing Indicator Immediately ---
-    let bot_clone = bot.clone();
-    let typing_indicator_handle = tokio::spawn(async move {
-        loop {
-            if let Err(e) = bot_clone
-                .send_chat_action(msg.chat.id, ChatAction::Typing)
-                .await
-            {
-                log::warn!("Failed to send typing action: {}", e);
-                break;
-            }
-            sleep(Duration::from_secs(5)).await;
-        }
-    });
-
-    let user = msg.from.as_ref();
-
-    if user.is_none() {
-        typing_indicator_handle.abort();
-        bot.send_message(msg.chat.id, "❌ Unable to verify permissions.")
-            .await?;
-        return Ok(());
-    }
-
-    let user_id = user.unwrap().id;
-    let username = user.unwrap().username.as_ref();
-
-    if username.is_none() {
-        typing_indicator_handle.abort();
-        bot.send_message(
-            msg.chat.id,
-            "❌ Unable to verify permissions. Please set username in your user account.",
-        )
-        .await?;
-        return Ok(());
-    }
-
-    let username = username.unwrap();
-
-    let credentials = bot_deps.auth.get_credentials(&username);
-
-    if credentials.is_none() {
-        typing_indicator_handle.abort();
-        bot.send_message(
-            msg.chat.id,
-            "❌ Unable to verify permissions, please try to login your user account.",
-        )
-        .await?;
-        return Ok(());
-    }
-
-    let credentials = credentials.unwrap();
-
-    // Load user's reasoning model preferences
-    let preferences = bot_deps.user_model_prefs.get_preferences(username);
-
-    let (reasoning_model, effort) = (
-        preferences.reasoning_model.to_openai_model(),
-        preferences.effort,
-    );
-
-    // --- Vision Support: Check for replied-to images ---
-    let mut image_url_from_reply: Option<String> = None;
-    // --- Context Support: Check for replied-to message text ---
-    let mut replied_message_context: Option<String> = None;
-    // --- Image Support: Process replied message images ---
-    let mut replied_message_image_paths: Vec<(String, String)> = Vec::new();
-    if let Some(reply) = msg.reply_to_message() {
-        // Extract text content from replied message (following /mod pattern)
-        let reply_text_content = reply.text().or_else(|| reply.caption()).unwrap_or_default();
-
-        if !reply_text_content.is_empty() {
-            if let Some(from) = reply.from.as_ref() {
-                let username = from
-                    .username
-                    .as_ref()
-                    .map(|u| format!("@{}", u))
-                    .unwrap_or_else(|| from.first_name.clone());
-                replied_message_context =
-                    Some(format!("User {} said: {}", username, reply_text_content));
-            } else {
-                replied_message_context = Some(format!("Previous message: {}", reply_text_content));
-            }
-        }
-
-        // Process images from replied message – only keep the largest resolution
-        if let Some(photos) = reply.photo() {
-            if let Some(photo) = photos.last() {
-                let file_id = &photo.file.id;
-                let file_info = bot.get_file(file_id.clone()).await?;
-                let extension = file_info
-                    .path
-                    .split('.')
-                    .last()
-                    .unwrap_or("jpg")
-                    .to_string();
-                let temp_path = format!(
-                    "/tmp/reply_{}_{}.{}",
-                    user_id, photo.file.unique_id, extension
-                );
-                let mut file = File::create(&temp_path)
-                    .await
-                    .map_err(|e| teloxide::RequestError::from(std::sync::Arc::new(e)))?;
-                bot.download_file(&file_info.path, &mut file)
-                    .await
-                    .map_err(|e| teloxide::RequestError::from(e))?;
-                replied_message_image_paths.push((temp_path, extension));
-            }
-        }
-
-        if let Some(from) = reply.from.as_ref() {
-            if from.is_bot {
-                let reply_text = reply.text().or_else(|| reply.caption());
-                if let Some(text) = reply_text {
-                    // A simple regex to find the GCS URL
-                    if let Ok(re) = regex::Regex::new(
-                        r"https://storage\.googleapis\.com/sshift-gpt-bucket/[^\s]+",
-                    ) {
-                        if let Some(mat) = re.find(text) {
-                            image_url_from_reply = Some(mat.as_str().to_string());
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    // --- Download user-attached images ---
-    let mut user_uploaded_image_paths: Vec<(String, String)> = Vec::new();
-    if let Some(photos) = msg.photo() {
-        // Only keep the largest PhotoSize (last element)
-        if let Some(photo) = photos.last() {
-            let file_id = &photo.file.id;
-            let file_info = bot.get_file(file_id.clone()).await?;
-            let extension = file_info
-                .path
-                .split('.')
-                .last()
-                .unwrap_or("jpg")
-                .to_string();
-            let temp_path = format!("/tmp/{}_{}.{}", user_id, photo.file.unique_id, extension);
-            let mut file = File::create(&temp_path)
-                .await
-                .map_err(|e| teloxide::RequestError::from(std::sync::Arc::new(e)))?;
-            bot.download_file(&file_info.path, &mut file)
-                .await
-                .map_err(|e| teloxide::RequestError::from(e))?;
-            user_uploaded_image_paths.push((temp_path, extension));
-        }
-    }
-
-    // --- Upload replied message images to GCS ---
-    let replied_message_image_urls = if !replied_message_image_paths.is_empty() {
-        match bot_deps
-            .ai
-            .upload_user_images(replied_message_image_paths)
-            .await
-        {
-            Ok(urls) => urls,
-            Err(e) => {
-                log::error!("Failed to upload replied message images: {}", e);
-                Vec::new()
-            }
-        }
-    } else {
-        Vec::new()
-    };
-
-    // --- Upload user images to GCS ---
-    let user_uploaded_image_urls = match bot_deps
-        .ai
-        .upload_user_images(user_uploaded_image_paths)
-        .await
-    {
-        Ok(urls) => urls,
-        Err(e) => {
-            log::error!("Failed to upload user images: {}", e);
-            typing_indicator_handle.abort();
-            bot.send_message(
-                msg.chat.id,
-                "Sorry, I couldn't upload your image. Please try again.",
-            )
-            .await?;
-            // We should probably stop execution here
-            return Ok(());
-        }
-    };
-
-    // --- Combine all image URLs ---
-    let mut all_image_urls = user_uploaded_image_urls;
-    all_image_urls.extend(replied_message_image_urls);
-
-    // Prepare the final prompt with context if available
-    let final_prompt = if let Some(context) = replied_message_context {
-        format!("{}\n\nUser asks: {}", context, prompt)
-    } else {
-        prompt
-    };
-
-    // Asynchronously generate the response
-    let response_result = bot_deps
-        .ai
-        .generate_response(
-            bot.clone(),
-            msg.clone(),
-            &final_prompt,
-            image_url_from_reply,
-            all_image_urls,
-            reasoning_model,
-            20000,
-            None,
-            Some(
-                ReasoningParams::new()
-                    .with_effort(effort)
-                    .with_summary(SummarySetting::Detailed),
-            ),
-            bot_deps.clone(),
-            None,
-        )
-        .await;
-
-    typing_indicator_handle.abort();
-
-    match response_result {
-        Ok(ai_response) => {
-            // Log tool usage if any tools were used
-            let profile = env::var("PROFILE").unwrap_or("prod".to_string());
-            let (web_search, file_search, image_gen, _) = ai_response.get_tool_usage_counts();
-
-            if profile != "dev" {
-                let response = create_purchase_request(
-                    file_search,
-                    web_search,
-                    image_gen,
-                    bot_deps.service.clone(),
-                    ai_response.total_tokens,
-                    ai_response.model,
-                    &credentials.jwt,
-                    None,
-                )
-                .await;
-
-                if response.is_err() {
-                    if response.as_ref().err().unwrap().to_string().contains("401")
-                        || response.as_ref().err().unwrap().to_string().contains("403")
-                    {
-                        bot.send_message(
-                            msg.chat.id,
-                            "Your login has expired. Please login again.",
-                        )
-                        .await?;
-                    } else {
-                        bot.send_message(
-                        msg.chat.id,
-                        "Sorry, I encountered an error while processing your reasoning request.",
-                    )
-                    .await?;
-                    }
-
-                    return Ok(());
-                }
-            }
-
-            // Check for image data and send as a photo if present
-            if let Some(image_data) = ai_response.image_data {
-                let photo = InputFile::memory(image_data);
-                let caption = if ai_response.text.len() > 1024 {
-                    &ai_response.text[..1024]
-                } else {
-                    &ai_response.text
-                };
-                bot.send_photo(msg.chat.id, photo)
-                    .caption(caption)
-                    .parse_mode(ParseMode::MarkdownV2)
-                    .await?;
-                // If the text is longer than 1024, send the rest as a follow-up message
-                if ai_response.text.len() > 1024 {
-                    send_long_message(&bot, msg.chat.id, &ai_response.text[1024..]).await?;
-                }
-            } else if let Some(ref tool_calls) = ai_response.tool_calls {
-                if tool_calls
-                    .iter()
-                    .any(|tool_call| tool_call.name == "withdraw_funds")
-                {
-                    withdraw_funds_hook(bot, msg, ai_response.text).await?;
-                } else if tool_calls
-                    .iter()
-                    .any(|tool_call| tool_call.name == "fund_account")
-                {
-                    fund_account_hook(bot, msg, ai_response.text).await?;
-                } else if tool_calls
-                    .iter()
-                    .any(|tool_call| tool_call.name == "get_pay_users")
-                {
-                    // Get transaction_id from the pending transaction - reasoning chat has no group_id
-                    let user_id = if let Some(user) = &msg.from {
-                        user.id.0 as i64
-                    } else {
-                        log::warn!("Unable to get user ID for pay_users_hook in reasoning chat");
-                        send_long_message(&bot, msg.chat.id, &ai_response.text).await?;
-                        return Ok(());
-                    };
-                    
-                    // Reasoning chat is always individual context (no group_id)
-                    let group_id_i64 = None;
-                    
-                    if let Some(pending_transaction) = bot_deps.pending_transactions.get_pending_transaction(user_id, group_id_i64) {
-                        pay_users_hook(bot, msg, ai_response.text, None, pending_transaction.transaction_id, bot_deps.clone()).await?;
-                    } else {
-                        log::warn!("No pending transaction found for user {} in reasoning chat", user_id);
-                        send_long_message(&bot, msg.chat.id, &ai_response.text).await?;
-                    }
-                } else {
-                    send_long_message(&bot, msg.chat.id, &ai_response.text).await?;
-                }
-            } else {
-                let text_to_send = if ai_response.text.is_empty() {
-                    "_(The model processed the request but returned no text.)_".to_string()
-                } else {
-                    ai_response.text
-                };
-                // Use the new send_long_message function for text responses
-                send_long_message(&bot, msg.chat.id, &text_to_send).await?;
-            }
-        }
-        Err(e) => {
-            log::error!("Error generating reasoning response: {}", e);
-            bot.send_message(
-                msg.chat.id,
-                "Sorry, I encountered an error while processing your reasoning request.",
-            )
-            .await?;
-        }
-    }
-
-    Ok(())
-} */
-*/
-
 pub async fn handle_chat(
     bot: Bot,
     msg: Message,
@@ -740,7 +390,7 @@ pub async fn handle_chat(
 ) -> AnyResult<()> {
     // Store group_id for later use to avoid move issues
     let group_id_for_hook = group_id.clone();
-    
+
     // --- Start Typing Indicator Immediately ---
     let bot_clone = bot.clone();
     let profile = env::var("PROFILE").unwrap_or("prod".to_string());
@@ -766,7 +416,7 @@ pub async fn handle_chat(
         return Ok(());
     }
 
-    let user_id = user.unwrap().id;
+    let user_id = user.unwrap().id.to_string();
     let username = user.unwrap().username.as_ref();
 
     if username.is_none() {
@@ -979,11 +629,12 @@ pub async fn handle_chat(
                     file_search,
                     web_search,
                     image_gen,
-                    bot_deps.service.clone(),
                     ai_response.total_tokens,
                     ai_response.model,
                     &jwt,
                     group_id,
+                    user_id,
+                    bot_deps.clone(),
                 )
                 .await;
 
@@ -1048,13 +699,30 @@ pub async fn handle_chat(
                         send_long_message(&bot, msg.chat.id, &ai_response.text).await?;
                         return Ok(());
                     };
-                    
-                    let group_id_i64 = group_id_for_hook.as_ref().and_then(|gid| gid.parse::<i64>().ok());
-                    
-                    if let Some(pending_transaction) = bot_deps.pending_transactions.get_pending_transaction(user_id, group_id_i64) {
-                        pay_users_hook(bot, msg, ai_response.text, group_id_for_hook, pending_transaction.transaction_id, bot_deps.clone()).await?;
+
+                    let group_id_i64 = group_id_for_hook
+                        .as_ref()
+                        .and_then(|gid| gid.parse::<i64>().ok());
+
+                    if let Some(pending_transaction) = bot_deps
+                        .pending_transactions
+                        .get_pending_transaction(user_id, group_id_i64)
+                    {
+                        pay_users_hook(
+                            bot,
+                            msg,
+                            ai_response.text,
+                            group_id_for_hook,
+                            pending_transaction.transaction_id,
+                            bot_deps.clone(),
+                        )
+                        .await?;
                     } else {
-                        log::warn!("No pending transaction found for user {} in group {:?}", user_id, group_id_i64);
+                        log::warn!(
+                            "No pending transaction found for user {} in group {:?}",
+                            user_id,
+                            group_id_i64
+                        );
                         send_long_message(&bot, msg.chat.id, &ai_response.text).await?;
                     }
                 } else {
@@ -1168,10 +836,15 @@ pub async fn handle_message(bot: Bot, msg: Message, bot_deps: BotDependencies) -
     if !msg.chat.is_private() {
         group_id = Some(msg.chat.id.to_string());
         let profile = std::env::var("PROFILE").unwrap_or("prod".to_string());
-        let account_seed = bot_deps.group.account_seed.clone();
         let sentinel_tree = bot_deps.db.open_tree("sentinel_state").unwrap();
         let chat_id = msg.chat.id.0.to_be_bytes();
         let user = msg.from.clone();
+
+        if user.is_none() {
+            return Ok(());
+        }
+
+        let user_id = user.as_ref().unwrap().id.to_string();
 
         let group_credentials = bot_deps.group.get_credentials(msg.chat.id);
 
@@ -1275,7 +948,11 @@ pub async fn handle_message(bot: Bot, msg: Message, bot_deps: BotDependencies) -
                     let key = (&msg.chat.id.0, &(user.id.0 as i64));
                     if let Some(mut st) = storage.get_pending(key) {
                         if st.step == PendingStep::AwaitingPrompt {
-                            let text = msg.text().or_else(|| msg.caption()).unwrap_or("").to_string();
+                            let text = msg
+                                .text()
+                                .or_else(|| msg.caption())
+                                .unwrap_or("")
+                                .to_string();
                             if !text.trim().is_empty() {
                                 st.prompt = Some(text);
                                 st.step = PendingStep::AwaitingHour;
@@ -1309,6 +986,7 @@ pub async fn handle_message(bot: Bot, msg: Message, bot_deps: BotDependencies) -
                 if user.is_bot {
                     return Ok(());
                 }
+
                 // Check admin status
                 let admins = bot.get_chat_administrators(msg.chat.id).await?;
                 let is_admin = admins.iter().any(|member| member.user.id == user.id);
@@ -1424,28 +1102,21 @@ pub async fn handle_message(bot: Bot, msg: Message, bot_deps: BotDependencies) -
                     );
 
                     if profile != "dev" {
-                        let purchase_result = bot_deps
-                            .service
-                            .group_purchase(
-                                group_credentials.jwt,
-                                PurchaseRequest {
-                                    model: Model::GPT5Nano,
-                                    tokens_used: result.total_tokens,
-                                    tools_used: vec![],
-                                    group_id: Some(format!(
-                                        "{}-{}",
-                                        msg.chat.id.0.to_string(),
-                                        account_seed
-                                    )),
-                                },
-                            )
-                            .await;
+                        let purchase_result = create_purchase_request(
+                            0,
+                            0,
+                            0,
+                            result.total_tokens,
+                            Model::GPT5Nano,
+                            &group_credentials.jwt,
+                            Some(msg.chat.id.0.to_string()),
+                            user_id,
+                            bot_deps,
+                        )
+                        .await;
 
-                        if purchase_result.is_err() {
-                            log::error!(
-                                "Failed to purchase ai for flagged content: {}",
-                                purchase_result.err().unwrap()
-                            );
+                        if let Err(e) = purchase_result {
+                            log::error!("Failed to purchase ai for flagged content: {}", e);
                             return Ok(());
                         }
                     }
@@ -1482,8 +1153,8 @@ pub async fn handle_message(bot: Bot, msg: Message, bot_deps: BotDependencies) -
                                     format!("unmute:{}", flagged_user.id),
                                 ),
                                 InlineKeyboardButton::callback(
-                                "🚫 Ban",
-                                     format!("ban:{}:{}", flagged_user.id, msg.id.0),
+                                    "🚫 Ban",
+                                    format!("ban:{}:{}", flagged_user.id, msg.id.0),
                                 ),
                             ]]);
                             bot.send_message(
@@ -1499,7 +1170,11 @@ pub async fn handle_message(bot: Bot, msg: Message, bot_deps: BotDependencies) -
                             .await?;
                             // Immediately remove the offending message from the chat
                             if let Err(e) = bot.delete_message(msg.chat.id, msg.id).await {
-                                log::warn!("Failed to delete offending message {}: {}", msg.id.0, e);
+                                log::warn!(
+                                    "Failed to delete offending message {}: {}",
+                                    msg.id.0,
+                                    e
+                                );
                             }
                         }
                     }
@@ -1675,6 +1350,17 @@ pub async fn handle_mod(bot: Bot, msg: Message, bot_deps: BotDependencies) -> An
 
     // Check if the command is used in reply to a message
     if let Some(reply_to_msg) = msg.reply_to_message() {
+        let user = reply_to_msg.from.clone();
+
+        if user.is_none() {
+            bot.send_message(msg.chat.id, "❌ User not found").await?;
+            return Ok(());
+        }
+
+        let user = user.unwrap();
+
+        let user_id = user.id.to_string();
+
         // Extract text from the replied message
         let message_text = reply_to_msg
             .text()
@@ -1711,18 +1397,18 @@ pub async fn handle_mod(bot: Bot, msg: Message, bot_deps: BotDependencies) -> An
                     result.total_tokens
                 );
 
-                let purchase_result = bot_deps
-                    .service
-                    .group_purchase(
-                        group_credentials.unwrap().jwt,
-                        PurchaseRequest {
-                            model: Model::GPT5Nano,
-                            tokens_used: result.total_tokens,
-                            tools_used: vec![],
-                            group_id: Some(msg.chat.id.0.to_string()),
-                        },
-                    )
-                    .await;
+                let purchase_result = create_purchase_request(
+                    0,
+                    0,
+                    0,
+                    result.total_tokens,
+                    Model::GPT5Nano,
+                    &group_credentials.unwrap().jwt,
+                    Some(msg.chat.id.0.to_string()),
+                    user_id,
+                    bot_deps,
+                )
+                .await;
 
                 if purchase_result.is_err() {
                     log::error!(
@@ -1764,7 +1450,7 @@ pub async fn handle_mod(bot: Bot, msg: Message, bot_deps: BotDependencies) -> An
                             ),
                             InlineKeyboardButton::callback(
                                 "🚫 Ban",
-                                 format!("ban:{}:{}", flagged_user.id, reply_to_msg.id.0),
+                                format!("ban:{}:{}", flagged_user.id, reply_to_msg.id.0),
                             ),
                         ]]);
 
@@ -2115,61 +1801,6 @@ If you have questions, ask an admin before posting.
     bot.send_message(msg.chat.id, rules)
         .parse_mode(ParseMode::Html)
         .await?;
-    Ok(())
-}
-
-pub async fn handle_migrate_group_id(
-    bot: Bot,
-    msg: Message,
-    bot_deps: BotDependencies,
-) -> AnyResult<()> {
-    let group_admins = bot.get_chat_administrators(msg.chat.id).await?;
-
-    let user = msg.from;
-
-    if user.is_none() {
-        bot.send_message(msg.chat.id, "❌ User not found").await?;
-        return Ok(());
-    }
-
-    let user = user.unwrap();
-
-    let is_admin = group_admins.iter().any(|admin| admin.user.id == user.id);
-
-    if !is_admin {
-        bot.send_message(msg.chat.id, "❌ Only admins can migrate group id")
-            .await?;
-        return Ok(());
-    }
-
-    let group_credentials = bot_deps.group.get_credentials(msg.chat.id);
-
-    if group_credentials.is_none() {
-        bot.send_message(msg.chat.id, "❌ Group not found").await?;
-        return Ok(());
-    }
-
-    let group_credentials = group_credentials.unwrap();
-
-    let transaction_response = bot_deps
-        .service
-        .migrate_group_id(group_credentials.jwt)
-        .await;
-
-    if transaction_response.is_err() {
-        bot.send_message(msg.chat.id, "❌ Error migrating group id")
-            .await?;
-        return Ok(());
-    }
-
-    let transaction_response = transaction_response.unwrap();
-
-    bot.send_message(
-        msg.chat.id,
-        format!("✅ Group id migrated: {}", transaction_response.hash),
-    )
-    .await?;
-
     Ok(())
 }
 

@@ -11,7 +11,7 @@ use aptos_rust_sdk_types::api_types::{
     transaction_authenticator::{AccountAuthenticator, TransactionAuthenticator},
     type_tag::TypeTag,
 };
-use quark_core::helpers::dto::{SimulateTransactionResponse, TransactionResponse};
+use quark_core::helpers::dto::{CoinVersion, SimulateTransactionResponse, TransactionResponse};
 use serde_json;
 
 use crate::{
@@ -29,6 +29,7 @@ pub async fn purchase_ai(purchase: Purchase) -> ConsumerResult<TransactionRespon
 
     let node = purchase.node;
     let token_address = purchase.token_address;
+    let coin_version = purchase.coin_version;
     let contract_address = purchase.contract_address;
     let amount = purchase.amount;
     let purchase_type = purchase.purchase_type;
@@ -45,12 +46,29 @@ pub async fn purchase_ai(purchase: Purchase) -> ConsumerResult<TransactionRespon
         PurchaseType::User(account_address) => {
             let user_address = AccountAddress::from_str(account_address.as_str())
                 .map_err(|e| ConsumerError::InvalidMessage(e.to_string()))?;
-            TransactionPayload::EntryFunction(EntryFunction::new(
-                ModuleId::new(contract_address, "user".to_string()),
-                "pay_ai".to_string(),
-                vec![token_type],
-                vec![user_address.to_vec(), amount.to_le_bytes().to_vec()],
-            ))
+
+            let payload = match coin_version {
+                CoinVersion::V1 => TransactionPayload::EntryFunction(EntryFunction::new(
+                    ModuleId::new(contract_address, "user".to_string()),
+                    "pay_ai".to_string(),
+                    vec![token_type],
+                    vec![user_address.to_vec(), amount.to_le_bytes().to_vec()],
+                )),
+                CoinVersion::V2 => TransactionPayload::EntryFunction(EntryFunction::new(
+                    ModuleId::new(contract_address, "user".to_string()),
+                    "pay_ai".to_string(),
+                    vec![],
+                    vec![
+                        user_address.to_vec(),
+                        amount.to_le_bytes().to_vec(),
+                        AccountAddress::from_str(&token_address)
+                            .map_err(|e| ConsumerError::InvalidMessage(e.to_string()))?
+                            .to_vec(),
+                    ],
+                )),
+            };
+
+            payload
         }
         PurchaseType::Group(group_id) => {
             println!("Group ID: {:?}", group_id);

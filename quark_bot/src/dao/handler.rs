@@ -236,161 +236,6 @@ pub async fn execute_create_proposal(
     return format!("Proposal created successfully: {}", response.unwrap().hash);
 }
 
-pub async fn handle_dao_preferences(
-    bot: Bot,
-    msg: Message,
-    bot_deps: BotDependencies,
-) -> anyhow::Result<()> {
-    // Check if user is admin
-
-    log::info!("handle_dao_preferences called");
-    let user = msg.from.as_ref();
-    if user.is_none() {
-        bot.send_message(msg.chat.id, "❌ User information not available.")
-            .await?;
-        return Ok(());
-    }
-
-    let user = user.unwrap();
-    let admins = bot.get_chat_administrators(msg.chat.id).await?;
-    let is_admin = admins.iter().any(|admin| admin.user.id == user.id);
-
-    if !is_admin {
-        bot.send_message(
-            msg.chat.id,
-            "❌ Only group admins can manage DAO preferences.",
-        )
-        .await?;
-        return Ok(());
-    }
-
-    let group_id = msg.chat.id.to_string();
-
-    let group_id_formatted = format!("{}-{}", group_id, bot_deps.group.account_seed);
-
-    // Get current DAO admin preferences
-    let dao_admin_preferences = bot_deps
-        .dao
-        .get_dao_admin_preferences(group_id_formatted.clone());
-
-    let current_prefs = match dao_admin_preferences {
-        Ok(prefs) => prefs,
-        Err(_) => {
-            // Create default preferences if none exist
-            use crate::dao::dto::DaoAdminPreferences;
-            let default_prefs = DaoAdminPreferences {
-                group_id: group_id_formatted.clone(),
-                expiration_time: 7 * 24 * 60 * 60, // 7 days in seconds
-                interval_active_proposal_notifications: 60 * 60, // 1 hour in seconds
-                interval_dao_results_notifications: 3600,
-                default_dao_token: None,
-                vote_duration: Some(24 * 60 * 60), // Default to 24 hours
-            };
-
-            log::info!("Default preferences: {:?}", default_prefs);
-
-            // Save default preferences
-            if let Err(_e) = bot_deps
-                .dao
-                .set_dao_admin_preferences(group_id_formatted.clone(), default_prefs.clone())
-            {
-                bot.send_message(msg.chat.id, "❌ Error creating default DAO preferences.")
-                    .await?;
-                return Ok(());
-            }
-            default_prefs
-        }
-    };
-
-    // Create keyboard with current values
-    let keyboard = InlineKeyboardMarkup::new(vec![
-        vec![InlineKeyboardButton::new(
-            format!(
-                "🗑️ Deletion After Conclusion Duration: {}",
-                format_time_duration(current_prefs.expiration_time)
-            ),
-            InlineKeyboardButtonKind::CallbackData(format!(
-                "dao_set_expiration_{}",
-                group_id_formatted
-            )),
-        )],
-        vec![InlineKeyboardButton::new(
-            format!(
-                "🔔 Notification Interval: {}",
-                format_time_duration(current_prefs.interval_active_proposal_notifications)
-            ),
-            InlineKeyboardButtonKind::CallbackData(format!(
-                "dao_set_notifications_{}",
-                group_id_formatted
-            )),
-        )],
-        vec![InlineKeyboardButton::new(
-            format!(
-                "🔔 Results Notification Interval: {}",
-                format_time_duration(current_prefs.interval_dao_results_notifications)
-            ),
-            InlineKeyboardButtonKind::CallbackData(format!(
-                "dao_set_results_notifications_{}",
-                group_id_formatted
-            )),
-        )],
-        vec![InlineKeyboardButton::new(
-            format!(
-                "💰 DAO Token: {}",
-                current_prefs
-                    .default_dao_token
-                    .as_ref()
-                    .unwrap_or(&"".to_string())
-            ),
-            InlineKeyboardButtonKind::CallbackData(format!("dao_set_token_{}", group_id_formatted)),
-        )],
-        vec![InlineKeyboardButton::new(
-            format!(
-                "🗳️ Vote Duration: {}",
-                format_time_duration(current_prefs.vote_duration.unwrap_or(24 * 60 * 60))
-            ),
-            InlineKeyboardButtonKind::CallbackData(format!(
-                "dao_set_vote_duration_{}",
-                group_id_formatted
-            )),
-        )],
-        vec![InlineKeyboardButton::new(
-            "🔕 Manage Disabled Notifications",
-            InlineKeyboardButtonKind::CallbackData(format!(
-                "dao_manage_disabled_{}",
-                group_id_formatted
-            )),
-        )],
-        vec![InlineKeyboardButton::new(
-            "✅ Done",
-            InlineKeyboardButtonKind::CallbackData("dao_preferences_done".to_string()),
-        )],
-    ]);
-
-    let message_text = format!(
-        "🏛️ <b>DAO Admin Preferences</b>\n\n\
-        📊 <b>Current Settings:</b>\n\
-        🗑️ <b>Deletion After Conclusion Duration:</b> {}\n\
-        🔔 <b>Notification Interval:</b> {}\n\
-        🔔 <b>Results Notification Interval:</b> {}\n\
-        🗳️ <b>Vote Duration:</b> {}\n\n\
-        💰 <b>DAO Token:</b> {}\n\n\
-        💡 <i>Click the buttons below to modify these settings</i>",
-        format_time_duration(current_prefs.expiration_time),
-        format_time_duration(current_prefs.interval_active_proposal_notifications),
-        format_time_duration(current_prefs.interval_dao_results_notifications),
-        format_time_duration(current_prefs.vote_duration.unwrap_or(24 * 60 * 60)),
-        current_prefs.default_dao_token.unwrap_or("".to_string())
-    );
-
-    bot.send_message(msg.chat.id, message_text)
-        .parse_mode(ParseMode::Html)
-        .reply_markup(keyboard)
-        .await?;
-
-    Ok(())
-}
-
 pub async fn handle_dao_preference_callback(
     bot: Bot,
     query: CallbackQuery,
@@ -1019,15 +864,79 @@ pub async fn handle_dao_preference_callback(
                 }
             }
 
+            // Show popup notification
+            bot.answer_callback_query(query.id.clone())
+                .text(format!(
+                    "✅ Deletion after conclusion duration updated to {}",
+                    format_time_duration(expiration_time)
+                ))
+                .await?;
+
+            // Return to DAO preferences menu
+            let group_id = msg.chat.id.to_string();
+            let group_id_formatted = format!("{}-{}", group_id, bot_deps.group.account_seed);
+            let current_prefs = match bot_deps
+                .dao
+                .get_dao_admin_preferences(group_id_formatted.clone())
+            {
+                Ok(prefs) => prefs,
+                Err(_) => return Ok(()),
+            };
+
+            let keyboard = InlineKeyboardMarkup::new(vec![
+                vec![InlineKeyboardButton::new(
+                    format!(
+                        "🗑️ Deletion After Conclusion: {}",
+                        format_time_duration(current_prefs.expiration_time)
+                    ),
+                    InlineKeyboardButtonKind::CallbackData(format!(
+                        "dao_set_expiration_{}",
+                        group_id_formatted
+                    )),
+                )],
+                vec![InlineKeyboardButton::new(
+                    format!(
+                        "🔔 Notification Interval: {}",
+                        format_time_duration(current_prefs.interval_active_proposal_notifications)
+                    ),
+                    InlineKeyboardButtonKind::CallbackData(format!(
+                        "dao_set_notifications_{}",
+                        group_id_formatted
+                    )),
+                )],
+                vec![InlineKeyboardButton::new(
+                    format!(
+                        "🔔 Results Notification: {}",
+                        format_time_duration(current_prefs.interval_dao_results_notifications)
+                    ),
+                    InlineKeyboardButtonKind::CallbackData(format!(
+                        "dao_set_results_notifications_{}",
+                        group_id_formatted
+                    )),
+                )],
+                vec![InlineKeyboardButton::new(
+                    format!(
+                        "🗳️ Vote Duration: {}",
+                        format_time_duration(current_prefs.vote_duration.unwrap_or(24 * 60 * 60))
+                    ),
+                    InlineKeyboardButtonKind::CallbackData(format!(
+                        "dao_set_vote_duration_{}",
+                        group_id_formatted
+                    )),
+                )],
+                vec![InlineKeyboardButton::new(
+                    "↩️ Back",
+                    InlineKeyboardButtonKind::CallbackData("back_to_group_settings".to_string()),
+                )],
+            ]);
+
             bot.edit_message_text(
                 msg.chat.id,
                 msg.id,
-                format!(
-                    "✅ <b>Deletion after conclusion duration updated to {}</b>",
-                    format_time_duration(expiration_time)
-                ),
+                "🏛️ <b>DAO Preferences</b>\n\nConfigure group DAO settings:",
             )
             .parse_mode(ParseMode::Html)
+            .reply_markup(keyboard)
             .await?;
         }
     } else if data.starts_with("dao_notif_") {
@@ -1058,15 +967,79 @@ pub async fn handle_dao_preference_callback(
                 }
             }
 
+            // Show popup notification
+            bot.answer_callback_query(query.id.clone())
+                .text(format!(
+                    "✅ Notification interval updated to {}",
+                    format_time_duration(notification_interval)
+                ))
+                .await?;
+
+            // Return to DAO preferences menu
+            let group_id = msg.chat.id.to_string();
+            let group_id_formatted = format!("{}-{}", group_id, bot_deps.group.account_seed);
+            let current_prefs = match bot_deps
+                .dao
+                .get_dao_admin_preferences(group_id_formatted.clone())
+            {
+                Ok(prefs) => prefs,
+                Err(_) => return Ok(()),
+            };
+
+            let keyboard = InlineKeyboardMarkup::new(vec![
+                vec![InlineKeyboardButton::new(
+                    format!(
+                        "🗑️ Deletion After Conclusion: {}",
+                        format_time_duration(current_prefs.expiration_time)
+                    ),
+                    InlineKeyboardButtonKind::CallbackData(format!(
+                        "dao_set_expiration_{}",
+                        group_id_formatted
+                    )),
+                )],
+                vec![InlineKeyboardButton::new(
+                    format!(
+                        "🔔 Notification Interval: {}",
+                        format_time_duration(current_prefs.interval_active_proposal_notifications)
+                    ),
+                    InlineKeyboardButtonKind::CallbackData(format!(
+                        "dao_set_notifications_{}",
+                        group_id_formatted
+                    )),
+                )],
+                vec![InlineKeyboardButton::new(
+                    format!(
+                        "🔔 Results Notification: {}",
+                        format_time_duration(current_prefs.interval_dao_results_notifications)
+                    ),
+                    InlineKeyboardButtonKind::CallbackData(format!(
+                        "dao_set_results_notifications_{}",
+                        group_id_formatted
+                    )),
+                )],
+                vec![InlineKeyboardButton::new(
+                    format!(
+                        "🗳️ Vote Duration: {}",
+                        format_time_duration(current_prefs.vote_duration.unwrap_or(24 * 60 * 60))
+                    ),
+                    InlineKeyboardButtonKind::CallbackData(format!(
+                        "dao_set_vote_duration_{}",
+                        group_id_formatted
+                    )),
+                )],
+                vec![InlineKeyboardButton::new(
+                    "↩️ Back",
+                    InlineKeyboardButtonKind::CallbackData("back_to_group_settings".to_string()),
+                )],
+            ]);
+
             bot.edit_message_text(
                 msg.chat.id,
                 msg.id,
-                format!(
-                    "✅ <b>Notification interval updated to {}</b>",
-                    format_time_duration(notification_interval)
-                ),
+                "🏛️ <b>DAO Preferences</b>\n\nConfigure group DAO settings:",
             )
             .parse_mode(ParseMode::Html)
+            .reply_markup(keyboard)
             .await?;
         }
     } else if data.starts_with("dao_res_notif_") {
@@ -1097,15 +1070,79 @@ pub async fn handle_dao_preference_callback(
                 }
             }
 
+            // Show popup notification
+            bot.answer_callback_query(query.id.clone())
+                .text(format!(
+                    "✅ Results notification interval updated to {}",
+                    format_time_duration(results_notification_interval)
+                ))
+                .await?;
+
+            // Return to DAO preferences menu
+            let group_id = msg.chat.id.to_string();
+            let group_id_formatted = format!("{}-{}", group_id, bot_deps.group.account_seed);
+            let current_prefs = match bot_deps
+                .dao
+                .get_dao_admin_preferences(group_id_formatted.clone())
+            {
+                Ok(prefs) => prefs,
+                Err(_) => return Ok(()),
+            };
+
+            let keyboard = InlineKeyboardMarkup::new(vec![
+                vec![InlineKeyboardButton::new(
+                    format!(
+                        "🗑️ Deletion After Conclusion: {}",
+                        format_time_duration(current_prefs.expiration_time)
+                    ),
+                    InlineKeyboardButtonKind::CallbackData(format!(
+                        "dao_set_expiration_{}",
+                        group_id_formatted
+                    )),
+                )],
+                vec![InlineKeyboardButton::new(
+                    format!(
+                        "🔔 Notification Interval: {}",
+                        format_time_duration(current_prefs.interval_active_proposal_notifications)
+                    ),
+                    InlineKeyboardButtonKind::CallbackData(format!(
+                        "dao_set_notifications_{}",
+                        group_id_formatted
+                    )),
+                )],
+                vec![InlineKeyboardButton::new(
+                    format!(
+                        "🔔 Results Notification: {}",
+                        format_time_duration(current_prefs.interval_dao_results_notifications)
+                    ),
+                    InlineKeyboardButtonKind::CallbackData(format!(
+                        "dao_set_results_notifications_{}",
+                        group_id_formatted
+                    )),
+                )],
+                vec![InlineKeyboardButton::new(
+                    format!(
+                        "🗳️ Vote Duration: {}",
+                        format_time_duration(current_prefs.vote_duration.unwrap_or(24 * 60 * 60))
+                    ),
+                    InlineKeyboardButtonKind::CallbackData(format!(
+                        "dao_set_vote_duration_{}",
+                        group_id_formatted
+                    )),
+                )],
+                vec![InlineKeyboardButton::new(
+                    "↩️ Back",
+                    InlineKeyboardButtonKind::CallbackData("back_to_group_settings".to_string()),
+                )],
+            ]);
+
             bot.edit_message_text(
                 msg.chat.id,
                 msg.id,
-                format!(
-                    "✅ <b>Results notification interval updated to {}</b>",
-                    format_time_duration(results_notification_interval)
-                ),
+                "🏛️ <b>DAO Preferences</b>\n\nConfigure group DAO settings:",
             )
             .parse_mode(ParseMode::Html)
+            .reply_markup(keyboard)
             .await?;
         }
     } else if data.starts_with("dao_vote_duration_") {
@@ -1136,15 +1173,79 @@ pub async fn handle_dao_preference_callback(
                 }
             }
 
+            // Show popup notification
+            bot.answer_callback_query(query.id.clone())
+                .text(format!(
+                    "✅ Vote duration updated to {}",
+                    format_time_duration(vote_duration)
+                ))
+                .await?;
+
+            // Return to DAO preferences menu
+            let group_id = msg.chat.id.to_string();
+            let group_id_formatted = format!("{}-{}", group_id, bot_deps.group.account_seed);
+            let current_prefs = match bot_deps
+                .dao
+                .get_dao_admin_preferences(group_id_formatted.clone())
+            {
+                Ok(prefs) => prefs,
+                Err(_) => return Ok(()),
+            };
+
+            let keyboard = InlineKeyboardMarkup::new(vec![
+                vec![InlineKeyboardButton::new(
+                    format!(
+                        "🗑️ Deletion After Conclusion: {}",
+                        format_time_duration(current_prefs.expiration_time)
+                    ),
+                    InlineKeyboardButtonKind::CallbackData(format!(
+                        "dao_set_expiration_{}",
+                        group_id_formatted
+                    )),
+                )],
+                vec![InlineKeyboardButton::new(
+                    format!(
+                        "🔔 Notification Interval: {}",
+                        format_time_duration(current_prefs.interval_active_proposal_notifications)
+                    ),
+                    InlineKeyboardButtonKind::CallbackData(format!(
+                        "dao_set_notifications_{}",
+                        group_id_formatted
+                    )),
+                )],
+                vec![InlineKeyboardButton::new(
+                    format!(
+                        "🔔 Results Notification: {}",
+                        format_time_duration(current_prefs.interval_dao_results_notifications)
+                    ),
+                    InlineKeyboardButtonKind::CallbackData(format!(
+                        "dao_set_results_notifications_{}",
+                        group_id_formatted
+                    )),
+                )],
+                vec![InlineKeyboardButton::new(
+                    format!(
+                        "🗳️ Vote Duration: {}",
+                        format_time_duration(current_prefs.vote_duration.unwrap_or(24 * 60 * 60))
+                    ),
+                    InlineKeyboardButtonKind::CallbackData(format!(
+                        "dao_set_vote_duration_{}",
+                        group_id_formatted
+                    )),
+                )],
+                vec![InlineKeyboardButton::new(
+                    "↩️ Back",
+                    InlineKeyboardButtonKind::CallbackData("back_to_group_settings".to_string()),
+                )],
+            ]);
+
             bot.edit_message_text(
                 msg.chat.id,
                 msg.id,
-                format!(
-                    "✅ <b>Vote duration updated to {}</b>",
-                    format_time_duration(vote_duration)
-                ),
+                "🏛️ <b>DAO Preferences</b>\n\nConfigure group DAO settings:",
             )
             .parse_mode(ParseMode::Html)
+            .reply_markup(keyboard)
             .await?;
         }
     } else if data == "dao_preferences_back" {

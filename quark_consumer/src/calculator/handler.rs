@@ -1,8 +1,6 @@
 use super::dto::{Price, ToolName};
 use crate::error::ConsumerError;
-use aptos_rust_sdk::client::rest_api::AptosFullnodeClient;
-use aptos_rust_sdk_types::api_types::{address::AccountAddress, view::ViewRequest};
-use quark_core::helpers::dto::{AITool, PriceCoin, TokenAddress, ToolUsage};
+use quark_core::helpers::dto::{AITool, PriceCoin, ToolUsage};
 use reqwest::Client;
 use ron::de::from_str;
 use std::fs;
@@ -20,11 +18,10 @@ pub async fn get_price(
     panora_url: &str,
     panora_api_key: &str,
     model_name: &str,
+    token_address: &str,
     total_tokens: u64,
     tool_usage: Vec<ToolUsage>,
     client: &Client,
-    contract_address: &AccountAddress,
-    node: &AptosFullnodeClient,
 ) -> Result<(u64, String), ConsumerError> {
     println!("model_name: {}", model_name);
     println!("total_tokens: {}", total_tokens);
@@ -42,31 +39,6 @@ pub async fn get_price(
         .iter()
         .find(|model| model.name.to_string() == model_name)
         .ok_or_else(|| ConsumerError::InvalidMessage(format!("Model not found: {}", model_name)))?;
-
-    let view_request = ViewRequest {
-        function: format!("{contract_address}::user::get_token_address"),
-        type_arguments: vec![],
-        arguments: vec![],
-    };
-
-    let token_address_response = node
-        .view_function(view_request)
-        .await
-        .map_err(|e| ConsumerError::InvalidMessage(format!("Failed to view function: {}", e)))?;
-
-    let token_addresses: Vec<TokenAddress> =
-        serde_json::from_value(token_address_response.into_inner()).map_err(|e| {
-            ConsumerError::InvalidMessage(format!("Failed to parse token address: {}", e))
-        })?;
-
-    let token_address = if token_addresses[0].vec[0] == "0x1" {
-        "0x1::aptos_coin::AptosCoin".to_string()
-    } else {
-        format!(
-            "{}::coin_factory::Emojicoin",
-            token_addresses[0].vec[0].clone()
-        )
-    };
 
     let price_coins_response = client
         .get(format!("{}/prices", panora_url))
@@ -91,7 +63,7 @@ pub async fn get_price(
 
     let coin = price_coins
         .iter()
-        .find(|token| token.token_address.as_ref() == Some(&token_address))
+        .find(|token| token.token_address.as_ref() == Some(&token_address.to_string()))
         .ok_or_else(|| {
             ConsumerError::InvalidMessage(format!("Token address not found: {}", token_address))
         })?;
@@ -122,5 +94,5 @@ pub async fn get_price(
     let total_price_blockchain =
         (total_price * 10_f64.powi(coin.decimals.unwrap_or(8) as i32)) as u64;
 
-    Ok((total_price_blockchain, token_address))
+    Ok((total_price_blockchain, token_address.to_string()))
 }
