@@ -2,7 +2,7 @@ use std::env;
 
 use chrono::Utc;
 use quark_core::helpers::dto::CoinVersion;
-use teloxide::types::{Message, ChatId};
+use teloxide::types::{ChatId, Message};
 
 use crate::dependencies::BotDependencies;
 use crate::message_history::handler::fetch;
@@ -1198,6 +1198,7 @@ pub async fn execute_pay_users(
             let token_type_result = if token.token_address.as_ref().is_some() {
                 token.token_address.as_ref().unwrap().to_string()
             } else {
+                version = CoinVersion::V2;
                 token.fa_address.clone()
             };
 
@@ -1300,8 +1301,8 @@ pub async fn execute_pay_users(
         per_user_amount,
         created_at: now,
         expires_at,
-        chat_id: msg.chat.id.0,  // Store the chat ID from the message
-        message_id: 0,           // Placeholder - will be updated after message is sent
+        chat_id: msg.chat.id.0, // Store the chat ID from the message
+        message_id: 0,          // Placeholder - will be updated after message is sent
     };
 
     // Convert group_id from Option<String> to Option<i64>
@@ -1317,7 +1318,10 @@ pub async fn execute_pay_users(
         return "❌ Failed to prepare transaction".to_string();
     }
 
-    log::info!("✅ Pending transaction stored successfully with ID: {}", pending_transaction.transaction_id);
+    log::info!(
+        "✅ Pending transaction stored successfully with ID: {}",
+        pending_transaction.transaction_id
+    );
 
     // Return summary for AI to incorporate
     format!(
@@ -1760,7 +1764,10 @@ pub async fn execute_get_recent_messages(msg: Message, bot_deps: BotDependencies
 }
 
 /// Core helper for schedules: fetch recent messages by ChatId (no Message required)
-pub async fn execute_get_recent_messages_for_chat(chat_id: ChatId, bot_deps: BotDependencies) -> String {
+pub async fn execute_get_recent_messages_for_chat(
+    chat_id: ChatId,
+    bot_deps: BotDependencies,
+) -> String {
     let lines = fetch(chat_id, bot_deps.history_storage.clone()).await;
     if lines.is_empty() {
         return "(No recent messages stored.)".into();

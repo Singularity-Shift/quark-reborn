@@ -1,13 +1,10 @@
-use super::dto::{
-    ChatModel, Gpt5Mode, gpt5_mode_to_display_string, gpt5_effort_to_display_string,
-    verbosity_to_display_string,
-};
+use super::dto::{ChatModel, Gpt5Mode, gpt5_effort_to_display_string, gpt5_mode_to_display_string};
 use super::handler::{UserModelPreferences, get_temperature_keyboard};
 use anyhow::Result;
 // no Effort import; GPT-5 uses ReasoningEffort
 
 use teloxide::prelude::*;
-use teloxide::types::{CallbackQuery, ParseMode, InlineKeyboardButton, InlineKeyboardMarkup};
+use teloxide::types::{CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, ParseMode};
 
 pub async fn handle_model_preferences_callback(
     bot: Bot,
@@ -45,7 +42,10 @@ pub async fn handle_model_preferences_callback(
         };
 
         // For 4-series, ask for temperature; for 5-series, branch into Mode/Effort/Verbosity
-        let is_four_series = matches!(model, ChatModel::GPT41 | ChatModel::GPT41Mini | ChatModel::GPT4o);
+        let is_four_series = matches!(
+            model,
+            ChatModel::GPT41 | ChatModel::GPT41Mini | ChatModel::GPT4o
+        );
         if is_four_series {
             let keyboard = get_temperature_keyboard();
             if let Some(message) = query.message {
@@ -73,8 +73,14 @@ pub async fn handle_model_preferences_callback(
 
             // Ask GPT-5 Mode selection next and confirm model choice
             let keyboard = InlineKeyboardMarkup::new(vec![
-                vec![InlineKeyboardButton::callback("Regular", "set_gpt5_mode:Regular")],
-                vec![InlineKeyboardButton::callback("Reasoning", "set_gpt5_mode:Reasoning")],
+                vec![InlineKeyboardButton::callback(
+                    "Regular",
+                    "set_gpt5_mode:Regular",
+                )],
+                vec![InlineKeyboardButton::callback(
+                    "Reasoning",
+                    "set_gpt5_mode:Reasoning",
+                )],
             ]);
 
             if let Some(message) = query.message {
@@ -122,16 +128,38 @@ pub async fn handle_model_preferences_callback(
 
                 prefs_handler.set_chat_preferences(username, model.clone(), temperature)?;
 
+                // Show popup notification
+                bot.answer_callback_query(query.id.clone())
+                    .text("Preferences saved!")
+                    .await?;
+
+                // Return to user settings menu instead of closing
+                let keyboard = InlineKeyboardMarkup::new(vec![
+                    vec![InlineKeyboardButton::callback(
+                        "🧠 Select Model",
+                        "open_select_model",
+                    )],
+                    vec![InlineKeyboardButton::callback(
+                        "💳 Payment Settings",
+                        "open_payment_settings",
+                    )],
+                    vec![InlineKeyboardButton::callback(
+                        "📋 View My Settings",
+                        "open_my_settings",
+                    )],
+                    vec![InlineKeyboardButton::callback(
+                        "↩️ Close",
+                        "user_settings_close",
+                    )],
+                ]);
+
                 bot.edit_message_text(
                     msg.chat.id,
                     msg.id,
-                    format!(
-                        "✅ <b>Chat model preferences saved!</b>\n\n🤖 Model: {}\n🌡️ Temperature: {}\n\nYour /c commands will now use these settings.",
-                        model.to_display_string(),
-                        temperature
-                    )
+                    "⚙️ <b>User Settings</b>\n\n• Manage your model, view current settings, and configure payment.\n\n💡 If no payment token is selected, the on-chain default will be used."
                 )
                 .parse_mode(ParseMode::Html)
+                .reply_markup(keyboard)
                 .await?;
             }
         }
@@ -161,9 +189,18 @@ pub async fn handle_model_preferences_callback(
             if let teloxide::types::MaybeInaccessibleMessage::Regular(msg) = message {
                 if mode == Gpt5Mode::Reasoning {
                     let keyboard = InlineKeyboardMarkup::new(vec![
-                        vec![InlineKeyboardButton::callback("Minimal (💸 Cheapest)", "set_gpt5_effort:Minimal")],
-                        vec![InlineKeyboardButton::callback("Medium (💰 Standard)", "set_gpt5_effort:Medium")],
-                        vec![InlineKeyboardButton::callback("High (💸💸 Most Expensive)", "set_gpt5_effort:High")],
+                        vec![InlineKeyboardButton::callback(
+                            "Minimal (💸 Cheapest)",
+                            "set_gpt5_effort:Minimal",
+                        )],
+                        vec![InlineKeyboardButton::callback(
+                            "Medium (💰 Standard)",
+                            "set_gpt5_effort:Medium",
+                        )],
+                        vec![InlineKeyboardButton::callback(
+                            "High (💸💸 Most Expensive)",
+                            "set_gpt5_effort:High",
+                        )],
                     ]);
                     bot.edit_message_text(
                         msg.chat.id,
@@ -179,9 +216,18 @@ pub async fn handle_model_preferences_callback(
                 } else {
                     // Ask verbosity directly
                     let keyboard = InlineKeyboardMarkup::new(vec![
-                        vec![InlineKeyboardButton::callback("Low (💸 Cheapest)", "set_gpt5_verbosity:Low")],
-                        vec![InlineKeyboardButton::callback("Medium (💰 Standard)", "set_gpt5_verbosity:Medium")],
-                        vec![InlineKeyboardButton::callback("High (💸💸 Most Expensive)", "set_gpt5_verbosity:High")],
+                        vec![InlineKeyboardButton::callback(
+                            "Low (💸 Cheapest)",
+                            "set_gpt5_verbosity:Low",
+                        )],
+                        vec![InlineKeyboardButton::callback(
+                            "Medium (💰 Standard)",
+                            "set_gpt5_verbosity:Medium",
+                        )],
+                        vec![InlineKeyboardButton::callback(
+                            "High (💸💸 Most Expensive)",
+                            "set_gpt5_verbosity:High",
+                        )],
                     ]);
                     bot.edit_message_text(
                         msg.chat.id,
@@ -218,9 +264,18 @@ pub async fn handle_model_preferences_callback(
         if let Some(message) = query.message {
             if let teloxide::types::MaybeInaccessibleMessage::Regular(msg) = message {
                 let keyboard = InlineKeyboardMarkup::new(vec![
-                    vec![InlineKeyboardButton::callback("Low (💸 Cheapest)", "set_gpt5_verbosity:Low")],
-                    vec![InlineKeyboardButton::callback("Medium (💰 Standard)", "set_gpt5_verbosity:Medium")],
-                    vec![InlineKeyboardButton::callback("High (💸💸 Most Expensive)", "set_gpt5_verbosity:High")],
+                    vec![InlineKeyboardButton::callback(
+                        "Low (💸 Cheapest)",
+                        "set_gpt5_verbosity:Low",
+                    )],
+                    vec![InlineKeyboardButton::callback(
+                        "Medium (💰 Standard)",
+                        "set_gpt5_verbosity:Medium",
+                    )],
+                    vec![InlineKeyboardButton::callback(
+                        "High (💸💸 Most Expensive)",
+                        "set_gpt5_verbosity:High",
+                    )],
                 ]);
                 bot.edit_message_text(
                     msg.chat.id,
@@ -254,39 +309,41 @@ pub async fn handle_model_preferences_callback(
 
         if let Some(message) = query.message {
             if let teloxide::types::MaybeInaccessibleMessage::Regular(msg) = message {
+                // Show popup notification
+                bot.answer_callback_query(query.id.clone())
+                    .text("Verbosity saved")
+                    .await?;
+
+                // Return to user settings menu instead of closing
+                let keyboard = InlineKeyboardMarkup::new(vec![
+                    vec![InlineKeyboardButton::callback(
+                        "🧠 Select Model",
+                        "open_select_model",
+                    )],
+                    vec![InlineKeyboardButton::callback(
+                        "💳 Payment Settings",
+                        "open_payment_settings",
+                    )],
+                    vec![InlineKeyboardButton::callback(
+                        "📋 View My Settings",
+                        "open_my_settings",
+                    )],
+                    vec![InlineKeyboardButton::callback(
+                        "↩️ Close",
+                        "user_settings_close",
+                    )],
+                ]);
+
                 bot.edit_message_text(
                     msg.chat.id,
                     msg.id,
-                    format!(
-                        "✅ <b>Chat model preferences saved!</b>\n\n🤖 Model: {}\n🧩 Mode: {}\n🗣️ Verbosity: {}{}\n\nYour /c commands will now use these settings.",
-                        prefs.chat_model.to_display_string(),
-                        prefs
-                            .gpt5_mode
-                            .as_ref()
-                            .map(gpt5_mode_to_display_string)
-                            .unwrap_or("Regular"),
-                        verbosity_to_display_string(&v),
-                        match prefs.gpt5_mode {
-                            Some(Gpt5Mode::Reasoning) => {
-                                let e = prefs
-                                    .gpt5_effort
-                                    .as_ref()
-                                    .map(gpt5_effort_to_display_string)
-                                    .unwrap_or("Medium");
-                                format!("\n⚡ Reasoning Effort: {}", e)
-                            }
-                            _ => String::new(),
-                        }
-                    )
+                    "⚙️ <b>User Settings</b>\n\n• Manage your model, view current settings, and configure payment.\n\n💡 If no payment token is selected, the on-chain default will be used."
                 )
                 .parse_mode(ParseMode::Html)
+                .reply_markup(keyboard)
                 .await?;
             }
         }
-
-        bot.answer_callback_query(query.id)
-            .text("Verbosity saved")
-            .await?;
     }
 
     Ok(())

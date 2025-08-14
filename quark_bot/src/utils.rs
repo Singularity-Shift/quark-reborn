@@ -5,8 +5,13 @@ use open_ai_rust_responses_by_sshift::Model;
 use quark_core::helpers::dto::{AITool, PurchaseRequest, ToolUsage};
 use regex::Regex;
 use std::{collections::HashMap, env};
+use teloxide::{
+    Bot,
+    prelude::*,
+    types::{ChatId, UserId},
+};
 
-use crate::services::handler::Services;
+use crate::dependencies::BotDependencies;
 
 /// Helper function to format Unix timestamp into readable date and time
 pub fn format_timestamp(timestamp: u64) -> String {
@@ -83,8 +88,6 @@ pub fn clean_filename(filename: &str) -> String {
         cleaned.to_string()
     }
 }
-
-
 
 /// Convert a limited subset of Markdown (headings, bold, links, horizontal rule, code blocks)
 /// into Telegram-compatible HTML so we can send messages with `ParseMode::Html`.
@@ -166,12 +169,41 @@ pub async fn create_purchase_request(
     file_search_calls: u32,
     web_search_calls: u32,
     image_generation_calls: u32,
-    service: Services,
     total_tokens_used: u32,
     model: Model,
     token: &str,
     mut group_id: Option<String>,
+    user_id: String,
+    bot_deps: BotDependencies,
 ) -> Result<(), anyhow::Error> {
+    // Resolve currency/version from user or group prefs; fallback to on-chain default
+    let (currency, coin_version) = if let Some(gid) = &group_id {
+        let key = gid.clone();
+        let prefs: Option<crate::payment::dto::PaymentPrefs> =
+            bot_deps.payment.get_payment_token_session(key);
+        if prefs.is_some() {
+            let prefs = prefs.unwrap();
+            (prefs.currency, prefs.version)
+        } else {
+            (
+                bot_deps.default_payment_prefs.currency,
+                bot_deps.default_payment_prefs.version,
+            )
+        }
+    } else {
+        let key = user_id;
+        let prefs: Option<crate::payment::dto::PaymentPrefs> =
+            bot_deps.payment.get_payment_token_session(key);
+        if prefs.is_some() {
+            let prefs = prefs.unwrap();
+            (prefs.currency, prefs.version)
+        } else {
+            (
+                bot_deps.default_payment_prefs.currency,
+                bot_deps.default_payment_prefs.version,
+            )
+        }
+    };
     let mut tools_used = Vec::new();
     let account_seed =
         env::var("ACCOUNT_SEED").map_err(|e| anyhow::anyhow!("ACCOUNT_SEED is not set: {}", e))?;
@@ -203,17 +235,23 @@ pub async fn create_purchase_request(
 
     let purchase_request = PurchaseRequest {
         model,
+        currency,
+        coin_version,
         tokens_used: total_tokens_used,
         tools_used,
         group_id: group_id.clone(),
     };
 
     let response = if group_id.is_some() {
-        service
+        bot_deps
+            .service
             .group_purchase(token.to_string(), purchase_request)
             .await
     } else {
-        service.purchase(token.to_string(), purchase_request).await
+        bot_deps
+            .service
+            .purchase(token.to_string(), purchase_request)
+            .await
     };
 
     match response {
@@ -223,4 +261,16 @@ pub async fn create_purchase_request(
             Err(e)
         }
     }
+}
+
+pub async fn is_admin(bot: &Bot, chat_id: ChatId, user_id: UserId) -> bool {
+    let admins = bot.get_chat_administrators(chat_id).await;
+
+    if admins.is_err() {
+        return false;
+    }
+
+    let admins = admins.unwrap();
+    let is_admin = admins.iter().any(|member| member.user.id == user_id);
+    is_admin
 }
