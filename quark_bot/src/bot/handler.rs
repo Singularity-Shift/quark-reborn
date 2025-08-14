@@ -1125,10 +1125,12 @@ pub async fn handle_message(bot: Bot, msg: Message, bot_deps: BotDependencies) -
                 struct WizardState {
                     step: String,
                     allowed_items: Option<Vec<String>>,
+                    wizard_message_id: Option<i64>,
                 }
                 let mut state: WizardState = serde_json::from_slice(&raw).unwrap_or(WizardState {
                     step: "AwaitingAllowed".to_string(),
                     allowed_items: None,
+                    wizard_message_id: None,
                 });
                 let text = msg
                     .text()
@@ -1154,16 +1156,28 @@ pub async fn handle_message(bot: Bot, msg: Message, bot_deps: BotDependencies) -
                         };
                         state.allowed_items = Some(items);
                         state.step = "AwaitingDisallowed".to_string();
+                        // Remove previous prompt (Step 1) if present
+                        if let Some(mid) = state.wizard_message_id {
+                            let _ = bot
+                                .delete_message(
+                                    msg.chat.id,
+                                    teloxide::types::MessageId(mid as i32),
+                                )
+                                .await;
+                        }
+                        let sent = bot
+                            .send_message(
+                                msg.chat.id,
+                                "🛡️ <b>Moderation Settings — Step 2/2</b>\n\n<b>Now send DISALLOWED items</b> for this group.\n\n<b>Be specific</b>: include concrete phrases, patterns, and examples you want flagged.\n\n<b>Cancel anytime</b>: Tap <b>Back</b> or <b>Close</b> in the Moderation menu — this prompt will be removed.\n\n<b>Format</b>:\n- Send them in a <b>single message</b>\n- Separate each item with <code>;</code>\n- To skip this section, send <code>na</code>\n\n<b>Example</b>:\n<code>dark distasteful/disrespectful humour; racism; homophobia; any apparent personal attack on the character of an individual group member</code>\n\n<i>Notes:</i> \n- <b>Group Disallowed</b> > <b>Group Allowed</b> > <b>Default Rules</b> (strict priority).\n- If any Group Disallowed item matches, the message will be flagged.",
+                            )
+                            .parse_mode(ParseMode::Html)
+                            .await?;
+                        // Track Step 2 prompt for cleanup
+                        state.wizard_message_id = Some(sent.id.0 as i64);
                         let payload = serde_json::to_vec(&state).unwrap();
                         mod_wizard_tree
                             .insert(wizard_key.as_bytes(), payload)
                             .unwrap();
-                        bot.send_message(
-                            msg.chat.id,
-                            "🛡️ <b>Moderation Settings — Step 2/2</b>\n\n<b>Now send DISALLOWED items</b> for this group.\n\n<b>Be specific</b>: include concrete phrases, patterns, and examples you want flagged.\n\n<b>Format</b>:\n- Send them in a <b>single message</b>\n- Separate each item with <code>;</code>\n- To skip this section, send <code>na</code>\n\n<b>Example</b>:\n<code>dark distasteful/disrespectful humour; racism; homophobia; any apparent personal attack on the character of an individual group member</code>\n\nSend your list now.",
-                        )
-                        .parse_mode(ParseMode::Html)
-                        .await?;
                         return Ok(());
                     } else if state.step == "AwaitingDisallowed" {
                         let is_skip = text.eq_ignore_ascii_case("na");
@@ -1192,7 +1206,15 @@ pub async fn handle_message(bot: Bot, msg: Message, bot_deps: BotDependencies) -
                         settings_tree
                             .insert(formatted_group_id.as_bytes(), value)
                             .unwrap();
-                        // Clear wizard
+                        // Clear wizard and remove last prompt if present
+                        if let Some(mid) = state.wizard_message_id {
+                            let _ = bot
+                                .delete_message(
+                                    msg.chat.id,
+                                    teloxide::types::MessageId(mid as i32),
+                                )
+                                .await;
+                        }
                         mod_wizard_tree.remove(wizard_key.as_bytes()).unwrap();
                         let allowed_list = if allowed.is_empty() {
                             "<i>(none)</i>".to_string()
@@ -1565,138 +1587,9 @@ pub async fn handle_message(bot: Bot, msg: Message, bot_deps: BotDependencies) -
     Ok(())
 }
 
-pub async fn handle_sentinel(
-    bot: Bot,
-    msg: Message,
-    param: String,
-    bot_deps: BotDependencies,
-) -> AnyResult<()> {
-    // Only admins can use /sentinel
-    if !msg.chat.is_private() {
-        let admins = bot.get_chat_administrators(msg.chat.id).await?;
-        let requester_id = msg.from.as_ref().map(|u| u.id);
-        let is_admin = requester_id
-            .map(|uid| admins.iter().any(|member| member.user.id == uid))
-            .unwrap_or(false);
-        if !is_admin {
-            bot.send_message(
-                msg.chat.id,
-                "❌ <b>Permission Denied</b>\n\nOnly group administrators can use /sentinel.",
-            )
-            .parse_mode(ParseMode::Html)
-            .await?;
-            return Ok(());
-        }
-    }
-    let param = param.trim().to_lowercase();
-    let sentinel_tree = bot_deps.db.open_tree("sentinel_state").unwrap();
-    let chat_id = msg.chat.id.0.to_be_bytes();
-    match param.as_str() {
-        "on" => {
-            sentinel_tree.insert(chat_id, b"on").unwrap();
-            bot.send_message(
-                msg.chat.id,
-                "🛡️ <b>Sentinel System</b>\n\n✅ <b>Sentinel is now ON</b>\n\nAll messages will be automatically moderated. /mod command is disabled."
-            )
-            .parse_mode(ParseMode::Html)
-            .await?;
-        }
-        "off" => {
-            sentinel_tree.insert(chat_id, b"off").unwrap();
-            bot.send_message(
-                msg.chat.id,
-                "🛡️ <b>Sentinel System</b>\n\n⏹️ <b>Sentinel is now OFF</b>\n\nManual moderation via /mod is re-enabled."
-            )
-            .parse_mode(ParseMode::Html)
-            .await?;
-        }
-        _ => {
-            bot.send_message(
-                msg.chat.id,
-                "❌ <b>Invalid Parameter</b>\n\n📝 Usage: <code>/sentinel on</code> or <code>/sentinel off</code>\n\n💡 Please specify either 'on' or 'off' to control the sentinel system."
-            )
-            .parse_mode(ParseMode::Html)
-            .await?;
-        }
-    }
-    Ok(())
-}
+// removed: handle_sentinel — sentinel toggling is available in Group Settings → Moderation
 
-pub async fn handle_moderation_settings(
-    bot: Bot,
-    msg: Message,
-    bot_deps: BotDependencies,
-    arg: String,
-) -> AnyResult<()> {
-    if msg.chat.is_private() {
-        bot.send_message(msg.chat.id, "❌ This command can only be used in a group.")
-            .await?;
-        return Ok(());
-    }
-    // Only admins/owners can use
-    let admins = bot.get_chat_administrators(msg.chat.id).await?;
-    let requester_id = msg.from.as_ref().map(|u| u.id);
-    let is_admin = requester_id
-        .map(|uid| admins.iter().any(|member| member.user.id == uid))
-        .unwrap_or(false);
-    if !is_admin {
-        bot.send_message(
-            msg.chat.id,
-            "❌ <b>Permission Denied</b>\n\nOnly group administrators can use /moderationsettings.",
-        )
-        .parse_mode(ParseMode::Html)
-        .await?;
-        return Ok(());
-    }
-    let user = match &msg.from {
-        Some(u) => u,
-        None => {
-            bot.send_message(msg.chat.id, "❌ User not found").await?;
-            return Ok(());
-        }
-    };
-    let formatted_group_id = format!("{}-{}", msg.chat.id.0, bot_deps.group.account_seed);
-
-    // Optional subcommand: reset
-    let arg_trimmed = arg.trim().to_lowercase();
-    if arg_trimmed == "reset" {
-        let settings_tree = bot_deps.db.open_tree("moderation_settings").unwrap();
-        let _ = settings_tree.remove(formatted_group_id.as_bytes());
-        // Clear active wizard state for the requester (if any)
-        let mod_wizard_tree = bot_deps.db.open_tree("moderation_settings_wizard").unwrap();
-        let wizard_key = format!("{}_{}", user.id.0, formatted_group_id);
-        let _ = mod_wizard_tree.remove(wizard_key.as_bytes());
-        bot.send_message(
-            msg.chat.id,
-            "🧹 <b>Moderation Settings Reset</b>\n\nCustom group rules have been cleared. Default moderation rules are now in effect.",
-        )
-        .parse_mode(ParseMode::Html)
-        .await?;
-        return Ok(());
-    }
-    let mod_wizard_tree = bot_deps.db.open_tree("moderation_settings_wizard").unwrap();
-    let wizard_key = format!("{}_{}", user.id.0, formatted_group_id);
-    #[derive(Serialize, Deserialize)]
-    struct WizardState {
-        step: String,
-        allowed_items: Option<Vec<String>>,
-    }
-    let state = WizardState {
-        step: "AwaitingAllowed".to_string(),
-        allowed_items: None,
-    };
-    let payload = serde_json::to_vec(&state).unwrap();
-    mod_wizard_tree
-        .insert(wizard_key.as_bytes(), payload)
-        .unwrap();
-    bot.send_message(
-        msg.chat.id,
-        "🛡️ <b>Moderation Settings — Step 1/2</b>\n\n<b>Send ALLOWED items</b> for this group.\n\n<b>Be specific</b>: include concrete phrases and examples.\n\n<b>Warning</b>: Allowed items can reduce moderation strictness; we've included a <b>copy & paste</b> template below to safely allow discussion of your token. To skip this step, send <code>na</code>.\n\n<b>Format</b>:\n- Send them in a <b>single message</b>\n- Separate each item with <code>;</code>\n\n<b>Example</b>:\n<b>promotion of 📒/ledger token and related content that does not include external links combined with CTAs (vote, sign, proposal, claim, mint, verify, connect wallet, airdrop, whitelist) and does not request to move to private DMs; x.com URLs are acceptable when referencing this token (no CTAs, no DM invites)</b>\n\n<b>Quick template (copy/paste) to allow your own token</b>:\n<code>promotion of [YOUR_TOKEN] token and related content that does not include external links combined with CTAs (vote, sign, proposal, claim, mint, verify, connect wallet, airdrop, whitelist) and does not request to move to private DMs; x.com URLs are acceptable when referencing [YOUR_TOKEN] (no CTAs, no DM invites); discussion related to [YOUR_TOKEN] community/ecosystem (non-phishing, no DM invites)</code>\n\n<i>Important:</i> Cross-reference with the <b>Default Rules</b>: phishing/CTA links, requests to move to private DMs, and generic commercial solicitations remain disallowed.\n\nWhen ready, send your list now.\n\n<i>Tip: run <code>/moderationsettings reset</code> anytime to clear custom rules.</i>",
-    )
-    .parse_mode(ParseMode::Html)
-    .await?;
-    Ok(())
-}
+// removed: handle_moderation_settings — wizard now launched via /groupsettings Moderation menu
 
 pub async fn handle_wallet_address(
     bot: Bot,
