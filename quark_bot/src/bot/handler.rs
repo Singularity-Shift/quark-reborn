@@ -262,6 +262,8 @@ async fn send_pre_block(bot: &Bot, chat_id: ChatId, title: &str, content: &str) 
 async fn send_long_message(bot: &Bot, chat_id: ChatId, text: &str) -> AnyResult<()> {
     // Convert markdown (including ``` code fences) to Telegram-compatible HTML
     let html_text = utils::markdown_to_html(text);
+    // Sanitize stray '<' outside <pre> that do not begin allowed tags
+    let html_text = utils::sanitize_html_outside_pre(&html_text);
     // Normalize image anchor to point to the public GCS URL when present
     let html_text = utils::normalize_image_url_anchor(&html_text);
     let chunks = split_message(&html_text);
