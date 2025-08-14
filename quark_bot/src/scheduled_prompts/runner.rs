@@ -5,7 +5,7 @@ use teloxide::{
 };
 use tokio_cron_scheduler::Job;
 
-use crate::utils::{create_purchase_request, markdown_to_html};
+use crate::utils::create_purchase_request;
 use crate::{
     dependencies::BotDependencies,
     scheduled_prompts::dto::{RepeatPolicy, ScheduledPromptRecord},
@@ -90,8 +90,8 @@ fn split_message(text: &str) -> Vec<String> {
 }
 
 async fn send_long_message(bot: &Bot, chat_id: ChatId, text: &str) -> usize {
-    let html = markdown_to_html(text);
-    let parts = split_message(&html);
+    // AI responses are already Telegram-HTML formatted; send as-is
+    let parts = split_message(text);
     for (i, part) in parts.iter().enumerate() {
         if i > 0 {
             sleep(Duration::from_millis(100)).await;
@@ -448,7 +448,12 @@ pub async fn register_schedule(
                             } else {
                                 &text_out
                             };
-                            match bot.send_photo(group_chat_id, photo).caption(caption).await {
+                            match bot
+                                .send_photo(group_chat_id, photo)
+                                .caption(caption)
+                                .parse_mode(ParseMode::Html)
+                                .await
+                            {
                                 Ok(msg) => log::info!(
                                     "[sched:{}] sent image with caption to chat {} (msg_id={})",
                                     schedule_id,

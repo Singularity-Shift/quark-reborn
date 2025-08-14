@@ -12,17 +12,22 @@ use aptos_rust_sdk_types::api_types::view::ViewRequest;
 use serde_json::value;
 
 use crate::{
-    ai::{moderation::ModerationService, vector_store::list_user_files_with_names},
+    ai::{
+        moderation::{ModerationOverrides, ModerationService},
+        vector_store::list_user_files_with_names,
+    },
     user_model_preferences::handler::initialize_user_preferences,
 };
 
 use crate::scheduled_prompts::dto::PendingStep;
 use crate::scheduled_prompts::storage::ScheduledStorage;
 use crate::scheduled_prompts::wizard::build_hours_keyboard;
+use chrono;
 use open_ai_rust_responses_by_sshift::Model;
 use quark_core::helpers::{bot_commands::Command, dto::CreateGroupRequest};
 use regex;
 use reqwest::Url;
+use serde::{Deserialize, Serialize};
 use std::env;
 use std::time::Duration;
 use teloxide::types::{
@@ -39,68 +44,226 @@ use tokio::time::sleep;
 
 const TELEGRAM_MESSAGE_LIMIT: usize = 4096;
 
-/// Split a message into chunks that fit within Telegram's message limit
+/// Split a Telegram-HTML message into chunks without cutting inside tags/entities.
 fn split_message(text: &str) -> Vec<String> {
     if text.len() <= TELEGRAM_MESSAGE_LIMIT {
         return vec![text.to_string()];
     }
 
-    let mut chunks = Vec::new();
-    let mut current_chunk = String::new();
+    // Track whether a tag requires closing
+    fn is_closing_required(tag: &str) -> bool {
+        matches!(
+            tag,
+            "b" | "strong"
+                | "i"
+                | "em"
+                | "u"
+                | "ins"
+                | "s"
+                | "strike"
+                | "del"
+                | "code"
+                | "pre"
+                | "a"
+                | "tg-spoiler"
+                | "span"
+                | "blockquote"
+        )
+    }
 
-    // Split by lines first to avoid breaking in the middle of sentences
-    for line in text.lines() {
-        // If adding this line would exceed the limit, save current chunk and start new one
-        if current_chunk.len() + line.len() + 1 > TELEGRAM_MESSAGE_LIMIT {
-            if !current_chunk.is_empty() {
-                chunks.push(current_chunk.trim().to_string());
-                current_chunk.clear();
+    let mut chunks: Vec<String> = Vec::new();
+    let mut buf = String::new();
+    let mut last_safe_break: Option<usize> = None; // index in buf safe to split
+    let mut inside_tag = false;
+    let mut inside_entity = false;
+    let mut tag_buf = String::new();
+    let mut open_stack: Vec<String> = Vec::new();
+    let mut tag_start_in_buf: usize = 0; // start index of current tag
+    let mut last_anchor_start: Option<usize> = None; // avoid splitting inside <a>
+
+    let push_chunk = |buf: &mut String, chunks: &mut Vec<String>| {
+        if !buf.trim().is_empty() {
+            chunks.push(buf.trim().to_string());
+        }
+        buf.clear();
+    };
+
+    for ch in text.chars() {
+        match ch {
+            '<' => {
+                inside_tag = true;
+                tag_buf.clear();
+                tag_start_in_buf = buf.len();
+                buf.push(ch);
             }
-
-            // If a single line is too long, split it by words
-            if line.len() > TELEGRAM_MESSAGE_LIMIT {
-                let words: Vec<&str> = line.split_whitespace().collect();
-                let mut word_chunk = String::new();
-
-                for word in words {
-                    if word_chunk.len() + word.len() + 1 > TELEGRAM_MESSAGE_LIMIT {
-                        if !word_chunk.is_empty() {
-                            chunks.push(word_chunk.trim().to_string());
-                            word_chunk.clear();
+            '>' => {
+                buf.push(ch);
+                if inside_tag {
+                    // parse tag name
+                    let tag_content = tag_buf.trim();
+                    let is_end = tag_content.starts_with('/')
+                        || tag_content.starts_with("/ ")
+                        || tag_content.starts_with(" /");
+                    let name = tag_content
+                        .trim_start_matches('/')
+                        .split_whitespace()
+                        .next()
+                        .unwrap_or("")
+                        .to_lowercase();
+                    if !name.is_empty() && is_closing_required(&name) {
+                        if is_end {
+                            if let Some(pos) = open_stack.iter().rposition(|t| t == &name) {
+                                open_stack.remove(pos);
+                            }
+                            if name == "a" {
+                                last_anchor_start = None;
+                            }
+                        } else {
+                            open_stack.push(name.clone());
+                            if name == "a" {
+                                last_anchor_start = Some(tag_start_in_buf);
+                            }
                         }
                     }
-
-                    if !word_chunk.is_empty() {
-                        word_chunk.push(' ');
+                }
+                inside_tag = false;
+                if !inside_entity && open_stack.is_empty() {
+                    last_safe_break = Some(buf.len());
+                }
+            }
+            '&' => {
+                inside_entity = true;
+                buf.push(ch);
+            }
+            ';' => {
+                buf.push(ch);
+                if inside_entity {
+                    inside_entity = false;
+                    if !inside_tag && open_stack.is_empty() {
+                        last_safe_break = Some(buf.len());
                     }
-                    word_chunk.push_str(word);
                 }
+            }
+            _ => {
+                if inside_tag {
+                    tag_buf.push(ch);
+                }
+                buf.push(ch);
+                if (ch == ' ' || ch == '\n' || ch == '\t')
+                    && !inside_tag
+                    && !inside_entity
+                    && open_stack.is_empty()
+                {
+                    last_safe_break = Some(buf.len());
+                }
+            }
+        }
 
-                if !word_chunk.is_empty() {
-                    current_chunk = word_chunk;
+        if buf.len() >= TELEGRAM_MESSAGE_LIMIT {
+            if let Some(idx) = last_safe_break {
+                let remainder = buf.split_off(idx);
+                let chunk = buf.trim().to_string();
+                if !chunk.is_empty() {
+                    chunks.push(chunk);
                 }
+                buf = remainder;
+            } else if last_anchor_start.is_some() {
+                // Split before the anchor started to avoid cutting inside <a>
+                let pos = last_anchor_start.unwrap();
+                if pos > 0 {
+                    let remainder = buf.split_off(pos);
+                    let chunk = buf.trim().to_string();
+                    if !chunk.is_empty() {
+                        chunks.push(chunk);
+                    }
+                    buf = remainder;
+                } else {
+                    // Anchor starts at 0; fall back to pushing the whole buffer to make progress
+                    push_chunk(&mut buf, &mut chunks);
+                }
+            } else if open_stack.iter().any(|t| t == "pre" || t == "code") {
+                // Close pre/code at boundary and reopen in next chunk
+                let closable: Vec<&str> = open_stack
+                    .iter()
+                    .map(|s| s.as_str())
+                    .filter(|t| *t == "pre" || *t == "code")
+                    .collect();
+                for t in closable.iter().rev() {
+                    buf.push_str(&format!("</{}>", t));
+                }
+                let reopen = closable
+                    .iter()
+                    .map(|t| format!("<{}>", t))
+                    .collect::<Vec<_>>()
+                    .join("");
+                let chunk = buf.trim().to_string();
+                if !chunk.is_empty() {
+                    chunks.push(chunk);
+                }
+                buf.clear();
+                buf.push_str(&reopen);
             } else {
-                current_chunk = line.to_string();
+                // Last resort: push whatever we have (should be rare)
+                push_chunk(&mut buf, &mut chunks);
             }
-        } else {
-            if !current_chunk.is_empty() {
-                current_chunk.push('\n');
-            }
-            current_chunk.push_str(line);
+            last_safe_break = None;
         }
     }
 
-    if !current_chunk.is_empty() {
-        chunks.push(current_chunk.trim().to_string());
+    if !buf.trim().is_empty() {
+        chunks.push(buf.trim().to_string());
     }
 
     chunks
 }
 
+/// Extract all <pre>...</pre> blocks and return the text without them, plus the list of pre contents
+fn split_off_pre_blocks(text: &str) -> (String, Vec<String>) {
+    let re = regex::Regex::new(r"(?s)<pre[^>]*>(.*?)</pre>").unwrap();
+    let mut pre_blocks: Vec<String> = Vec::new();
+    let without_pre = re
+        .replace_all(text, |caps: &regex::Captures| {
+            pre_blocks.push(caps.get(1).map(|m| m.as_str()).unwrap_or("").to_string());
+            "".to_string()
+        })
+        .to_string();
+    (without_pre, pre_blocks)
+}
+
+/// Send a long <pre> block safely by chunking and wrapping each chunk in <pre> tags
+async fn send_pre_block(bot: &Bot, chat_id: ChatId, title: &str, content: &str) -> AnyResult<()> {
+    // Escape HTML special chars inside the <pre> block
+    let escaped = teloxide::utils::html::escape(content);
+    let prefix = format!("{}\n<pre>", title);
+    let suffix = "</pre>";
+    // Leave some headroom for prefix/suffix
+    let max_payload = TELEGRAM_MESSAGE_LIMIT.saturating_sub(prefix.len() + suffix.len() + 16);
+    let mut current = String::new();
+    for ch in escaped.chars() {
+        if current.chars().count() + 1 > max_payload {
+            let msg = format!("{}{}{}", prefix, current, suffix);
+            bot.send_message(chat_id, msg)
+                .parse_mode(ParseMode::Html)
+                .await?;
+            current.clear();
+        }
+        current.push(ch);
+    }
+    if !current.is_empty() {
+        let msg = format!("{}{}{}", prefix, current, suffix);
+        bot.send_message(chat_id, msg)
+            .parse_mode(ParseMode::Html)
+            .await?;
+    }
+    Ok(())
+}
+
 /// Send a potentially long message, splitting it into multiple messages if necessary
 async fn send_long_message(bot: &Bot, chat_id: ChatId, text: &str) -> AnyResult<()> {
-    // Convert markdown to HTML to avoid Telegram parsing issues
+    // Convert markdown (including ``` code fences) to Telegram-compatible HTML
     let html_text = utils::markdown_to_html(text);
+    // Normalize image anchor to point to the public GCS URL when present
+    let html_text = utils::normalize_image_url_anchor(&html_text);
     let chunks = split_message(&html_text);
 
     for (i, chunk) in chunks.iter().enumerate() {
@@ -666,15 +829,24 @@ pub async fn handle_chat(
 
             if let Some(image_data) = ai_response.image_data {
                 let photo = InputFile::memory(image_data);
-                let caption = if ai_response.text.len() > 1024 {
-                    &ai_response.text[..1024]
+                // Strip <pre> blocks from caption to avoid unbalanced HTML when truncated
+                let (text_without_pre, pre_blocks) = split_off_pre_blocks(&ai_response.text);
+                let caption = if text_without_pre.len() > 1024 {
+                    &text_without_pre[..1024]
                 } else {
-                    &ai_response.text
+                    &text_without_pre
                 };
-                bot.send_photo(msg.chat.id, photo).caption(caption).await?;
-                // If the text is longer than 1024, send the rest as a follow-up message
-                if ai_response.text.len() > 1024 {
-                    send_long_message(&bot, msg.chat.id, &ai_response.text[1024..]).await?;
+                bot.send_photo(msg.chat.id, photo)
+                    .caption(caption)
+                    .parse_mode(ParseMode::Html)
+                    .await?;
+                // Send any extracted <pre> blocks safely in full
+                for pre in pre_blocks {
+                    send_pre_block(&bot, msg.chat.id, "", &pre).await?;
+                }
+                // If the text_without_pre is longer than 1024, send the remainder
+                if text_without_pre.len() > 1024 {
+                    send_long_message(&bot, msg.chat.id, &text_without_pre[1024..]).await?;
                 }
             } else if let Some(ref tool_calls) = ai_response.tool_calls {
                 if tool_calls
@@ -839,6 +1011,7 @@ pub async fn handle_message(bot: Bot, msg: Message, bot_deps: BotDependencies) -
         let sentinel_tree = bot_deps.db.open_tree("sentinel_state").unwrap();
         let chat_id = msg.chat.id.0.to_be_bytes();
         let user = msg.from.clone();
+        let formatted_group_id = format!("{}-{}", msg.chat.id.0, bot_deps.group.account_seed);
 
         if user.is_none() {
             return Ok(());
@@ -941,6 +1114,139 @@ pub async fn handle_message(bot: Bot, msg: Message, bot_deps: BotDependencies) -
             }
         }
 
+        // Moderation settings wizard: capture replies
+        if let Some(user) = &msg.from {
+            let mod_wizard_tree = bot_deps.db.open_tree("moderation_settings_wizard").unwrap();
+            let wizard_key = format!("{}_{}", user.id.0, formatted_group_id);
+            if let Ok(Some(raw)) = mod_wizard_tree.get(wizard_key.as_bytes()) {
+                #[derive(Serialize, Deserialize, Clone)]
+                struct WizardState {
+                    step: String,
+                    allowed_items: Option<Vec<String>>,
+                }
+                let mut state: WizardState = serde_json::from_slice(&raw).unwrap_or(WizardState {
+                    step: "AwaitingAllowed".to_string(),
+                    allowed_items: None,
+                });
+                let text = msg
+                    .text()
+                    .or_else(|| msg.caption())
+                    .unwrap_or("")
+                    .trim()
+                    .to_string();
+                if !text.is_empty() {
+                    let parse_items = |s: &str| -> Vec<String> {
+                        s.split(';')
+                            .map(|x| x.trim())
+                            .filter(|x| !x.is_empty())
+                            .take(50)
+                            .map(|x| x.to_string())
+                            .collect::<Vec<_>>()
+                    };
+                    if state.step == "AwaitingAllowed" {
+                        let is_skip = text.eq_ignore_ascii_case("na");
+                        let items = if is_skip {
+                            Vec::new()
+                        } else {
+                            parse_items(&text)
+                        };
+                        state.allowed_items = Some(items);
+                        state.step = "AwaitingDisallowed".to_string();
+                        let payload = serde_json::to_vec(&state).unwrap();
+                        mod_wizard_tree
+                            .insert(wizard_key.as_bytes(), payload)
+                            .unwrap();
+                        bot.send_message(
+                            msg.chat.id,
+                            "🛡️ <b>Moderation Settings — Step 2/2</b>\n\n<b>Now send DISALLOWED items</b> for this group.\n\n<b>Be specific</b>: include concrete phrases, patterns, and examples you want flagged.\n\n<b>Format</b>:\n- Send them in a <b>single message</b>\n- Separate each item with <code>;</code>\n- To skip this section, send <code>na</code>\n\n<b>Example</b>:\n<code>dark distasteful/disrespectful humour; racism; homophobia; any apparent personal attack on the character of an individual group member</code>\n\nSend your list now.",
+                        )
+                        .parse_mode(ParseMode::Html)
+                        .await?;
+                        return Ok(());
+                    } else if state.step == "AwaitingDisallowed" {
+                        let is_skip = text.eq_ignore_ascii_case("na");
+                        let disallowed = if is_skip {
+                            Vec::new()
+                        } else {
+                            parse_items(&text)
+                        };
+                        let allowed = state.allowed_items.unwrap_or_default();
+                        // Save to moderation_settings tree
+                        #[derive(Serialize, Deserialize)]
+                        struct ModerationSettings {
+                            allowed_items: Vec<String>,
+                            disallowed_items: Vec<String>,
+                            updated_by_user_id: i64,
+                            updated_at_unix_ms: i64,
+                        }
+                        let settings = ModerationSettings {
+                            allowed_items: allowed.clone(),
+                            disallowed_items: disallowed.clone(),
+                            updated_by_user_id: user.id.0 as i64,
+                            updated_at_unix_ms: chrono::Utc::now().timestamp_millis(),
+                        };
+                        let settings_tree = bot_deps.db.open_tree("moderation_settings").unwrap();
+                        let value = serde_json::to_vec(&settings).unwrap();
+                        settings_tree
+                            .insert(formatted_group_id.as_bytes(), value)
+                            .unwrap();
+                        // Clear wizard
+                        mod_wizard_tree.remove(wizard_key.as_bytes()).unwrap();
+                        let allowed_list = if allowed.is_empty() {
+                            "<i>(none)</i>".to_string()
+                        } else {
+                            allowed
+                                .iter()
+                                .map(|x| format!("• {}", teloxide::utils::html::escape(x)))
+                                .collect::<Vec<_>>()
+                                .join("\n")
+                        };
+                        let disallowed_list = if disallowed.is_empty() {
+                            "<i>(none)</i>".to_string()
+                        } else {
+                            disallowed
+                                .iter()
+                                .map(|x| format!("• {}", teloxide::utils::html::escape(x)))
+                                .collect::<Vec<_>>()
+                                .join("\n")
+                        };
+                        let mut summary = format!(
+                            "✅ <b>Custom moderation rules saved.</b>\n\n<b>Allowed ({})</b>:\n{}\n\n<b>Disallowed ({})</b>:\n{}",
+                            allowed.len(),
+                            allowed_list,
+                            disallowed.len(),
+                            disallowed_list,
+                        );
+                        if allowed.is_empty() && disallowed.is_empty() {
+                            summary.push_str("\n\n<i>No custom rules recorded. Default moderation rules remain fully in effect.</i>");
+                        }
+                        bot.send_message(msg.chat.id, summary)
+                            .parse_mode(ParseMode::Html)
+                            .await?;
+                        return Ok(());
+                    }
+                } else {
+                    // Ask again depending on step
+                    if state.step == "AwaitingAllowed" {
+                        bot.send_message(
+                            msg.chat.id,
+                            "Please send allowed items in one message, separated by <code>;</code>.\n\n<b>Be specific</b>: include concrete phrases and examples.\n\n<b>Note</b>: Allowed items can reduce moderation strictness and add instability if done poorly — recommended to skip for novice prompters. To skip, send <code>na</code>.",
+                        )
+                        .parse_mode(ParseMode::Html)
+                        .await?;
+                    } else {
+                        bot.send_message(
+                            msg.chat.id,
+                            "Please send disallowed items in one message, separated by <code>;</code>.\n\n<b>Be specific</b>: include concrete phrases, patterns, and examples.\n\nTo skip, send <code>na</code>.",
+                        )
+                        .parse_mode(ParseMode::Html)
+                        .await?;
+                    }
+                    return Ok(());
+                }
+            }
+        }
+
         // Scheduled prompts wizard: capture reply text for prompt entry
         if let Some(_reply) = msg.reply_to_message() {
             if let Some(user) = &msg.from {
@@ -981,6 +1287,14 @@ pub async fn handle_message(bot: Bot, msg: Message, bot_deps: BotDependencies) -
             .map(|v| v == b"on")
             .unwrap_or(false);
         if sentinel_on {
+            // Skip moderation if this user is in moderation settings wizard
+            if let Some(user) = &msg.from {
+                let mod_wizard_tree = bot_deps.db.open_tree("moderation_settings_wizard").unwrap();
+                let wizard_key = format!("{}_{}", user.id.0, formatted_group_id);
+                if let Ok(Some(_)) = mod_wizard_tree.get(wizard_key.as_bytes()) {
+                    return Ok(());
+                }
+            }
             // Don't moderate admin or bot messages
             if let Some(user) = &msg.from {
                 if user.is_bot {
@@ -1072,7 +1386,7 @@ pub async fn handle_message(bot: Bot, msg: Message, bot_deps: BotDependencies) -
                 bot.send_message(
                     msg.chat.id,
                     format!(
-                        "User balance is less than the minimum deposit. Please fund your account transfering {} to {} address. Minimum deposit: {} {} (Your balance: {} {})",
+                        "User balance is less than the minimum deposit. Please fund your account transfering {} to <code>{}</code> address. Minimum deposit: {} {} (Your balance: {} {})",
                         token.symbol.clone().unwrap_or("".to_string()),
                         address,
                         min_deposit_formatted,
@@ -1081,6 +1395,7 @@ pub async fn handle_message(bot: Bot, msg: Message, bot_deps: BotDependencies) -
                         token.symbol.unwrap_or("".to_string())
                     )
                 )
+                .parse_mode(ParseMode::Html)
                 .await?;
                 return Ok(());
             }
@@ -1088,9 +1403,31 @@ pub async fn handle_message(bot: Bot, msg: Message, bot_deps: BotDependencies) -
             // Use the same moderation logic as /mod
             let moderation_service =
                 ModerationService::new(std::env::var("OPENAI_API_KEY").unwrap()).unwrap();
+            // Load overrides
+            let settings_tree = bot_deps.db.open_tree("moderation_settings").unwrap();
+            let overrides = if let Ok(Some(raw)) = settings_tree.get(formatted_group_id.as_bytes())
+            {
+                #[derive(Serialize, Deserialize)]
+                struct ModerationSettings {
+                    allowed_items: Vec<String>,
+                    disallowed_items: Vec<String>,
+                    updated_by_user_id: i64,
+                    updated_at_unix_ms: i64,
+                }
+                if let Ok(ms) = serde_json::from_slice::<ModerationSettings>(&raw) {
+                    Some(ModerationOverrides {
+                        allowed_items: ms.allowed_items,
+                        disallowed_items: ms.disallowed_items,
+                    })
+                } else {
+                    None
+                }
+            } else {
+                None
+            };
             let message_text = msg.text().or_else(|| msg.caption()).unwrap_or("");
             match moderation_service
-                .moderate_message(message_text, &bot, &msg, &msg)
+                .moderate_message(message_text, &bot, &msg, &msg, overrides)
                 .await
             {
                 Ok(result) => {
@@ -1157,11 +1494,23 @@ pub async fn handle_message(bot: Bot, msg: Message, bot_deps: BotDependencies) -
                                     format!("ban:{}:{}", flagged_user.id, msg.id.0),
                                 ),
                             ]]);
+                            // Build a visible user mention (prefer @username, else clickable name)
+                            let user_mention = if let Some(username) = &flagged_user.username {
+                                format!("@{}", username)
+                            } else {
+                                let name = teloxide::utils::html::escape(&flagged_user.first_name);
+                                format!(
+                                    "<a href=\"tg://user?id={}\">{}</a>",
+                                    flagged_user.id.0, name
+                                )
+                            };
+
                             bot.send_message(
                                 msg.chat.id,
                                 format!(
-                                    "🛡️ <b>Content Flagged & User Muted</b>\n\n📝 Message ID: <code>{}</code>\n\n❌ Status: <b>FLAGGED</b> 🔴\n🔇 User has been muted\n\n💬 <i>Flagged message:</i>\n<blockquote><span class=\"tg-spoiler\">{}</span></blockquote>",
+                                    "🛡️ <b>Content Flagged & User Muted</b>\n\n📝 Message ID: <code>{}</code>\n\n❌ Status: <b>FLAGGED</b> 🔴\n🔇 User has been muted\n👤 <b>User:</b> {}\n\n💬 <i>Flagged message:</i>\n<blockquote><span class=\"tg-spoiler\">{}</span></blockquote>",
                                     msg.id,
+                                    user_mention,
                                     teloxide::utils::html::escape(message_text)
                                 )
                             )
@@ -1268,6 +1617,82 @@ pub async fn handle_sentinel(
             .await?;
         }
     }
+    Ok(())
+}
+
+pub async fn handle_moderation_settings(
+    bot: Bot,
+    msg: Message,
+    bot_deps: BotDependencies,
+    arg: String,
+) -> AnyResult<()> {
+    if msg.chat.is_private() {
+        bot.send_message(msg.chat.id, "❌ This command can only be used in a group.")
+            .await?;
+        return Ok(());
+    }
+    // Only admins/owners can use
+    let admins = bot.get_chat_administrators(msg.chat.id).await?;
+    let requester_id = msg.from.as_ref().map(|u| u.id);
+    let is_admin = requester_id
+        .map(|uid| admins.iter().any(|member| member.user.id == uid))
+        .unwrap_or(false);
+    if !is_admin {
+        bot.send_message(
+            msg.chat.id,
+            "❌ <b>Permission Denied</b>\n\nOnly group administrators can use /moderationsettings.",
+        )
+        .parse_mode(ParseMode::Html)
+        .await?;
+        return Ok(());
+    }
+    let user = match &msg.from {
+        Some(u) => u,
+        None => {
+            bot.send_message(msg.chat.id, "❌ User not found").await?;
+            return Ok(());
+        }
+    };
+    let formatted_group_id = format!("{}-{}", msg.chat.id.0, bot_deps.group.account_seed);
+
+    // Optional subcommand: reset
+    let arg_trimmed = arg.trim().to_lowercase();
+    if arg_trimmed == "reset" {
+        let settings_tree = bot_deps.db.open_tree("moderation_settings").unwrap();
+        let _ = settings_tree.remove(formatted_group_id.as_bytes());
+        // Clear active wizard state for the requester (if any)
+        let mod_wizard_tree = bot_deps.db.open_tree("moderation_settings_wizard").unwrap();
+        let wizard_key = format!("{}_{}", user.id.0, formatted_group_id);
+        let _ = mod_wizard_tree.remove(wizard_key.as_bytes());
+        bot.send_message(
+            msg.chat.id,
+            "🧹 <b>Moderation Settings Reset</b>\n\nCustom group rules have been cleared. Default moderation rules are now in effect.",
+        )
+        .parse_mode(ParseMode::Html)
+        .await?;
+        return Ok(());
+    }
+    let mod_wizard_tree = bot_deps.db.open_tree("moderation_settings_wizard").unwrap();
+    let wizard_key = format!("{}_{}", user.id.0, formatted_group_id);
+    #[derive(Serialize, Deserialize)]
+    struct WizardState {
+        step: String,
+        allowed_items: Option<Vec<String>>,
+    }
+    let state = WizardState {
+        step: "AwaitingAllowed".to_string(),
+        allowed_items: None,
+    };
+    let payload = serde_json::to_vec(&state).unwrap();
+    mod_wizard_tree
+        .insert(wizard_key.as_bytes(), payload)
+        .unwrap();
+    bot.send_message(
+        msg.chat.id,
+        "🛡️ <b>Moderation Settings — Step 1/2</b>\n\n<b>Send ALLOWED items</b> for this group.\n\n<b>Be specific</b>: include concrete phrases and examples.\n\n<b>Warning</b>: Allowed items can reduce moderation strictness; we've included a <b>copy & paste</b> template below to safely allow discussion of your token. To skip this step, send <code>na</code>.\n\n<b>Format</b>:\n- Send them in a <b>single message</b>\n- Separate each item with <code>;</code>\n\n<b>Example</b>:\n<b>promotion of 📒/ledger token and related content that does not include external links combined with CTAs (vote, sign, proposal, claim, mint, verify, connect wallet, airdrop, whitelist) and does not request to move to private DMs; x.com URLs are acceptable when referencing this token (no CTAs, no DM invites)</b>\n\n<b>Quick template (copy/paste) to allow your own token</b>:\n<code>promotion of [YOUR_TOKEN] token and related content that does not include external links combined with CTAs (vote, sign, proposal, claim, mint, verify, connect wallet, airdrop, whitelist) and does not request to move to private DMs; x.com URLs are acceptable when referencing [YOUR_TOKEN] (no CTAs, no DM invites); discussion related to [YOUR_TOKEN] community/ecosystem (non-phishing, no DM invites)</code>\n\n<i>Important:</i> Cross-reference with the <b>Default Rules</b>: phishing/CTA links, requests to move to private DMs, and generic commercial solicitations remain disallowed.\n\nWhen ready, send your list now.\n\n<i>Tip: run <code>/moderationsettings reset</code> anytime to clear custom rules.</i>",
+    )
+    .parse_mode(ParseMode::Html)
+    .await?;
     Ok(())
 }
 
@@ -1385,8 +1810,30 @@ pub async fn handle_mod(bot: Bot, msg: Message, bot_deps: BotDependencies) -> An
             .map_err(|e| anyhow::anyhow!("Failed to create moderation service: {}", e))?;
 
         // Moderate the message
+        // Load overrides
+        let formatted_group_id = format!("{}-{}", msg.chat.id.0, bot_deps.group.account_seed);
+        let settings_tree = bot_deps.db.open_tree("moderation_settings").unwrap();
+        let overrides = if let Ok(Some(raw)) = settings_tree.get(formatted_group_id.as_bytes()) {
+            #[derive(Serialize, Deserialize)]
+            struct ModerationSettings {
+                allowed_items: Vec<String>,
+                disallowed_items: Vec<String>,
+                updated_by_user_id: i64,
+                updated_at_unix_ms: i64,
+            }
+            if let Ok(ms) = serde_json::from_slice::<ModerationSettings>(&raw) {
+                Some(ModerationOverrides {
+                    allowed_items: ms.allowed_items,
+                    disallowed_items: ms.disallowed_items,
+                })
+            } else {
+                None
+            }
+        } else {
+            None
+        };
         match moderation_service
-            .moderate_message(message_text, &bot, &msg, &reply_to_msg)
+            .moderate_message(message_text, &bot, &msg, &reply_to_msg, overrides)
             .await
         {
             Ok(result) => {
@@ -1454,12 +1901,24 @@ pub async fn handle_mod(bot: Bot, msg: Message, bot_deps: BotDependencies) -> An
                             ),
                         ]]);
 
+                        // Build a visible user mention (prefer @username, else clickable name)
+                        let user_mention = if let Some(username) = &flagged_user.username {
+                            format!("@{}", username)
+                        } else {
+                            let name = teloxide::utils::html::escape(&flagged_user.first_name);
+                            format!(
+                                "<a href=\"tg://user?id={}\">{}</a>",
+                                flagged_user.id.0, name
+                            )
+                        };
+
                         // Send the flagged message response
                         bot.send_message(
                             msg.chat.id,
                             format!(
-                                "🛡️ <b>Content Flagged & User Muted</b>\n\n📝 Message ID: <code>{}</code>\n\n❌ Status: <b>FLAGGED</b> 🔴\n🔇 User has been muted\n\n💬 <i>Flagged message:</i>\n<blockquote><span class=\"tg-spoiler\">{}</span></blockquote>",
+                                "🛡️ <b>Content Flagged & User Muted</b>\n\n📝 Message ID: <code>{}</code>\n\n❌ Status: <b>FLAGGED</b> 🔴\n🔇 User has been muted\n👤 <b>User:</b> {}\n\n💬 <i>Flagged message:</i>\n<blockquote><span class=\"tg-spoiler\">{}</span></blockquote>",
                                 reply_to_msg.id,
+                                user_mention,
                                 teloxide::utils::html::escape(message_text)
                             )
                         )
@@ -1631,7 +2090,7 @@ pub async fn handle_balance(
 
     bot.send_message(
         msg.chat.id,
-        format!("💰 **Balance**: {:.6} {}", human_balance, token_symbol),
+        format!("💰 <b>Balance</b>: {:.6} {}", human_balance, token_symbol),
     )
     .parse_mode(ParseMode::Html)
     .await?;
@@ -1726,7 +2185,7 @@ pub async fn handle_group_balance(
 
     bot.send_message(
         msg.chat.id,
-        format!("💰 **Balance**: {:.6} {}", human_balance, token_symbol),
+        format!("💰 <b>Balance</b>: {:.6} {}", human_balance, token_symbol),
     )
     .parse_mode(ParseMode::Html)
     .await?;
