@@ -14,3 +14,10 @@ demo_script.rs
 cargo-check.log
 *.asc
 *.gpg
+
+SCHEDULEDPAYMENTS_PLAN.md
+PAY_USERS_WORKFLOW.md
+SCHEDULEPROMPT_WORKFLOW.md
+
+
+

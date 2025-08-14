@@ -37,6 +37,8 @@ pub enum Command {
     Mod,
     #[command(description = "Display the moderation rules to avoid getting muted.")]
     ModerationRules,
+    #[command(description = "Configure group-specific moderation rules (admins only).")]
+    ModerationSettings(String),
     #[command(description = "Get your wallet address.")]
     WalletAddress,
     #[command(description = "Get your balance of a token.")]
