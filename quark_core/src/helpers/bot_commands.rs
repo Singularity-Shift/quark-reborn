@@ -26,10 +26,8 @@ pub enum Command {
     G(String),
     #[command(description = "Show example prompts.")]
     PromptExamples,
-    #[command(description = "Select chat model (5-series or 4.1) and temperature.")]
-    SelectModel,
-    #[command(description = "View your current model preferences (DM only).")]
-    MySettings,
+    #[command(description = "Open user settings menu (DM only).")]
+    Usersettings,
     // Change Monitor to Sentinel
     #[command(description = "Monitor system status (on/off).", rename = "sentinel")]
     Sentinel(String),
@@ -47,8 +45,6 @@ pub enum Command {
     GroupWalletAddress,
     #[command(description = "Get the group's balance of a token.")]
     GroupBalance(String),
-    #[command(description = "Set dao preferences.")]
-    DaoPreferences,
     #[command(description = "Display model pricing information.")]
     Prices,
     #[command(
@@ -56,12 +52,12 @@ pub enum Command {
         rename = "globalannouncement"
     )]
     Announcement(String),
-    #[command(description = "Migrate group id.")]
-    MigrateGroupId,
     #[command(description = "Schedule a recurring or one-shot group prompt (admins only).")]
     SchedulePrompt,
     #[command(description = "List active scheduled prompts (admins only).")]
     ListScheduled,
+    #[command(description = "Open group settings menu (admins only).")]
+    Groupsettings,
 }
 
 #[derive(Debug, Clone, Default)]

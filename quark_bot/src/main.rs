@@ -11,13 +11,14 @@ mod group;
 mod job;
 mod message_history;
 mod panora;
+mod payment;
 mod pending_transactions;
+mod scheduled_prompts;
 mod services;
 mod user_conversation;
 mod user_model_preferences;
 mod utils;
 mod yield_ai;
-mod scheduled_prompts;
 
 mod dependencies;
 
@@ -31,13 +32,14 @@ use crate::{
     job::job_scheduler::schedule_jobs,
     message_history::handler::MessageHistory,
     panora::handler::Panora,
+    payment::{dto::PaymentPrefs, payment::Payment},
     pending_transactions::handler::PendingTransactions,
     services::handler::Services,
     user_conversation::handler::UserConversations,
     user_model_preferences::handler::UserModelPreferences,
     yield_ai::yield_ai::YieldAI,
 };
-use quark_core::helpers::bot_commands::QuarkState;
+use quark_core::helpers::{bot_commands::QuarkState, dto::CoinVersion};
 use std::env;
 use std::sync::Arc;
 use teloxide::dispatching::dialogue::InMemStorage;
@@ -47,8 +49,8 @@ use teloxide::types::BotCommand;
 use crate::assets::command_image_collector;
 use crate::assets::media_aggregator;
 use crate::bot::handler_tree::handler_tree;
-use tokio_cron_scheduler::JobScheduler;
 use crate::scheduled_prompts::handler::bootstrap_scheduled_prompts;
+use tokio_cron_scheduler::JobScheduler;
 
 #[tokio::main(flavor = "multi_thread", worker_threads = 4)]
 async fn main() {
@@ -66,6 +68,7 @@ async fn main() {
     let aptos_network = env::var("APTOS_NETWORK").expect("APTOS_NETWORK not set");
     let contract_address = env::var("CONTRACT_ADDRESS").expect("CONTRACT_ADDRESS not set");
     let aptos_api_key = env::var("APTOS_API_KEY").unwrap_or_default();
+    let default_symbol = env::var("DEFAULT_SYMBOL").expect("DEFAULT_SYMBOL not set");
 
     let google_cloud = GcsImageUploader::new(&gcs_creds, bucket_name)
         .await
@@ -107,6 +110,8 @@ async fn main() {
 
     let dao_db = db.open_tree("dao").expect("Failed to open dao tree");
     let dao = Dao::new(dao_db);
+
+    let payment = Payment::new(&db).unwrap();
 
     let ai = AI::new(openai_api_key.clone(), google_cloud);
 
@@ -164,14 +169,8 @@ async fn main() {
         ),
         BotCommand::new("walletaddress", "Get your wallet address."),
         // Removed selectreasoningmodel (unified under selectmodel)
-        BotCommand::new(
-            "selectmodel",
-            "Select chat model (5-series or 4.1) and temperature.",
-        ),
-        BotCommand::new(
-            "mysettings",
-            "View your current model preferences (DM only).",
-        ),
+        // selectmodel and mysettings entries merged under /usersettings
+        BotCommand::new("usersettings", "Open user settings menu (DM only)."),
         BotCommand::new("sentinel", "Monitor system status (on/off)."),
         BotCommand::new("mod", "Moderate content (reply to message)."),
         BotCommand::new(
@@ -185,18 +184,27 @@ async fn main() {
         BotCommand::new("balance", "Get your balance of a token."),
         BotCommand::new("groupwalletaddress", "Get the group's wallet address."),
         BotCommand::new("groupbalance", "Get the group's balance of a token."),
-        BotCommand::new("daopreferences", "Set dao preferences."),
         BotCommand::new("prices", "Display model pricing information."),
         BotCommand::new(
             "globalannouncement",
             "Send a global announcement (authorized only).",
         ),
-        BotCommand::new("migrategroupid", "Migrate group id."),
+        BotCommand::new("groupsettings", "Open group settings menu (admins only)."),
     ];
 
     let history_storage = InMemStorage::<MessageHistory>::new();
 
     bot.set_my_commands(commands).await.unwrap();
+
+    let default_currency = panora
+        .aptos
+        .get_token_address()
+        .await
+        .expect("Failed to get token address");
+    let default_version = CoinVersion::V1;
+
+    let default_payment_prefs =
+        PaymentPrefs::from((default_symbol, default_currency, default_version));
 
     let bot_deps = BotDependencies {
         db: db.clone(),
@@ -214,6 +222,8 @@ async fn main() {
         pending_transactions: pending_transactions.clone(),
         yield_ai: yield_ai.clone(),
         scheduler: std::sync::Arc::new(user_scheduler),
+        payment: payment.clone(),
+        default_payment_prefs,
     };
 
     // Bootstrap user-defined schedules (load and register)

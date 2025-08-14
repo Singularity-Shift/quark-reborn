@@ -78,6 +78,26 @@ impl Aptos {
         ))
     }
 
+    pub async fn get_fees_currency_payment_list(&self) -> Result<Vec<String>> {
+        let fees_currency_payment_list = self
+            .node
+            .view_function(ViewRequest {
+                function: format!(
+                    "{}::admin::get_fees_currency_payment_list",
+                    self.contract_address
+                ),
+                type_arguments: vec![],
+                arguments: vec![],
+            })
+            .await?
+            .into_inner();
+
+        let fees_currency_payment_list =
+            serde_json::from_value::<Vec<Vec<String>>>(fees_currency_payment_list)?;
+
+        Ok(fees_currency_payment_list[0].clone())
+    }
+
     async fn get_token_address_internal(&self) -> Result<String> {
         let coin_address_value = self
             .node

@@ -1,9 +1,10 @@
 use std::sync::Arc;
 
 use crate::message_history::handler::HistoryStorage;
+use crate::payment::dto::PaymentPrefs;
 use crate::{
     ai::handler::AI, assets::media_aggregator::MediaGroupAggregator, credentials::handler::Auth,
-    dao::dao::Dao, group::handler::Group, panora::handler::Panora,
+    dao::dao::Dao, group::handler::Group, panora::handler::Panora, payment::payment::Payment,
     pending_transactions::handler::PendingTransactions, services::handler::Services,
     user_conversation::handler::UserConversations, yield_ai::yield_ai::YieldAI,
 };
@@ -27,4 +28,6 @@ pub struct BotDependencies {
     pub pending_transactions: PendingTransactions,
     pub yield_ai: YieldAI,
     pub scheduler: Arc<JobScheduler>,
+    pub payment: Payment,
+    pub default_payment_prefs: PaymentPrefs,
 }

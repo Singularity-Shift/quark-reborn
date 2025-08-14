@@ -54,6 +54,7 @@ services:
       - ACCOUNT_SEED=${ACCOUNT_SEED}
       - YIELD_AI_URL=${YIELD_AI_URL}
       - YIELD_AI_API_KEY=${YIELD_AI_API_KEY}
+      - DEFAULT_SYMBOL=${DEFAULT_SYMBOL}
     networks:
       - quark-net
     volumes:

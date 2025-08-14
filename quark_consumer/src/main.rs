@@ -91,18 +91,15 @@ async fn process_message_with_retry(
             ConsumerError::InvalidMessage(format!("Failed to create HTTP client: {}", e))
         })?;
 
-    let node_price = node.clone();
-
     let price = get_price(
         &path,
         &panora_url,
         &panora_api_key,
         &model_name,
+        &purchase.currency,
         total_tokens as u64,
         tool_usage,
         &client,
-        &contract_address,
-        &node_price,
     )
     .await;
 
@@ -133,6 +130,7 @@ async fn process_message_with_retry(
     let purchase_query = Purchase::from((
         purchase_type,
         contract_address,
+        purchase.coin_version,
         amount,
         token_address,
         node.clone(),

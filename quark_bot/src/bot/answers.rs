@@ -8,16 +8,17 @@ use super::handler::{
     handle_sentinel, handle_moderation_settings,
 };
 use crate::announcement::handle_announcement;
+use crate::utils;
 use crate::yield_ai::handler as yield_ai_handler;
 
 use crate::bot::handler::{
     handle_aptos_connect, handle_balance, handle_group_balance, handle_group_wallet_address,
-    handle_migrate_group_id, handle_wallet_address,
+    handle_wallet_address,
 };
-use crate::dao::handler::handle_dao_preferences;
 use crate::dependencies::BotDependencies;
-use crate::user_model_preferences::handler::{handle_my_settings, handle_select_model};
-use crate::scheduled_prompts::handler::{handle_scheduleprompt_command, handle_listscheduled_command};
+use crate::scheduled_prompts::handler::{
+    handle_listscheduled_command, handle_scheduleprompt_command,
+};
 
 pub async fn answers(
     bot: Bot,
@@ -127,8 +128,41 @@ pub async fn answers(
             bot.send_message(msg.chat.id, "Here are some example prompts you can use:\n\n💰 Wallet & Balance:\n- /prompt \"What's my wallet address?\" or /p \"What's my wallet address?\"\n- /prompt \"Show my balance\" or /p \"Show my balance\"\n- /prompt \"Check my SUI balance\" or /p \"Check my SUI balance\"\n- /prompt \"How much do I have?\" or /p \"How much do I have?\"\n\n💸 Transactions:\n- /prompt \"Send 10 SUI to @username\" or /p \"Send 10 SUI to @username\"\n- /prompt \"Withdraw 5 SUI\" or /p \"Withdraw 5 SUI\"\n- /prompt \"Send 100 SUI to everyone\" or /p \"Send 100 SUI to everyone\"\n\n❓ General:\n- /prompt \"What can you help me with?\" or /p \"What can you help me with?\"\n- /prompt \"Explain how this bot works\" or /p \"Explain how this bot works\"\n\n💡 Tip: Use /p as a shortcut for /prompt!").await?;
             ()
         }
-        Command::SelectModel => handle_select_model(bot, msg).await?,
-        Command::MySettings => handle_my_settings(bot, msg, bot_deps.clone()).await?,
+        // SelectModel and MySettings are now accessible from /usersettings menu
+        Command::Usersettings => {
+            // Keep menu assembly in bot layer per request; present model prefs, my settings, and payment submenu
+            use teloxide::types::{InlineKeyboardButton, InlineKeyboardMarkup, ParseMode};
+            if !msg.chat.is_private() {
+                bot.send_message(
+                    msg.chat.id,
+                    "❌ This command can only be used in a private chat.",
+                )
+                .await?;
+            } else {
+                let kb = InlineKeyboardMarkup::new(vec![
+                    vec![InlineKeyboardButton::callback(
+                        "🧠 Select Model",
+                        "open_select_model",
+                    )],
+                    vec![InlineKeyboardButton::callback(
+                        "💳 Payment Settings",
+                        "open_payment_settings",
+                    )],
+                    vec![InlineKeyboardButton::callback(
+                        "📋 View My Settings",
+                        "open_my_settings",
+                    )],
+                    vec![InlineKeyboardButton::callback(
+                        "↩️ Close",
+                        "user_settings_close",
+                    )],
+                ]);
+                bot.send_message(msg.chat.id, "⚙️ <b>User Settings</b>\n\n• Manage your model, view current settings, and configure payment.\n\n💡 If no payment token is selected, the on-chain default will be used.")
+                    .parse_mode(ParseMode::Html)
+                    .reply_markup(kb)
+                    .await?;
+            }
+        }
         Command::GroupWalletAddress => {
             handle_group_wallet_address(bot, msg, bot_deps.clone()).await?;
         }
@@ -139,14 +173,56 @@ pub async fn answers(
                 handle_group_balance(bot, msg, bot_deps.clone(), &symbol).await?
             }
         }
-        Command::DaoPreferences => {
-            handle_dao_preferences(bot, msg, bot_deps.clone()).await?;
-        }
         Command::Announcement(text) => {
             handle_announcement(bot, msg, text, bot_deps.clone()).await?;
         }
-        Command::MigrateGroupId => {
-            handle_migrate_group_id(bot, msg, bot_deps.clone()).await?;
+        Command::Groupsettings => {
+            use teloxide::types::{InlineKeyboardButton, InlineKeyboardMarkup, ParseMode};
+            if msg.chat.is_private() {
+                bot.send_message(msg.chat.id, "❌ This command must be used in a group chat.")
+                    .await?;
+            } else {
+                let uid = msg.from.as_ref().map(|u| u.id);
+
+                if uid.is_none() {
+                    bot.send_message(msg.chat.id, "❌ User not found").await?;
+                    return Ok(());
+                }
+
+                let uid = uid.unwrap();
+
+                let is_admin = utils::is_admin(&bot, msg.chat.id, uid).await;
+                if !is_admin {
+                    bot.send_message(
+                        msg.chat.id,
+                        "❌ Only group administrators can open group settings.",
+                    )
+                    .await?;
+                } else {
+                    let kb = InlineKeyboardMarkup::new(vec![
+                        vec![InlineKeyboardButton::callback(
+                            "💳 Payment Settings",
+                            "open_group_payment_settings",
+                        )],
+                        vec![InlineKeyboardButton::callback(
+                            "🏛️ DAO Preferences",
+                            "open_dao_preferences",
+                        )],
+                        vec![InlineKeyboardButton::callback(
+                            "🔄 Migrate Group ID",
+                            "open_migrate_group_id",
+                        )],
+                        vec![InlineKeyboardButton::callback(
+                            "↩️ Close",
+                            "group_settings_close",
+                        )],
+                    ]);
+                    bot.send_message(msg.chat.id, "⚙️ <b>Group Settings</b>\n\n• Configure payment token, DAO preferences, and group migration.\n\n💡 Only group administrators can access these settings.")
+                        .parse_mode(ParseMode::Html)
+                        .reply_markup(kb)
+                        .await?;
+                }
+            }
         }
         Command::SchedulePrompt => {
             handle_scheduleprompt_command(bot, msg, bot_deps.clone()).await?;
