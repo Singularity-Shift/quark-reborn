@@ -63,7 +63,10 @@ pub async fn get_price(
 
     let coin = price_coins
         .iter()
-        .find(|token| token.token_address.as_ref() == Some(&token_address.to_string()))
+        .find(|token| {
+            token.token_address.as_ref() == Some(&token_address.to_string())
+                || token.fa_address == token_address
+        })
         .ok_or_else(|| {
             ConsumerError::InvalidMessage(format!("Token address not found: {}", token_address))
         })?;
