@@ -129,8 +129,8 @@ pub fn sanitize_html_outside_pre(input: &str) -> String {
     fn is_allowed_tag(name: &str, inner: &str) -> bool {
         let tag = name.to_ascii_lowercase();
         match tag.as_str() {
-            "a" | "b" | "strong" | "i" | "em" | "u" | "ins" | "s" | "strike" | "del"
-            | "code" | "pre" | "tg-spoiler" => true,
+            "a" | "b" | "strong" | "i" | "em" | "u" | "ins" | "s" | "strike" | "del" | "code"
+            | "pre" | "tg-spoiler" => true,
             "span" => {
                 let lower_inner = inner.to_ascii_lowercase();
                 // Only allow span when explicitly a Telegram spoiler
@@ -249,7 +249,7 @@ pub async fn create_purchase_request(
     let (currency, coin_version) = if let Some(gid) = &group_id {
         let key = gid.clone();
         let prefs: Option<crate::payment::dto::PaymentPrefs> =
-            bot_deps.payment.get_payment_token_session(key);
+            bot_deps.payment.get_payment_token(key);
         if prefs.is_some() {
             let prefs = prefs.unwrap();
             (prefs.currency, prefs.version)
@@ -262,7 +262,7 @@ pub async fn create_purchase_request(
     } else {
         let key = user_id;
         let prefs: Option<crate::payment::dto::PaymentPrefs> =
-            bot_deps.payment.get_payment_token_session(key);
+            bot_deps.payment.get_payment_token(key);
         if prefs.is_some() {
             let prefs = prefs.unwrap();
             (prefs.currency, prefs.version)

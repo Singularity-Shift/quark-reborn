@@ -263,18 +263,4 @@ impl Panora {
 
         Ok(token.clone())
     }
-
-    pub async fn get_token_ai_fees(&self) -> Result<PriceCoin> {
-        let price_coin = self.tree.get(b"token_ai_fees")?;
-
-        if price_coin.is_none() {
-            return Err(anyhow::anyhow!("Token AI fees not found"));
-        }
-
-        let price_coin = price_coin.unwrap();
-
-        let price_coin = serde_json::from_slice::<PriceCoin>(&price_coin)?;
-
-        Ok(price_coin)
-    }
 }
