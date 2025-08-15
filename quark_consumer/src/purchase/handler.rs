@@ -39,21 +39,23 @@ pub async fn purchase_ai(purchase: Purchase) -> ConsumerResult<TransactionRespon
         .await
         .map_err(|e| ConsumerError::InvalidMessage(e.to_string()))?;
 
-    let token_type = TypeTag::from_str(token_address.to_string().as_str())
-        .map_err(|e| ConsumerError::InvalidMessage(e.to_string()))?;
-
     let payload = match purchase_type {
         PurchaseType::User(account_address) => {
             let user_address = AccountAddress::from_str(account_address.as_str())
                 .map_err(|e| ConsumerError::InvalidMessage(e.to_string()))?;
 
             let payload = match coin_version {
-                CoinVersion::V1 => TransactionPayload::EntryFunction(EntryFunction::new(
-                    ModuleId::new(contract_address, "user".to_string()),
-                    "pay_ai".to_string(),
-                    vec![token_type],
-                    vec![user_address.to_vec(), amount.to_le_bytes().to_vec()],
-                )),
+                CoinVersion::V1 => {
+                    let token_type = TypeTag::from_str(token_address.to_string().as_str())
+                        .map_err(|e| ConsumerError::InvalidMessage(e.to_string()))?;
+
+                    TransactionPayload::EntryFunction(EntryFunction::new(
+                        ModuleId::new(contract_address, "user".to_string()),
+                        "pay_ai".to_string(),
+                        vec![token_type],
+                        vec![user_address.to_vec(), amount.to_le_bytes().to_vec()],
+                    ))
+                }
                 CoinVersion::V2 => TransactionPayload::EntryFunction(EntryFunction::new(
                     ModuleId::new(contract_address, "user".to_string()),
                     "pay_ai_v2".to_string(),
@@ -72,16 +74,21 @@ pub async fn purchase_ai(purchase: Purchase) -> ConsumerResult<TransactionRespon
         }
         PurchaseType::Group(group_id) => {
             let payload = match coin_version {
-                CoinVersion::V1 => TransactionPayload::EntryFunction(EntryFunction::new(
-                    ModuleId::new(contract_address, "group".to_string()),
-                    "pay_ai".to_string(),
-                    vec![token_type],
-                    vec![
-                        bcs::to_bytes(&group_id)
-                            .map_err(|e| ConsumerError::InvalidMessage(e.to_string()))?,
-                        amount.to_le_bytes().to_vec(),
-                    ],
-                )),
+                CoinVersion::V1 => {
+                    let token_type = TypeTag::from_str(token_address.to_string().as_str())
+                        .map_err(|e| ConsumerError::InvalidMessage(e.to_string()))?;
+
+                    TransactionPayload::EntryFunction(EntryFunction::new(
+                        ModuleId::new(contract_address, "group".to_string()),
+                        "pay_ai".to_string(),
+                        vec![token_type],
+                        vec![
+                            bcs::to_bytes(&group_id)
+                                .map_err(|e| ConsumerError::InvalidMessage(e.to_string()))?,
+                            amount.to_le_bytes().to_vec(),
+                        ],
+                    ))
+                }
                 CoinVersion::V2 => TransactionPayload::EntryFunction(EntryFunction::new(
                     ModuleId::new(contract_address, "group".to_string()),
                     "pay_ai_v2".to_string(),
