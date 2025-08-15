@@ -1,8 +1,9 @@
 use anyhow::Result;
 use open_ai_rust_responses_by_sshift::{Client, Model, Request, ReasoningEffort, Verbosity};
 
-use super::schedule_guard_result::ScheduleGuardResult;
+use super::dto::ScheduleGuardResult;
 
+#[derive(Clone)]
 pub struct ScheduleGuardService {
 	client: Client,
 }

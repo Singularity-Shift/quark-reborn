@@ -1,6 +1,5 @@
-pub mod schedule_guard_result;
+pub mod dto;
 
-pub mod service;
-pub use service::ScheduleGuardService;
+pub mod schedule_guard_service;
 
 

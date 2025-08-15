@@ -1336,7 +1336,7 @@ pub async fn handle_message(bot: Bot, msg: Message, bot_deps: BotDependencies) -
                         let text = text_raw.to_string();
                         // Guard scheduled prompt against forbidden tools
                         {
-                            let guard = bot_deps.schedule_guard.clone();
+                            let guard = &bot_deps.schedule_guard;
                             match guard.check_prompt(&text).await {
                                 Ok(res) => {
                                         // Bill the group for the guard check like moderation
