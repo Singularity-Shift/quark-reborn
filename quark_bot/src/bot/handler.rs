@@ -1328,9 +1328,9 @@ pub async fn handle_message(bot: Bot, msg: Message, bot_deps: BotDependencies) -
 
             let address = group_credentials.resource_account_address;
 
-            let coin_address = bot_deps.panora.aptos.get_token_address().await;
+            let coin = bot_deps.payment.get_payment_token(msg.chat.id.to_string());
 
-            if coin_address.is_err() {
+            if coin.is_none() {
                 bot.send_message(
                     msg.chat.id,
                     "❌ Coin address not found, please contact support",
@@ -1339,15 +1339,23 @@ pub async fn handle_message(bot: Bot, msg: Message, bot_deps: BotDependencies) -
                 return Ok(());
             }
 
-            let coin_address = coin_address.unwrap();
+            let coin = coin.unwrap();
 
             let group_balance = bot_deps
                 .panora
                 .aptos
-                .get_account_balance(&address, &coin_address)
+                .get_account_balance(&address, &coin.currency)
                 .await?;
 
-            let token = bot_deps.panora.get_token_ai_fees().await?;
+            let token = bot_deps.panora.get_token_by_symbol(&coin.label).await;
+
+            if token.is_err() {
+                bot.send_message(msg.chat.id, "❌ Token not found, please contact support")
+                    .await?;
+                return Ok(());
+            }
+
+            let token = token.unwrap();
 
             let token_price = token.usd_price;
 
@@ -1377,12 +1385,6 @@ pub async fn handle_message(bot: Bot, msg: Message, bot_deps: BotDependencies) -
 
             let token_decimals = token.decimals;
 
-            if token_decimals.is_none() {
-                return Err(anyhow::anyhow!("Token decimals not found"));
-            }
-
-            let token_decimals = token_decimals.unwrap();
-
             let min_deposit = (bot_deps.panora.min_deposit / 10_f64) / token_price;
 
             let min_deposit = (min_deposit as f64 * 10_f64.powi(token_decimals as i32)) as u64;
@@ -1402,12 +1404,12 @@ pub async fn handle_message(bot: Bot, msg: Message, bot_deps: BotDependencies) -
                     msg.chat.id,
                     format!(
                         "User balance is less than the minimum deposit. Please fund your account transfering {} to <code>{}</code> address. Minimum deposit: {} {} (Your balance: {} {})",
-                        token.symbol.clone().unwrap_or("".to_string()),
+                        token.symbol, 
                         address,
                         min_deposit_formatted,
-                        token.symbol.clone().unwrap_or("".to_string()),
+                        token.symbol,
                         group_balance_formatted,
-                        token.symbol.unwrap_or("".to_string())
+                        token.symbol
                     )
                 )
                 .parse_mode(ParseMode::Html)
