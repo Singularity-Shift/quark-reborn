@@ -1,6 +1,6 @@
 use super::dto::{Price, ToolName};
 use crate::error::ConsumerError;
-use quark_core::helpers::dto::{AITool, PriceCoin, ToolUsage};
+use quark_core::helpers::dto::{AITool, CoinVersion, PriceCoin, ToolUsage};
 use reqwest::Client;
 use ron::de::from_str;
 use std::fs;
@@ -19,6 +19,7 @@ pub async fn get_price(
     panora_api_key: &str,
     model_name: &str,
     token_address: &str,
+    version: CoinVersion,
     total_tokens: u64,
     tool_usage: Vec<ToolUsage>,
     client: &Client,
@@ -40,14 +41,23 @@ pub async fn get_price(
         .find(|model| model.name.to_string() == model_name)
         .ok_or_else(|| ConsumerError::InvalidMessage(format!("Model not found: {}", model_name)))?;
 
-    let price_coins_response = client
+    let price_coins_response_query = client
         .get(format!("{}/prices", panora_url))
         .header("x-api-key", panora_api_key)
         .header("Accept", "application/json")
-        .header("Content-Type", "application/json")
-        .query(&[("tokenAddress", &token_address)])
-        .send()
-        .await?;
+        .header("Content-Type", "application/json");
+
+    let price_coins_response = if version == CoinVersion::V1 {
+        price_coins_response_query
+            .query(&[("tokenAddress", &token_address)])
+            .send()
+            .await?
+    } else {
+        price_coins_response_query
+            .query(&[("faAddress", &token_address)])
+            .send()
+            .await?
+    };
 
     if !price_coins_response.status().is_success() {
         let error_text = price_coins_response.text().await?;

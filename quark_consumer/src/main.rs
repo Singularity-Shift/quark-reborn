@@ -97,6 +97,7 @@ async fn process_message_with_retry(
         &panora_api_key,
         &model_name,
         &purchase.currency,
+        purchase.coin_version.clone(),
         total_tokens as u64,
         tool_usage,
         &client,
