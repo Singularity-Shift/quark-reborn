@@ -10,6 +10,7 @@ use crate::ai::tools::{
     get_recent_messages_tool, get_search_pools_tool, get_time_tool, get_trending_pools_tool,
 };
 use crate::dependencies::BotDependencies;
+use crate::payment::dto::PaymentPrefs;
 use crate::user_conversation::handler::UserConversations;
 use base64::{Engine as _, engine::general_purpose};
 use open_ai_rust_responses_by_sshift::types::{
@@ -137,19 +138,27 @@ impl AI {
             user_credentials.resource_account_address
         };
 
+        let default_payment_prefs = bot_deps.default_payment_prefs.clone();
+
         let coin = if group_id.is_some() {
             bot_deps
                 .payment
                 .get_payment_token(group_id.clone().unwrap())
+                .unwrap_or(PaymentPrefs::from((
+                    default_payment_prefs.label,
+                    default_payment_prefs.currency,
+                    default_payment_prefs.version,
+                )))
         } else {
-            bot_deps.payment.get_payment_token(user_id.to_string())
+            bot_deps
+                .payment
+                .get_payment_token(user_id.to_string())
+                .unwrap_or(PaymentPrefs::from((
+                    default_payment_prefs.label,
+                    default_payment_prefs.currency,
+                    default_payment_prefs.version,
+                )))
         };
-
-        if coin.is_none() {
-            return Err(anyhow::anyhow!("Coin not found"));
-        }
-
-        let coin = coin.unwrap();
 
         let user_balance = bot_deps
             .panora
@@ -640,11 +649,16 @@ impl AI {
 
         // Token checks for group account
         let address = group_credentials.resource_account_address;
-        let coin = bot_deps.payment.get_payment_token(group_id.clone());
-        if coin.is_none() {
-            return Err(anyhow::anyhow!("Coin not found"));
-        }
-        let coin = coin.unwrap();
+
+        let default_payment_prefs = bot_deps.default_payment_prefs.clone();
+        let coin = bot_deps
+            .payment
+            .get_payment_token(group_id.clone())
+            .unwrap_or(PaymentPrefs::from((
+                default_payment_prefs.label,
+                default_payment_prefs.currency,
+                default_payment_prefs.version,
+            )));
 
         let token = bot_deps.panora.get_token_by_symbol(&coin.label).await?;
 
