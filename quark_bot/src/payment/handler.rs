@@ -2,7 +2,6 @@ use crate::dependencies::BotDependencies;
 use crate::payment::dto::PaymentPrefs;
 use anyhow::Result;
 use quark_core::helpers::dto::CoinVersion;
-use serde_json;
 use teloxide::{
     Bot,
     prelude::*,
@@ -22,9 +21,6 @@ pub async fn handle_payment(
                 handle_open_group_payment_settings(bot, query, bot_deps).await?
             }
             "payment_selected" => handle_payment_selected(bot, query, bot_deps).await?,
-            data if data.starts_with("pay_tokpage:") => {
-                handle_payment_pagination(bot, query, bot_deps).await?
-            }
             data if data.starts_with("pay_selid-") => {
                 handle_payment_selection(bot, query, bot_deps).await?
             }
@@ -95,9 +91,9 @@ async fn handle_open_group_payment_settings(
                 return Ok(());
             }
 
-            let prefs = bot_deps
-                .payment
-                .get_payment_token_session(m.chat.id.to_string());
+            let prefs = bot_deps.payment.get_payment_token(m.chat.id.to_string());
+
+            log::info!("prefs: {:?}", prefs);
 
             if prefs.is_some() {
                 let prefs = prefs.unwrap();
@@ -114,6 +110,8 @@ async fn handle_open_group_payment_settings(
                     "back_to_group_settings",
                 )],
             ]);
+
+            log::info!("default_currency: {:?}", default_currency);
             bot.edit_message_text(
                 m.chat.id,
                 m.id,
@@ -169,6 +167,8 @@ async fn handle_payment_selected(
                 }
             };
 
+            log::info!("allowed: {:?}", allowed);
+
             // Build entries (label, currency, version)
             let mut entries: Vec<PaymentPrefs> = Vec::new();
             for addr in allowed {
@@ -198,132 +198,32 @@ async fn handle_payment_selected(
                 }
             }
 
-            // Save session for pagination
-            let sess_tree = bot_deps.db.open_tree("token_selector_sessions").unwrap();
-            let sess_key = format!("u{}:c{}:m{}", query.from.id.0, m.chat.id.0, m.id.0);
-            let _ = sess_tree.insert(sess_key.as_bytes(), serde_json::to_vec(&entries).unwrap());
-
-            // Render page 0
-            const PAGE_SIZE: usize = 5;
-            let total = entries.len();
-            let total_pages = if total == 0 {
-                1
-            } else {
-                (total + PAGE_SIZE - 1) / PAGE_SIZE
-            };
-            let page: usize = 0;
-            let start = 0;
-            let end = std::cmp::min(PAGE_SIZE, total);
-
             let mut rows: Vec<Vec<InlineKeyboardButton>> = Vec::new();
             let mut row: Vec<InlineKeyboardButton> = Vec::new();
 
             row.push(InlineKeyboardButton::callback(
-                "📒 Default",
+                format!("{} (Default)", bot_deps.default_payment_prefs.label),
                 format!(
                     "pay_selid-{}-{}-{}",
                     query.from.id.to_string(),
-                    bot_deps.default_payment_prefs.currency,
+                    bot_deps.default_payment_prefs.label,
                     bot_deps.default_payment_prefs.version.to_string()
                 ),
             ));
-            for entry in entries[start..end].iter() {
-                row.push(InlineKeyboardButton::callback(
-                    entry.label.clone(),
-                    format!(
-                        "pay_selid-{}-{}-{}",
-                        query.from.id.0, entry.currency, entry.version
-                    ),
-                ));
-            }
-            rows.push(row);
-
-            // Nav row
-            if total_pages > 1 {
-                let mut nav: Vec<InlineKeyboardButton> = Vec::new();
-                // Next only for first page
-                nav.push(InlineKeyboardButton::callback(
-                    "Next ▶".to_string(),
-                    format!("pay_tokpage:{}", page + 1),
-                ));
-                rows.push(nav);
-            }
-            bot.edit_message_text(m.chat.id, m.id, "Select a payment token:")
-                .reply_markup(InlineKeyboardMarkup::new(rows))
-                .await?;
-        }
-    }
-    Ok(())
-}
-
-/// Handle payment token pagination
-async fn handle_payment_pagination(
-    bot: Bot,
-    query: CallbackQuery,
-    bot_deps: BotDependencies,
-) -> Result<()> {
-    if let Some(message) = &query.message {
-        if let MaybeInaccessibleMessage::Regular(m) = message {
-            let page: usize = query
-                .data
-                .as_ref()
-                .unwrap()
-                .strip_prefix("pay_tokpage:")
-                .unwrap_or("0")
-                .parse()
-                .unwrap_or(0);
-            let sess_tree = bot_deps.db.open_tree("token_selector_sessions").unwrap();
-            let sess_key = format!("u{}:c{}:m{}", query.from.id.0, m.chat.id.0, m.id.0);
-            let Some(bytes) = sess_tree.get(sess_key.as_bytes()).unwrap_or(None) else {
-                return Ok(());
-            };
-            let entries: Vec<PaymentPrefs> = serde_json::from_slice(&bytes).unwrap_or_default();
-            const PAGE_SIZE: usize = 12;
-            let total = entries.len();
-            let total_pages = if total == 0 {
-                1
-            } else {
-                (total + PAGE_SIZE - 1) / PAGE_SIZE
-            };
-            let cur_page = std::cmp::min(page, total_pages.saturating_sub(1));
-            let start = cur_page * PAGE_SIZE;
-            let end = std::cmp::min(start + PAGE_SIZE, total);
-            let mut rows: Vec<Vec<InlineKeyboardButton>> = Vec::new();
-            let mut row: Vec<InlineKeyboardButton> = Vec::new();
-            for entry in &entries[start..end] {
+            for entry in entries.iter() {
                 row.push(InlineKeyboardButton::callback(
                     entry.label.clone(),
                     format!(
                         "pay_selid-{}-{}-{}",
                         query.from.id.to_string(),
-                        entry.currency.clone(),
-                        entry.version.to_string(),
+                        entry.label,
+                        entry.version.to_string()
                     ),
                 ));
             }
             rows.push(row);
-            // Nav row
-            if total_pages > 1 {
-                let mut nav: Vec<InlineKeyboardButton> = Vec::new();
-                if cur_page > 0 {
-                    nav.push(InlineKeyboardButton::callback(
-                        "◀ Prev".to_string(),
-                        format!("pay_tokpage:{}", cur_page - 1),
-                    ));
-                }
-                if cur_page + 1 < total_pages {
-                    nav.push(InlineKeyboardButton::callback(
-                        "Next ▶".to_string(),
-                        format!("pay_tokpage:{}", cur_page + 1),
-                    ));
-                }
-                if !nav.is_empty() {
-                    rows.push(nav);
-                }
-            }
 
-            log::info!("rows: {:?}", rows);
-            bot.edit_message_reply_markup(m.chat.id, m.id)
+            bot.edit_message_text(m.chat.id, m.id, "Select a payment token:")
                 .reply_markup(InlineKeyboardMarkup::new(rows))
                 .await?;
         }
@@ -345,53 +245,31 @@ async fn handle_payment_selection(
         return Ok(());
     }
     let user_id = parts[1].to_string();
-    let mut currency = parts[2].to_string();
+    let mut label = parts[2].to_string();
     let version = parts[3].parse::<CoinVersion>().unwrap();
-    let mut label = bot_deps.default_payment_prefs.label;
 
-    if version == CoinVersion::V1 {
-        let tokens = bot_deps.panora.get_panora_token_list().await;
+    let token = bot_deps.panora.get_token_by_symbol(&label).await;
 
-        if tokens.is_err() {
-            log::error!(
-                "Error getting token list: {}",
-                tokens.as_ref().err().unwrap()
-            );
-            return Err(anyhow::anyhow!("Error getting token list"));
-        }
-
-        let tokens = tokens.unwrap();
-
-        let token = tokens.iter().find(|t| {
-            t.token_address
-                .as_ref()
-                .unwrap_or(&"".to_string())
-                .starts_with(&currency)
-        });
-
-        if token.is_none() {
-            bot.answer_callback_query(query.id)
-                .text("❌ Token not found")
-                .await?;
-            return Ok(());
-        }
-
-        let token = token.unwrap();
-
-        let token_address = token.token_address.clone();
-
-        if token_address.is_some() {
-            currency = token_address.unwrap();
-        }
-
-        label = token.symbol.clone();
+    if token.is_err() {
+        log::error!("Error getting token: {}", token.as_ref().err().unwrap());
+        return Err(anyhow::anyhow!("Error getting token"));
     }
+
+    let token = token.unwrap();
+
+    let currency = if token.token_address.is_some() {
+        token.token_address.as_ref().unwrap().to_string()
+    } else {
+        token.fa_address
+    };
+
+    label = token.symbol.clone();
 
     let prefs = PaymentPrefs::from((label, currency, version));
     if let Some(message) = &query.message {
         if let MaybeInaccessibleMessage::Regular(m) = message {
             if m.chat.is_private() {
-                bot_deps.payment.set_payment_token_session(user_id, prefs);
+                bot_deps.payment.set_payment_token(user_id, prefs);
 
                 // Show popup notification instead of closing
                 bot.answer_callback_query(query.id)
@@ -436,7 +314,8 @@ async fn handle_payment_selection(
                 }
 
                 let key = m.chat.id.to_string();
-                bot_deps.payment.set_payment_token_session(key, prefs);
+                log::info!("prefs: {:?}", prefs);
+                bot_deps.payment.set_payment_token(key, prefs);
 
                 // Show popup notification instead of closing
                 bot.answer_callback_query(query.id)
@@ -452,6 +331,10 @@ async fn handle_payment_selection(
                     vec![InlineKeyboardButton::callback(
                         "🏛️ DAO Preferences",
                         "open_dao_preferences",
+                    )],
+                    vec![InlineKeyboardButton::callback(
+                        "🛡️ Moderation",
+                        "open_moderation_settings",
                     )],
                     vec![InlineKeyboardButton::callback(
                         "🔄 Migrate Group ID",
