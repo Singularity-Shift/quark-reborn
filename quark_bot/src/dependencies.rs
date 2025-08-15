@@ -10,6 +10,7 @@ use crate::{
     user_conversation::handler::UserConversations, yield_ai::yield_ai::YieldAI,
 };
 use tokio_cron_scheduler::JobScheduler;
+use crate::ai::schedule_guard::schedule_guard_service::ScheduleGuardService;
 
 #[derive(Clone)]
 pub struct BotDependencies {
@@ -32,4 +33,5 @@ pub struct BotDependencies {
     pub scheduler: Arc<JobScheduler>,
     pub payment: Payment,
     pub default_payment_prefs: PaymentPrefs,
+    pub schedule_guard: ScheduleGuardService,
 }

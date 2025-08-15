@@ -14,6 +14,7 @@ use serde_json::value;
 use crate::{
     ai::{
         moderation::{ModerationOverrides, ModerationService},
+        
         vector_store::list_user_files_with_names,
     },
     user_model_preferences::handler::initialize_user_preferences,
@@ -241,18 +242,58 @@ async fn send_pre_block(bot: &Bot, chat_id: ChatId, title: &str, content: &str) 
     for ch in escaped.chars() {
         if current.chars().count() + 1 > max_payload {
             let msg = format!("{}{}{}", prefix, current, suffix);
-            bot.send_message(chat_id, msg)
+            match bot
+                .send_message(chat_id, msg)
                 .parse_mode(ParseMode::Html)
-                .await?;
+                .await
+            {
+                Ok(_) => {}
+                Err(e) => {
+                    let err_text = e.to_string();
+                    log::error!("Error sending <pre> chunk: {}", err_text);
+                    if err_text.contains("can't parse entities")
+                        || err_text.contains("Unsupported start tag")
+                    {
+                        let _ = bot
+                            .send_message(
+                                chat_id,
+                                "Sorry — I made an error in my output. Please try again or start a /newchat.",
+                            )
+                            .await;
+                        return Ok(());
+                    }
+                    return Err(e.into());
+                }
+            }
             current.clear();
         }
         current.push(ch);
     }
     if !current.is_empty() {
         let msg = format!("{}{}{}", prefix, current, suffix);
-        bot.send_message(chat_id, msg)
+        match bot
+            .send_message(chat_id, msg)
             .parse_mode(ParseMode::Html)
-            .await?;
+            .await
+        {
+            Ok(_) => {}
+            Err(e) => {
+                let err_text = e.to_string();
+                log::error!("Error sending final <pre> chunk: {}", err_text);
+                if err_text.contains("can't parse entities")
+                    || err_text.contains("Unsupported start tag")
+                {
+                    let _ = bot
+                        .send_message(
+                            chat_id,
+                            "Sorry — I made an error in my output. Please try again or start a /newchat.",
+                        )
+                        .await;
+                    return Ok(());
+                }
+                return Err(e.into());
+            }
+        }
     }
     Ok(())
 }
@@ -261,8 +302,6 @@ async fn send_pre_block(bot: &Bot, chat_id: ChatId, title: &str, content: &str) 
 async fn send_long_message(bot: &Bot, chat_id: ChatId, text: &str) -> AnyResult<()> {
     // Convert markdown (including ``` code fences) to Telegram-compatible HTML
     let html_text = utils::markdown_to_html(text);
-    // Sanitize stray '<' outside <pre> that do not begin allowed tags
-    let html_text = utils::sanitize_html_outside_pre(&html_text);
     // Normalize image anchor to point to the public GCS URL when present
     let html_text = utils::normalize_image_url_anchor(&html_text);
     let chunks = split_message(&html_text);
@@ -273,9 +312,29 @@ async fn send_long_message(bot: &Bot, chat_id: ChatId, text: &str) -> AnyResult<
             sleep(Duration::from_millis(100)).await;
         }
 
-        bot.send_message(chat_id, chunk)
+        match bot
+            .send_message(chat_id, chunk)
             .parse_mode(ParseMode::Html)
-            .await?;
+            .await
+        {
+            Ok(_) => {}
+            Err(e) => {
+                let err_text = e.to_string();
+                log::error!("Error sending message chunk: {}", err_text);
+                if err_text.contains("can't parse entities")
+                    || err_text.contains("Unsupported start tag")
+                {
+                    let _ = bot
+                        .send_message(
+                            chat_id,
+                            "Sorry — I made an error in my output. Please try again or start a /newchat.",
+                        )
+                        .await;
+                    return Ok(());
+                }
+                return Err(e.into());
+            }
+        }
     }
 
     Ok(())
@@ -1264,32 +1323,74 @@ pub async fn handle_message(bot: Bot, msg: Message, bot_deps: BotDependencies) -
             }
         }
 
-        // Scheduled prompts wizard: capture reply text for prompt entry
-        if let Some(_reply) = msg.reply_to_message() {
-            if let Some(user) = &msg.from {
-                let key = (&msg.chat.id.0, &(user.id.0 as i64));
-                if let Some(mut st) = bot_deps.scheduled_storage.get_pending(key) {
-                    if st.step == PendingStep::AwaitingPrompt {
-                        let text = msg
-                            .text()
-                            .or_else(|| msg.caption())
-                            .unwrap_or("")
-                            .to_string();
-                        if !text.trim().is_empty() {
-                            st.prompt = Some(text);
-                            st.step = PendingStep::AwaitingHour;
-                            if let Err(e) = bot_deps.scheduled_storage.put_pending(key, &st) {
-                                log::error!("Failed to persist scheduled wizard state: {}", e);
-                                bot.send_message(msg.chat.id, "❌ Error saving schedule state. Please try /scheduleprompt again.")
-                                        .await?;
-                                return Ok(());
+        // Scheduled prompts wizard: capture prompt text either as a reply or as a follow-up message
+        if let Some(user) = &msg.from {
+            let key = (&msg.chat.id.0, &(user.id.0 as i64));
+            if let Some(mut st) = bot_deps.scheduled_storage.get_pending(key) {
+                if st.step == PendingStep::AwaitingPrompt {
+                    // Accept prompt if message is a reply OR a regular follow-up (non-command) from the same user
+                    let is_reply = msg.reply_to_message().is_some();
+                    let text_raw = msg.text().or_else(|| msg.caption()).unwrap_or("");
+                    let is_command = text_raw.trim_start().starts_with('/');
+                    if is_reply || (!is_command && !text_raw.trim().is_empty()) {
+                        let text = text_raw.to_string();
+                        // Guard scheduled prompt against forbidden tools
+                        {
+                            let guard = &bot_deps.schedule_guard;
+                            match guard.check_prompt(&text).await {
+                                Ok(res) => {
+                                        // Bill the group for the guard check like moderation
+                                        if let Some(group_credentials) = bot_deps.group.get_credentials(msg.chat.id) {
+                                            if let Err(e) = create_purchase_request(
+                                                0, // file_search
+                                                0, // web_search
+                                                0, // image_gen
+                                                res.total_tokens,
+                                                Model::GPT5Nano,
+                                                &group_credentials.jwt,
+                                                Some(msg.chat.id.0.to_string()),
+                                                (user.id.0 as i64).to_string(),
+                                                bot_deps.clone(),
+                                            )
+                                            .await
+                                            {
+                                                log::warn!("schedule guard purchase request failed: {}", e);
+                                            }
+                                        }
+                                        if res.verdict == "F" {
+                                            let reason = res
+                                                .reason
+                                                .unwrap_or_else(|| "Prompt requests a forbidden action for scheduled runs".to_string());
+                                            let warn = format!(
+                                                "❌ This prompt can't be scheduled. PLEASE TRY AGAIN\n\n<b>Reason:</b> {}\n\n<b>Allowed for schedules</b>: informational queries, analytics, web/file search, time, market snapshots, and image generation.\n\n<b>Blocked</b>: payments/transfers, withdrawals/funding, DAO/proposal creation, or any on-chain/interactive actions.\n\nPlease send a new prompt (you can just send it here without replying).",
+                                                teloxide::utils::html::escape(&reason)
+                                            );
+                                            bot.send_message(msg.chat.id, warn)
+                                                .parse_mode(ParseMode::Html)
+                                                .await?;
+                                            // Do not advance wizard; let user try again by sending a new prompt
+                                            return Ok(());
+                                        }
+                                }
+                                Err(e) => {
+                                    log::warn!("schedule_guard check failed: {}", e);
+                                }
                             }
-                            let kb = build_hours_keyboard();
-                            bot.send_message(msg.chat.id, "Select start hour (UTC)")
-                                .reply_markup(kb)
-                                .await?;
+                        }
+
+                        st.prompt = Some(text);
+                        st.step = PendingStep::AwaitingHour;
+                        if let Err(e) = bot_deps.scheduled_storage.put_pending(key, &st) {
+                            log::error!("Failed to persist scheduled wizard state: {}", e);
+                            bot.send_message(msg.chat.id, "❌ Error saving schedule state. Please try /scheduleprompt again.")
+                                    .await?;
                             return Ok(());
                         }
+                        let kb = build_hours_keyboard();
+                        bot.send_message(msg.chat.id, "Select start hour (UTC)")
+                            .reply_markup(kb)
+                            .await?;
+                        return Ok(());
                     }
                 }
             }
