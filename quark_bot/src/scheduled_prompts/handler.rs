@@ -72,10 +72,11 @@ pub async fn handle_scheduleprompt_command(
     bot.send_message(
         msg.chat.id,
         format!(
-            "📝 Please reply to this message with the prompt you want to schedule.{}",
+            "📝 Send the prompt you want to schedule — you can <b>reply to this message</b> or just <b>send it as your next message</b>.{}\n\nIf your prompt is rejected for using a forbidden action, <b>try again</b> with a safer prompt.",
             note
         ),
     )
+    .parse_mode(ParseMode::Html)
     .await?;
     Ok(())
 }

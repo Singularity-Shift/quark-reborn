@@ -14,6 +14,7 @@ use serde_json::value;
 use crate::{
     ai::{
         moderation::{ModerationOverrides, ModerationService},
+        schedule_guard::ScheduleGuardService,
         vector_store::list_user_files_with_names,
     },
     user_model_preferences::handler::initialize_user_preferences,
@@ -1264,32 +1265,75 @@ pub async fn handle_message(bot: Bot, msg: Message, bot_deps: BotDependencies) -
             }
         }
 
-        // Scheduled prompts wizard: capture reply text for prompt entry
-        if let Some(_reply) = msg.reply_to_message() {
-            if let Some(user) = &msg.from {
-                let key = (&msg.chat.id.0, &(user.id.0 as i64));
-                if let Some(mut st) = bot_deps.scheduled_storage.get_pending(key) {
-                    if st.step == PendingStep::AwaitingPrompt {
-                        let text = msg
-                            .text()
-                            .or_else(|| msg.caption())
-                            .unwrap_or("")
-                            .to_string();
-                        if !text.trim().is_empty() {
-                            st.prompt = Some(text);
-                            st.step = PendingStep::AwaitingHour;
-                            if let Err(e) = bot_deps.scheduled_storage.put_pending(key, &st) {
-                                log::error!("Failed to persist scheduled wizard state: {}", e);
-                                bot.send_message(msg.chat.id, "❌ Error saving schedule state. Please try /scheduleprompt again.")
-                                        .await?;
-                                return Ok(());
+        // Scheduled prompts wizard: capture prompt text either as a reply or as a follow-up message
+        if let Some(user) = &msg.from {
+            let key = (&msg.chat.id.0, &(user.id.0 as i64));
+            if let Some(mut st) = bot_deps.scheduled_storage.get_pending(key) {
+                if st.step == PendingStep::AwaitingPrompt {
+                    // Accept prompt if message is a reply OR a regular follow-up (non-command) from the same user
+                    let is_reply = msg.reply_to_message().is_some();
+                    let text_raw = msg.text().or_else(|| msg.caption()).unwrap_or("");
+                    let is_command = text_raw.trim_start().starts_with('/');
+                    if is_reply || (!is_command && !text_raw.trim().is_empty()) {
+                        let text = text_raw.to_string();
+                        // Guard scheduled prompt against forbidden tools
+                        if let Ok(openai_api_key) = std::env::var("OPENAI_API_KEY") {
+                            if let Ok(guard) = ScheduleGuardService::new(openai_api_key) {
+                                match guard.check_prompt(&text).await {
+                                    Ok(res) => {
+                                        // Bill the group for the guard check like moderation
+                                        if let Some(group_credentials) = bot_deps.group.get_credentials(msg.chat.id) {
+                                            if let Err(e) = create_purchase_request(
+                                                0, // file_search
+                                                0, // web_search
+                                                0, // image_gen
+                                                res.total_tokens,
+                                                Model::GPT5Nano,
+                                                &group_credentials.jwt,
+                                                Some(msg.chat.id.0.to_string()),
+                                                (user.id.0 as i64).to_string(),
+                                                bot_deps.clone(),
+                                            )
+                                            .await
+                                            {
+                                                log::warn!("schedule guard purchase request failed: {}", e);
+                                            }
+                                        }
+                                        if res.verdict == "F" {
+                                            let reason = res
+                                                .reason
+                                                .unwrap_or_else(|| "Prompt requests a forbidden action for scheduled runs".to_string());
+                                            let warn = format!(
+                                                "❌ This prompt can't be scheduled. PLEASE TRY AGAIN\n\n<b>Reason:</b> {}\n\n<b>Allowed for schedules</b>: informational queries, analytics, web/file search, time, market snapshots, and image generation.\n\n<b>Blocked</b>: payments/transfers, withdrawals/funding, DAO/proposal creation, or any on-chain/interactive actions.\n\nPlease send a new prompt (you can just send it here without replying).",
+                                                teloxide::utils::html::escape(&reason)
+                                            );
+                                            bot.send_message(msg.chat.id, warn)
+                                                .parse_mode(ParseMode::Html)
+                                                .await?;
+                                            // Do not advance wizard; let user try again by sending a new prompt
+                                            return Ok(());
+                                        }
+                                    }
+                                    Err(e) => {
+                                        log::warn!("schedule_guard check failed: {}", e);
+                                    }
+                                }
                             }
-                            let kb = build_hours_keyboard();
-                            bot.send_message(msg.chat.id, "Select start hour (UTC)")
-                                .reply_markup(kb)
-                                .await?;
+                        }
+
+                        st.prompt = Some(text);
+                        st.step = PendingStep::AwaitingHour;
+                        if let Err(e) = bot_deps.scheduled_storage.put_pending(key, &st) {
+                            log::error!("Failed to persist scheduled wizard state: {}", e);
+                            bot.send_message(msg.chat.id, "❌ Error saving schedule state. Please try /scheduleprompt again.")
+                                    .await?;
                             return Ok(());
                         }
+                        let kb = build_hours_keyboard();
+                        bot.send_message(msg.chat.id, "Select start hour (UTC)")
+                            .reply_markup(kb)
+                            .await?;
+                        return Ok(());
                     }
                 }
             }
