@@ -8,8 +8,7 @@ use serde_json::value;
 
 use crate::{
     ai::{
-        moderation::{ModerationOverrides, ModerationService},
-        
+        moderation::ModerationOverrides,
         vector_store::list_user_files_with_names,
     },
     user_model_preferences::handler::initialize_user_preferences,
@@ -1504,9 +1503,8 @@ pub async fn handle_message(bot: Bot, msg: Message, bot_deps: BotDependencies) -
                 return Ok(());
             }
 
-            // Use the same moderation logic as /mod
-            let moderation_service =
-                ModerationService::new(std::env::var("OPENAI_API_KEY").unwrap()).unwrap();
+            // Use the same moderation logic as /mod, via injected dependency
+            let moderation_service = bot_deps.moderation.clone();
             // Load overrides
             let settings_tree = bot_deps.db.open_tree("moderation_settings").unwrap();
             let overrides = if let Ok(Some(raw)) = settings_tree.get(formatted_group_id.as_bytes())
@@ -1778,11 +1776,7 @@ pub async fn handle_mod(bot: Bot, msg: Message, bot_deps: BotDependencies) -> An
         }
 
         // Create moderation service using environment API key
-        let openai_api_key = std::env::var("OPENAI_API_KEY")
-            .map_err(|_| anyhow::anyhow!("OPENAI_API_KEY not found in environment"))?;
-
-        let moderation_service = ModerationService::new(openai_api_key)
-            .map_err(|e| anyhow::anyhow!("Failed to create moderation service: {}", e))?;
+        let moderation_service = bot_deps.moderation.clone();
 
         // Moderate the message
         // Load overrides
