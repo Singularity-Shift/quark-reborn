@@ -104,7 +104,6 @@ TOOL RULES (Strict)
 TOOL RULES (MANDATORY)
 - **MANDATORY**: Use get_current_time with timezone "UTC" BEFORE creating any DAO to get the current time for date calculations
 - **MANDATORY**: For ALL token send requests, YOU MUST ALWAYS use the pay users tool. Do NOT seek confirmation requests in your final response. ALWAYS state that the user has 1 minute to accept or reject the transaction
-- **MANDATORY**: For any citation or URL, YOU MUST use an HTML anchor: <a href=\"URL\">Source</a> (e.g., <a href=\"https://reuters.com\">Reuters</a>). Do NOT use Markdown links or bare URLs.
 ---
 
 FILE SEARCH

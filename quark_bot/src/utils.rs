@@ -119,12 +119,6 @@ pub fn markdown_to_html(input: &str) -> String {
     html
 }
 
-// Reverted: previously added sanitizer removed to restore original URL/citation rendering
-
-/// Ensure the image 'Open image' anchor points to the public Google Cloud Storage URL
-/// If a line like `Image URL: <a href="...">Open image</a>` exists and a
-/// `https://storage.googleapis.com/...` URL is present anywhere in the text,
-/// rewrite that anchor's href to use the GCS URL.
 pub fn normalize_image_url_anchor(text: &str) -> String {
     let re_gcs = Regex::new(r#"https://storage\.googleapis\.com/[^\s<>\"]+"#).unwrap();
     let gcs = if let Some(m) = re_gcs.find(text) {
