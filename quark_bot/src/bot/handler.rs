@@ -1,11 +1,6 @@
 //! Command handlers for quark_bot Telegram bot.
 use crate::{
-    assets::handler::handle_file_upload,
-    bot::hooks::{fund_account_hook, pay_users_hook, withdraw_funds_hook},
-    credentials::dto::CredentialsPayload,
-    dependencies::BotDependencies,
-    group::dto::GroupCredentials,
-    utils::{self, create_purchase_request},
+    assets::handler::handle_file_upload, bot::hooks::{fund_account_hook, pay_users_hook, withdraw_funds_hook}, credentials::dto::CredentialsPayload, dependencies::BotDependencies, group::dto::GroupCredentials, payment::dto::PaymentPrefs, utils::{self, create_purchase_request}
 };
 use anyhow::Result as AnyResult;
 use aptos_rust_sdk_types::api_types::view::ViewRequest;
@@ -1429,23 +1424,14 @@ pub async fn handle_message(bot: Bot, msg: Message, bot_deps: BotDependencies) -
 
             let address = group_credentials.resource_account_address;
 
-            let coin = bot_deps.payment.get_payment_token(msg.chat.id.to_string());
+            let default_payment_prefs = bot_deps.default_payment_prefs.clone();
 
-            if coin.is_none() {
-                bot.send_message(
-                    msg.chat.id,
-                    "❌ Coin address not found, please contact support",
-                )
-                .await?;
-                return Ok(());
-            }
-
-            let coin = coin.unwrap();
+            let coin = bot_deps.payment.get_payment_token(msg.chat.id.to_string()).unwrap_or(PaymentPrefs::from((default_payment_prefs.label, default_payment_prefs.currency, default_payment_prefs.version)));
 
             let group_balance = bot_deps
-                .panora
-                .aptos
-                .get_account_balance(&address, &coin.currency)
+            .panora
+            .aptos
+            .get_account_balance(&address, &coin.currency)
                 .await?;
 
             let token = bot_deps.panora.get_token_by_symbol(&coin.label).await;
