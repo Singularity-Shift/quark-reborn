@@ -56,7 +56,7 @@ pub async fn purchase_ai(purchase: Purchase) -> ConsumerResult<TransactionRespon
                 )),
                 CoinVersion::V2 => TransactionPayload::EntryFunction(EntryFunction::new(
                     ModuleId::new(contract_address, "user".to_string()),
-                    "pay_ai".to_string(),
+                    "pay_ai_v2".to_string(),
                     vec![],
                     vec![
                         user_address.to_vec(),
@@ -71,17 +71,33 @@ pub async fn purchase_ai(purchase: Purchase) -> ConsumerResult<TransactionRespon
             payload
         }
         PurchaseType::Group(group_id) => {
-            println!("Group ID: {:?}", group_id);
-            TransactionPayload::EntryFunction(EntryFunction::new(
-                ModuleId::new(contract_address, "group".to_string()),
-                "pay_ai".to_string(),
-                vec![token_type],
-                vec![
-                    bcs::to_bytes(&group_id)
-                        .map_err(|e| ConsumerError::InvalidMessage(e.to_string()))?,
-                    amount.to_le_bytes().to_vec(),
-                ],
-            ))
+            let payload = match coin_version {
+                CoinVersion::V1 => TransactionPayload::EntryFunction(EntryFunction::new(
+                    ModuleId::new(contract_address, "group".to_string()),
+                    "pay_ai".to_string(),
+                    vec![token_type],
+                    vec![
+                        bcs::to_bytes(&group_id)
+                            .map_err(|e| ConsumerError::InvalidMessage(e.to_string()))?,
+                        amount.to_le_bytes().to_vec(),
+                    ],
+                )),
+                CoinVersion::V2 => TransactionPayload::EntryFunction(EntryFunction::new(
+                    ModuleId::new(contract_address, "group".to_string()),
+                    "pay_ai_v2".to_string(),
+                    vec![],
+                    vec![
+                        bcs::to_bytes(&group_id)
+                            .map_err(|e| ConsumerError::InvalidMessage(e.to_string()))?,
+                        amount.to_le_bytes().to_vec(),
+                        AccountAddress::from_str(&token_address)
+                            .map_err(|e| ConsumerError::InvalidMessage(e.to_string()))?
+                            .to_vec(),
+                    ],
+                )),
+            };
+
+            payload
         }
     };
 
