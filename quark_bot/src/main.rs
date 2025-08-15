@@ -34,6 +34,7 @@ use crate::{
     panora::handler::Panora,
     payment::{dto::PaymentPrefs, payment::Payment},
     pending_transactions::handler::PendingTransactions,
+    scheduled_prompts::storage::ScheduledStorage,
     services::handler::Services,
     user_conversation::handler::UserConversations,
     user_model_preferences::handler::UserModelPreferences,
@@ -110,6 +111,7 @@ async fn main() {
 
     let dao_db = db.open_tree("dao").expect("Failed to open dao tree");
     let dao = Dao::new(dao_db);
+    let scheduled_storage = ScheduledStorage::new(&db).expect("Failed to open scheduled storage");
 
     let payment = Payment::new(&db).unwrap();
 
@@ -171,9 +173,7 @@ async fn main() {
         // Removed selectreasoningmodel (unified under selectmodel)
         // selectmodel and mysettings entries merged under /usersettings
         BotCommand::new("usersettings", "Open user settings menu (DM only)."),
-        
         BotCommand::new("mod", "Moderate content (reply to message)."),
-        
         BotCommand::new(
             "moderationrules",
             "Display the moderation rules to avoid getting muted.",
@@ -214,6 +214,7 @@ async fn main() {
         panora: panora_for_dispatcher.clone(),
         group: group.clone(),
         dao: dao.clone(),
+        scheduled_storage: scheduled_storage.clone(),
         media_aggregator: media_aggregator.clone(),
         history_storage: history_storage.clone(),
         pending_transactions: pending_transactions.clone(),
