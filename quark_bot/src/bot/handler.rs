@@ -20,8 +20,7 @@ use crate::{
 };
 
 use crate::scheduled_prompts::dto::PendingStep;
-use crate::scheduled_prompts::storage::ScheduledStorage;
-use crate::scheduled_prompts::wizard::build_hours_keyboard;
+use crate::scheduled_prompts::helpers::build_hours_keyboard;
 use chrono;
 use open_ai_rust_responses_by_sshift::Model;
 use quark_core::helpers::{bot_commands::Command, dto::CreateGroupRequest};
@@ -1159,10 +1158,7 @@ pub async fn handle_message(bot: Bot, msg: Message, bot_deps: BotDependencies) -
                         // Remove previous prompt (Step 1) if present
                         if let Some(mid) = state.wizard_message_id {
                             let _ = bot
-                                .delete_message(
-                                    msg.chat.id,
-                                    teloxide::types::MessageId(mid as i32),
-                                )
+                                .delete_message(msg.chat.id, teloxide::types::MessageId(mid as i32))
                                 .await;
                         }
                         let sent = bot
@@ -1209,10 +1205,7 @@ pub async fn handle_message(bot: Bot, msg: Message, bot_deps: BotDependencies) -
                         // Clear wizard and remove last prompt if present
                         if let Some(mid) = state.wizard_message_id {
                             let _ = bot
-                                .delete_message(
-                                    msg.chat.id,
-                                    teloxide::types::MessageId(mid as i32),
-                                )
+                                .delete_message(msg.chat.id, teloxide::types::MessageId(mid as i32))
                                 .await;
                         }
                         mod_wizard_tree.remove(wizard_key.as_bytes()).unwrap();
@@ -1274,30 +1267,28 @@ pub async fn handle_message(bot: Bot, msg: Message, bot_deps: BotDependencies) -
         // Scheduled prompts wizard: capture reply text for prompt entry
         if let Some(_reply) = msg.reply_to_message() {
             if let Some(user) = &msg.from {
-                if let Ok(storage) = ScheduledStorage::new(&bot_deps.db) {
-                    let key = (&msg.chat.id.0, &(user.id.0 as i64));
-                    if let Some(mut st) = storage.get_pending(key) {
-                        if st.step == PendingStep::AwaitingPrompt {
-                            let text = msg
-                                .text()
-                                .or_else(|| msg.caption())
-                                .unwrap_or("")
-                                .to_string();
-                            if !text.trim().is_empty() {
-                                st.prompt = Some(text);
-                                st.step = PendingStep::AwaitingHour;
-                                if let Err(e) = storage.put_pending(key, &st) {
-                                    log::error!("Failed to persist scheduled wizard state: {}", e);
-                                    bot.send_message(msg.chat.id, "❌ Error saving schedule state. Please try /scheduleprompt again.")
+                let key = (&msg.chat.id.0, &(user.id.0 as i64));
+                if let Some(mut st) = bot_deps.scheduled_storage.get_pending(key) {
+                    if st.step == PendingStep::AwaitingPrompt {
+                        let text = msg
+                            .text()
+                            .or_else(|| msg.caption())
+                            .unwrap_or("")
+                            .to_string();
+                        if !text.trim().is_empty() {
+                            st.prompt = Some(text);
+                            st.step = PendingStep::AwaitingHour;
+                            if let Err(e) = bot_deps.scheduled_storage.put_pending(key, &st) {
+                                log::error!("Failed to persist scheduled wizard state: {}", e);
+                                bot.send_message(msg.chat.id, "❌ Error saving schedule state. Please try /scheduleprompt again.")
                                         .await?;
-                                    return Ok(());
-                                }
-                                let kb = build_hours_keyboard();
-                                bot.send_message(msg.chat.id, "Select start hour (UTC)")
-                                    .reply_markup(kb)
-                                    .await?;
                                 return Ok(());
                             }
+                            let kb = build_hours_keyboard();
+                            bot.send_message(msg.chat.id, "Select start hour (UTC)")
+                                .reply_markup(kb)
+                                .await?;
+                            return Ok(());
                         }
                     }
                 }

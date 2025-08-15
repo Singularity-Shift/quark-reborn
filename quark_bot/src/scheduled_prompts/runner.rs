@@ -278,15 +278,7 @@ pub async fn register_schedule(
         let schedule_id = schedule_id.clone();
         let group_chat_id = group_chat_id;
         Box::pin(async move {
-            log::debug!("[sched:{}] tick", schedule_id);
-            let storage = match ScheduledStorage::new(&bot_deps.db) {
-                Ok(s) => s,
-                Err(e) => {
-                    log::error!("scheduled storage error: {}", e);
-                    return;
-                }
-            };
-            let mut rec = match storage.get_schedule(&schedule_id) {
+            let mut rec = match bot_deps.scheduled_storage.get_schedule(&schedule_id) {
                 Some(r) => r,
                 None => {
                     log::warn!("[sched:{}] schedule not found; skipping", schedule_id);
@@ -366,6 +358,7 @@ pub async fn register_schedule(
 
             // Lock for 120s
             rec.locked_until = Some(now_ts + 120);
+            let storage = bot_deps.scheduled_storage.clone();
             if let Err(e) = storage.put_schedule(&rec) {
                 log::warn!("Failed to persist lock for schedule {}: {}", schedule_id, e);
             }
