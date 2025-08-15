@@ -1,9 +1,10 @@
-use sled::{Db, IVec, Tree};
 use crate::scheduled_prompts::dto::{PendingWizardState, ScheduledPromptRecord};
+use sled::{Db, IVec, Tree};
 
 const SCHEDULED_PROMPTS_TREE: &str = "scheduled_prompts";
 const SCHEDULED_PROMPT_PENDING_TREE: &str = "scheduled_prompt_pending";
 
+#[derive(Clone)]
 pub struct ScheduledStorage {
     pub scheduled: Tree,
     pub pending: Tree,
@@ -28,7 +29,14 @@ impl ScheduledStorage {
             .get(id.as_bytes())
             .ok()
             .flatten()
-            .and_then(|ivec: IVec| bincode::decode_from_slice::<ScheduledPromptRecord, _>(&ivec, bincode::config::standard()).ok().map(|(v, _)| v))
+            .and_then(|ivec: IVec| {
+                bincode::decode_from_slice::<ScheduledPromptRecord, _>(
+                    &ivec,
+                    bincode::config::standard(),
+                )
+                .ok()
+                .map(|(v, _)| v)
+            })
     }
 
     #[allow(dead_code)]
@@ -41,7 +49,10 @@ impl ScheduledStorage {
         let mut out = Vec::new();
         for kv in self.scheduled.iter() {
             if let Ok((_k, ivec)) = kv {
-                if let Ok((rec, _)) = bincode::decode_from_slice::<ScheduledPromptRecord, _>(&ivec, bincode::config::standard()) {
+                if let Ok((rec, _)) = bincode::decode_from_slice::<ScheduledPromptRecord, _>(
+                    &ivec,
+                    bincode::config::standard(),
+                ) {
                     if rec.group_id == group_id && rec.active {
                         out.push(rec);
                     }
@@ -60,11 +71,11 @@ impl ScheduledStorage {
 
     pub fn get_pending(&self, key: (&i64, &i64)) -> Option<PendingWizardState> {
         let k = Self::pending_key_bytes(key);
-        self.pending
-            .get(k)
-            .ok()
-            .flatten()
-            .and_then(|ivec: IVec| bincode::decode_from_slice::<PendingWizardState, _>(&ivec, bincode::config::standard()).ok().map(|(v, _)| v))
+        self.pending.get(k).ok().flatten().and_then(|ivec: IVec| {
+            bincode::decode_from_slice::<PendingWizardState, _>(&ivec, bincode::config::standard())
+                .ok()
+                .map(|(v, _)| v)
+        })
     }
 
     pub fn delete_pending(&self, key: (&i64, &i64)) -> sled::Result<()> {
@@ -80,5 +91,3 @@ impl ScheduledStorage {
         v
     }
 }
-
-
