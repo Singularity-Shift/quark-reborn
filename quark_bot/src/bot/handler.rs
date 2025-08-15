@@ -242,18 +242,58 @@ async fn send_pre_block(bot: &Bot, chat_id: ChatId, title: &str, content: &str) 
     for ch in escaped.chars() {
         if current.chars().count() + 1 > max_payload {
             let msg = format!("{}{}{}", prefix, current, suffix);
-            bot.send_message(chat_id, msg)
+            match bot
+                .send_message(chat_id, msg)
                 .parse_mode(ParseMode::Html)
-                .await?;
+                .await
+            {
+                Ok(_) => {}
+                Err(e) => {
+                    let err_text = e.to_string();
+                    log::error!("Error sending <pre> chunk: {}", err_text);
+                    if err_text.contains("can't parse entities")
+                        || err_text.contains("Unsupported start tag")
+                    {
+                        let _ = bot
+                            .send_message(
+                                chat_id,
+                                "Sorry — I made an error in my output. Please try again or start a /newchat.",
+                            )
+                            .await;
+                        return Ok(());
+                    }
+                    return Err(e.into());
+                }
+            }
             current.clear();
         }
         current.push(ch);
     }
     if !current.is_empty() {
         let msg = format!("{}{}{}", prefix, current, suffix);
-        bot.send_message(chat_id, msg)
+        match bot
+            .send_message(chat_id, msg)
             .parse_mode(ParseMode::Html)
-            .await?;
+            .await
+        {
+            Ok(_) => {}
+            Err(e) => {
+                let err_text = e.to_string();
+                log::error!("Error sending final <pre> chunk: {}", err_text);
+                if err_text.contains("can't parse entities")
+                    || err_text.contains("Unsupported start tag")
+                {
+                    let _ = bot
+                        .send_message(
+                            chat_id,
+                            "Sorry — I made an error in my output. Please try again or start a /newchat.",
+                        )
+                        .await;
+                    return Ok(());
+                }
+                return Err(e.into());
+            }
+        }
     }
     Ok(())
 }
@@ -262,8 +302,6 @@ async fn send_pre_block(bot: &Bot, chat_id: ChatId, title: &str, content: &str) 
 async fn send_long_message(bot: &Bot, chat_id: ChatId, text: &str) -> AnyResult<()> {
     // Convert markdown (including ``` code fences) to Telegram-compatible HTML
     let html_text = utils::markdown_to_html(text);
-    // Sanitize stray '<' outside <pre> that do not begin allowed tags
-    let html_text = utils::sanitize_html_outside_pre(&html_text);
     // Normalize image anchor to point to the public GCS URL when present
     let html_text = utils::normalize_image_url_anchor(&html_text);
     let chunks = split_message(&html_text);
@@ -274,9 +312,29 @@ async fn send_long_message(bot: &Bot, chat_id: ChatId, text: &str) -> AnyResult<
             sleep(Duration::from_millis(100)).await;
         }
 
-        bot.send_message(chat_id, chunk)
+        match bot
+            .send_message(chat_id, chunk)
             .parse_mode(ParseMode::Html)
-            .await?;
+            .await
+        {
+            Ok(_) => {}
+            Err(e) => {
+                let err_text = e.to_string();
+                log::error!("Error sending message chunk: {}", err_text);
+                if err_text.contains("can't parse entities")
+                    || err_text.contains("Unsupported start tag")
+                {
+                    let _ = bot
+                        .send_message(
+                            chat_id,
+                            "Sorry — I made an error in my output. Please try again or start a /newchat.",
+                        )
+                        .await;
+                    return Ok(());
+                }
+                return Err(e.into());
+            }
+        }
     }
 
     Ok(())
