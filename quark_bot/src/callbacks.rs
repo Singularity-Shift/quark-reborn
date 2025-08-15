@@ -13,6 +13,7 @@ use teloxide::{
     prelude::*,
     types::{InlineKeyboardButton, InlineKeyboardMarkup},
 };
+use chrono::{DateTime, Utc};
 
 pub async fn handle_callback_query(
     bot: Bot,
@@ -658,6 +659,23 @@ pub async fn handle_callback_query(
                 }
 
                 if let teloxide::types::MaybeInaccessibleMessage::Regular(m) = message {
+                    // If a moderation wizard is in progress for this admin, delete its prompt and clear state
+                    let formatted_group_id = format!("{}-{}", m.chat.id.0, bot_deps.group.account_seed);
+                    let mod_wizard_tree = bot_deps.db.open_tree("moderation_settings_wizard").unwrap();
+                    let wizard_key = format!("{}_{}", query.from.id.0, formatted_group_id);
+                    if let Ok(Some(raw)) = mod_wizard_tree.get(wizard_key.as_bytes()) {
+                        #[derive(serde::Deserialize)]
+                        struct WizardState { wizard_message_id: Option<i64> }
+                        if let Ok(ws) = serde_json::from_slice::<WizardState>(&raw) {
+                            if let Some(mid) = ws.wizard_message_id {
+                                if let Err(e) = bot.delete_message(m.chat.id, teloxide::types::MessageId(mid as i32)).await {
+                                    log::warn!("Failed to delete moderation wizard message {}: {}", mid, e);
+                                }
+                            }
+                        }
+                        // Clear wizard state
+                        let _ = mod_wizard_tree.remove(wizard_key.as_bytes());
+                    }
                     let kb = InlineKeyboardMarkup::new(vec![
                         vec![InlineKeyboardButton::callback(
                             "💳 Payment Settings",
@@ -666,6 +684,10 @@ pub async fn handle_callback_query(
                         vec![InlineKeyboardButton::callback(
                             "🏛️ DAO Preferences",
                             "open_dao_preferences",
+                        )],
+                        vec![InlineKeyboardButton::callback(
+                            "🛡️ Moderation",
+                            "open_moderation_settings",
                         )],
                         vec![InlineKeyboardButton::callback(
                             "🔄 Migrate Group ID",
@@ -693,6 +715,23 @@ pub async fn handle_callback_query(
                             .await?;
                         return Ok(());
                     }
+                    // If a moderation wizard is in progress for this admin, delete its prompt and clear state
+                    let formatted_group_id = format!("{}-{}", m.chat.id.0, bot_deps.group.account_seed);
+                    let mod_wizard_tree = bot_deps.db.open_tree("moderation_settings_wizard").unwrap();
+                    let wizard_key = format!("{}_{}", query.from.id.0, formatted_group_id);
+                    if let Ok(Some(raw)) = mod_wizard_tree.get(wizard_key.as_bytes()) {
+                        #[derive(serde::Deserialize)]
+                        struct WizardState { wizard_message_id: Option<i64> }
+                        if let Ok(ws) = serde_json::from_slice::<WizardState>(&raw) {
+                            if let Some(mid) = ws.wizard_message_id {
+                                if let Err(e) = bot.delete_message(m.chat.id, teloxide::types::MessageId(mid as i32)).await {
+                                    log::warn!("Failed to delete moderation wizard message {}: {}", mid, e);
+                                }
+                            }
+                        }
+                        // Clear wizard state
+                        let _ = mod_wizard_tree.remove(wizard_key.as_bytes());
+                    }
                     let _ = bot.edit_message_reply_markup(m.chat.id, m.id).await;
                     bot.answer_callback_query(query.id).text("Closed").await?;
                 }
@@ -713,6 +752,271 @@ pub async fn handle_callback_query(
         {
             // Handle DAO preferences callbacks
             handle_dao_preference_callback(bot, query, bot_deps).await?;
+        } else if data == "open_moderation_settings" {
+            // Open Moderation submenu inside Group Settings
+            if let Some(message) = &query.message {
+                if let teloxide::types::MaybeInaccessibleMessage::Regular(m) = message {
+                    // Admin check
+                    let is_admin = utils::is_admin(&bot, m.chat.id, query.from.id).await;
+                    if !is_admin {
+                        bot.answer_callback_query(query.id)
+                            .text("❌ Only administrators can manage moderation settings")
+                            .await?;
+                        return Ok(());
+                    }
+
+                    // Read sentinel state
+                    let sentinel_tree = bot_deps.db.open_tree("sentinel_state").unwrap();
+                    let chat_id_bytes = m.chat.id.0.to_be_bytes();
+                    let sentinel_on = sentinel_tree
+                        .get(chat_id_bytes)
+                        .unwrap()
+                        .map(|v| v == b"on")
+                        .unwrap_or(false);
+
+                    // Read moderation settings for this group
+                    let formatted_group_id = format!("{}-{}", m.chat.id.0, bot_deps.group.account_seed);
+                    let settings_tree = bot_deps.db.open_tree("moderation_settings").unwrap();
+                    let mut allowed_count = 0usize;
+                    let mut disallowed_count = 0usize;
+                    let mut updated_at_display = String::from("(none)");
+                    if let Ok(Some(raw)) = settings_tree.get(formatted_group_id.as_bytes()) {
+                        #[derive(serde::Deserialize)]
+                        struct ModerationSettings { allowed_items: Vec<String>, disallowed_items: Vec<String>, updated_at_unix_ms: i64 }
+                        if let Ok(ms) = serde_json::from_slice::<ModerationSettings>(&raw) {
+                            allowed_count = ms.allowed_items.len();
+                            disallowed_count = ms.disallowed_items.len();
+                            let dt = DateTime::<Utc>::from_timestamp_millis(ms.updated_at_unix_ms)
+                                .map(|d| d.format("%Y-%m-%d %H:%M UTC").to_string())
+                                .unwrap_or_else(|| ms.updated_at_unix_ms.to_string());
+                            updated_at_display = dt;
+                        }
+                    }
+
+                    let text = format!(
+                        concat!(
+                            "🛡️ <b>Moderation Settings</b>\n\n",
+                            "Sentinel: <b>{sentinel}</b>\n",
+                            "Custom Rules: <b>{allowed}</b> allowed, <b>{disallowed}</b> disallowed\n",
+                            "Updated: <i>{updated}</i>\n\n",
+                            "Choose an action below:"
+                        ),
+                        sentinel = if sentinel_on { "ON" } else { "OFF" },
+                        allowed = allowed_count,
+                        disallowed = disallowed_count,
+                        updated = updated_at_display,
+                    );
+
+                    let toggle_label = if sentinel_on { "🔕 Turn OFF Sentinel" } else { "🛡️ Turn ON Sentinel" };
+                    let toggle_cb = if sentinel_on { "mod_toggle_sentinel_off" } else { "mod_toggle_sentinel_on" };
+                    let kb = InlineKeyboardMarkup::new(vec![
+                        vec![InlineKeyboardButton::callback(toggle_label, toggle_cb)],
+                        vec![InlineKeyboardButton::callback("📝 Start Moderation Wizard", "mod_wizard_start")],
+                        vec![InlineKeyboardButton::callback("🧹 Reset Custom Rules", "mod_reset")],
+                        vec![InlineKeyboardButton::callback("📜 Show Default Rules", "mod_show_defaults")],
+                        vec![InlineKeyboardButton::callback("↩️ Back", "back_to_group_settings")],
+                    ]);
+                    bot.edit_message_text(m.chat.id, m.id, text)
+                        .parse_mode(teloxide::types::ParseMode::Html)
+                        .reply_markup(kb)
+                        .await?;
+                }
+            }
+        } else if data == "mod_toggle_sentinel_on" || data == "mod_toggle_sentinel_off" {
+            // Toggle sentinel ON/OFF
+            if let Some(message) = &query.message {
+                if let teloxide::types::MaybeInaccessibleMessage::Regular(m) = message {
+                    let is_admin = utils::is_admin(&bot, m.chat.id, query.from.id).await;
+                    if !is_admin {
+                        bot.answer_callback_query(query.id)
+                            .text("❌ Only administrators can manage moderation settings")
+                            .await?;
+                        return Ok(());
+                    }
+                    let sentinel_tree = bot_deps.db.open_tree("sentinel_state").unwrap();
+                    let chat_id_bytes = m.chat.id.0.to_be_bytes();
+                    if data == "mod_toggle_sentinel_on" {
+                        sentinel_tree.insert(chat_id_bytes, b"on").unwrap();
+                        bot.answer_callback_query(query.id).text("🛡️ Sentinel is now ON").await?;
+                    } else {
+                        sentinel_tree.insert(chat_id_bytes, b"off").unwrap();
+                        bot.answer_callback_query(query.id).text("🔕 Sentinel is now OFF").await?;
+                    }
+                    // Refresh submenu
+                    // Reuse the same rendering path by simulating the branch
+                    // (duplicate minimal logic for clarity)
+                    let sentinel_on = sentinel_tree
+                        .get(chat_id_bytes)
+                        .unwrap()
+                        .map(|v| v == b"on")
+                        .unwrap_or(false);
+                    let formatted_group_id = format!("{}-{}", m.chat.id.0, bot_deps.group.account_seed);
+                    let settings_tree = bot_deps.db.open_tree("moderation_settings").unwrap();
+                    let mut allowed_count = 0usize;
+                    let mut disallowed_count = 0usize;
+                    let mut updated_at_display = String::from("(none)");
+                    if let Ok(Some(raw)) = settings_tree.get(formatted_group_id.as_bytes()) {
+                        #[derive(serde::Deserialize)]
+                        struct ModerationSettings { allowed_items: Vec<String>, disallowed_items: Vec<String>, updated_at_unix_ms: i64 }
+                        if let Ok(ms) = serde_json::from_slice::<ModerationSettings>(&raw) {
+                            allowed_count = ms.allowed_items.len();
+                            disallowed_count = ms.disallowed_items.len();
+                            let dt = DateTime::<Utc>::from_timestamp_millis(ms.updated_at_unix_ms)
+                                .map(|d| d.format("%Y-%m-%d %H:%M UTC").to_string())
+                                .unwrap_or_else(|| ms.updated_at_unix_ms.to_string());
+                            updated_at_display = dt;
+                        }
+                    }
+                    let text = format!(
+                        concat!(
+                            "🛡️ <b>Moderation Settings</b>\n\n",
+                            "Sentinel: <b>{sentinel}</b>\n",
+                            "Custom Rules: <b>{allowed}</b> allowed, <b>{disallowed}</b> disallowed\n",
+                            "Updated: <i>{updated}</i>\n\n",
+                            "Choose an action below:"
+                        ),
+                        sentinel = if sentinel_on { "ON" } else { "OFF" },
+                        allowed = allowed_count,
+                        disallowed = disallowed_count,
+                        updated = updated_at_display,
+                    );
+                    let toggle_label = if sentinel_on { "🔕 Turn OFF Sentinel" } else { "🛡️ Turn ON Sentinel" };
+                    let toggle_cb = if sentinel_on { "mod_toggle_sentinel_off" } else { "mod_toggle_sentinel_on" };
+                    let kb = InlineKeyboardMarkup::new(vec![
+                        vec![InlineKeyboardButton::callback(toggle_label, toggle_cb)],
+                        vec![InlineKeyboardButton::callback("📝 Start Moderation Wizard", "mod_wizard_start")],
+                        vec![InlineKeyboardButton::callback("🧹 Reset Custom Rules", "mod_reset")],
+                        vec![InlineKeyboardButton::callback("📜 Show Default Rules", "mod_show_defaults")],
+                        vec![InlineKeyboardButton::callback("↩️ Back", "back_to_group_settings")],
+                    ]);
+                    bot.edit_message_text(m.chat.id, m.id, text)
+                        .parse_mode(teloxide::types::ParseMode::Html)
+                        .reply_markup(kb)
+                        .await?;
+                }
+            }
+        } else if data == "mod_wizard_start" {
+            // Initialize moderation wizard for the requesting admin
+            if let Some(message) = &query.message {
+                if let teloxide::types::MaybeInaccessibleMessage::Regular(m) = message {
+                    let is_admin = utils::is_admin(&bot, m.chat.id, query.from.id).await;
+                    if !is_admin {
+                        bot.answer_callback_query(query.id)
+                            .text("❌ Only administrators can manage moderation settings")
+                            .await?;
+                        return Ok(());
+                    }
+                    let formatted_group_id = format!("{}-{}", m.chat.id.0, bot_deps.group.account_seed);
+                    let mod_wizard_tree = bot_deps.db.open_tree("moderation_settings_wizard").unwrap();
+                    #[derive(serde::Serialize, serde::Deserialize)]
+                    struct WizardState { step: String, allowed_items: Option<Vec<String>>, wizard_message_id: Option<i64> }
+                    let state = WizardState { step: "AwaitingAllowed".to_string(), allowed_items: None, wizard_message_id: None };
+                    let wizard_key = format!("{}_{}", query.from.id.0, formatted_group_id);
+                    let payload = serde_json::to_vec(&state).unwrap();
+                    mod_wizard_tree.insert(wizard_key.as_bytes(), payload).unwrap();
+                    // Prompt Step 1/2 in chat
+                    let sent = bot.send_message(
+                        m.chat.id,
+                        "🛡️ <b>Moderation Settings — Step 1/2</b>\n\n<b>Send ALLOWED items</b> for this group.\n\n<b>Be specific</b>: include concrete phrases and examples.\n\n<b>Cancel anytime</b>: Tap <b>Back</b> or <b>Close</b> in the Moderation menu — this prompt will be removed.\n\n<b>Warning</b>: Allowed items can reduce moderation strictness; we've included a <b>copy & paste</b> template below to safely allow discussion of your token. To skip this step, send <code>na</code>.\n\n<b>Format</b>:\n- Send them in a <b>single message</b>\n- Separate each item with <code>;</code>\n\n<b>Example</b>:\n<b>promotion of 📒/ledger token and related content that does not include external links combined with CTAs (vote, sign, proposal, claim, mint, verify, connect wallet, airdrop, whitelist) and does not request to move to private DMs; x.com URLs are acceptable when referencing this token (no CTAs, no DM invites)</b>\n\n<b>Quick template (copy/paste) to allow your own token</b>:\n<code>promotion of [YOUR_TOKEN] token and related content that does not include external links combined with CTAs (vote, sign, proposal, claim, mint, verify, connect wallet, airdrop, whitelist) and does not request to move to private DMs; x.com URLs are acceptable when referencing [YOUR_TOKEN] (no CTAs, no DM invites); discussion related to [YOUR_TOKEN] community/ecosystem (non-phishing, no DM invites)</code>\n\n<i>Important:</i> Cross-reference with the <b>Default Rules</b>: phishing/CTA links, requests to move to private DMs, and generic commercial solicitations remain disallowed.\n\nWhen ready, send your list now.\n\n<i>Tip:</i> Use <b>Reset Custom Rules</b> in the Moderation menu anytime to clear custom rules."
+                    )
+                    .parse_mode(teloxide::types::ParseMode::Html)
+                    .await?;
+                    // Persist the wizard prompt message id
+                    let mut ws = state;
+                    ws.wizard_message_id = Some(sent.id.0 as i64);
+                    let payload = serde_json::to_vec(&ws).unwrap();
+                    mod_wizard_tree.insert(wizard_key.as_bytes(), payload).unwrap();
+                    bot.answer_callback_query(query.id).text("📝 Wizard started").await?;
+                }
+            }
+        } else if data == "mod_reset" {
+            // Reset custom rules for this group and clear wizard for this admin
+            if let Some(message) = &query.message {
+                if let teloxide::types::MaybeInaccessibleMessage::Regular(m) = message {
+                    let is_admin = utils::is_admin(&bot, m.chat.id, query.from.id).await;
+                    if !is_admin {
+                        bot.answer_callback_query(query.id)
+                            .text("❌ Only administrators can manage moderation settings")
+                            .await?;
+                        return Ok(());
+                    }
+                    let formatted_group_id = format!("{}-{}", m.chat.id.0, bot_deps.group.account_seed);
+                    let settings_tree = bot_deps.db.open_tree("moderation_settings").unwrap();
+                    let _ = settings_tree.remove(formatted_group_id.as_bytes());
+                    let mod_wizard_tree = bot_deps.db.open_tree("moderation_settings_wizard").unwrap();
+                    let wizard_key = format!("{}_{}", query.from.id.0, formatted_group_id);
+                    let _ = mod_wizard_tree.remove(wizard_key.as_bytes());
+                    bot.answer_callback_query(query.id).text("🧹 Custom rules reset").await?;
+                    // Re-open moderation settings view
+                    let sentinel_tree = bot_deps.db.open_tree("sentinel_state").unwrap();
+                    let sentinel_on = sentinel_tree
+                        .get(m.chat.id.0.to_be_bytes())
+                        .unwrap()
+                        .map(|v| v == b"on")
+                        .unwrap_or(false);
+                    let text = format!(
+                        concat!(
+                            "🛡️ <b>Moderation Settings</b>\n\n",
+                            "Sentinel: <b>{sentinel}</b>\n",
+                            "Custom Rules: <b>0</b> allowed, <b>0</b> disallowed\n",
+                            "Updated: <i>(none)</i>\n\n",
+                            "Choose an action below:"
+                        ),
+                        sentinel = if sentinel_on { "ON" } else { "OFF" },
+                    );
+                    let toggle_label = if sentinel_on { "🔕 Turn OFF Sentinel" } else { "🛡️ Turn ON Sentinel" };
+                    let toggle_cb = if sentinel_on { "mod_toggle_sentinel_off" } else { "mod_toggle_sentinel_on" };
+                    let kb = InlineKeyboardMarkup::new(vec![
+                        vec![InlineKeyboardButton::callback(toggle_label, toggle_cb)],
+                        vec![InlineKeyboardButton::callback("📝 Start Moderation Wizard", "mod_wizard_start")],
+                        vec![InlineKeyboardButton::callback("🧹 Reset Custom Rules", "mod_reset")],
+                        vec![InlineKeyboardButton::callback("📜 Show Default Rules", "mod_show_defaults")],
+                        vec![InlineKeyboardButton::callback("↩️ Back", "back_to_group_settings")],
+                    ]);
+                    bot.edit_message_text(m.chat.id, m.id, text)
+                        .parse_mode(teloxide::types::ParseMode::Html)
+                        .reply_markup(kb)
+                        .await?;
+                }
+            }
+        } else if data == "mod_show_defaults" {
+            // Show default moderation rules
+            if let Some(message) = &query.message {
+                if let teloxide::types::MaybeInaccessibleMessage::Regular(m) = message {
+                    let rules = r#"
+<b>🛡️ Moderation Rules</b>
+
+To avoid being muted or banned, please follow these rules:
+
+<b>1. No Promotion or Selling</b>
+- Do not offer services, products, access, or benefits
+- Do not position yourself as an authority/leader to gain trust
+- Do not promise exclusive opportunities or deals
+- No commercial solicitation of any kind
+
+<b>2. No Private Communication Invites</b>
+- Do not request to move conversation to DM/private
+- Do not offer to send details privately
+- Do not ask for personal contact information
+- Do not attempt to bypass public group discussion
+
+<b>Examples (not exhaustive):</b>
+- "I can offer you whitelist access"
+- "DM me for details"
+- "React and I'll message you"
+- "I'm a [title] and can help you"
+- "Send me your wallet address"
+- "Contact me privately"
+- "I'll send you the link"
+
+If you have questions, ask an admin before posting.
+"#;
+                    bot.send_message(m.chat.id, rules)
+                        .parse_mode(teloxide::types::ParseMode::Html)
+                        .await?;
+                    bot.answer_callback_query(query.id).text("📜 Default rules sent").await?;
+                }
+            }
         } else if data == "disable_notifications" {
             // Handle disable notifications callback
             handle_disable_notifications_callback(bot, query, bot_deps).await?;
