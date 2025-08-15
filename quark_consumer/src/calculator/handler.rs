@@ -45,7 +45,7 @@ pub async fn get_price(
         .header("x-api-key", panora_api_key)
         .header("Accept", "application/json")
         .header("Content-Type", "application/json")
-        .query(&[("tokenAddress", &token_address.to_lowercase())])
+        .query(&[("tokenAddress", &token_address)])
         .send()
         .await?;
 
