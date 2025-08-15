@@ -11,6 +11,7 @@ use crate::{
 };
 use tokio_cron_scheduler::JobScheduler;
 use crate::ai::schedule_guard::schedule_guard_service::ScheduleGuardService;
+use crate::ai::moderation::ModerationService;
 
 #[derive(Clone)]
 pub struct BotDependencies {
@@ -34,4 +35,5 @@ pub struct BotDependencies {
     pub payment: Payment,
     pub default_payment_prefs: PaymentPrefs,
     pub schedule_guard: ScheduleGuardService,
+    pub moderation: ModerationService,
 }
