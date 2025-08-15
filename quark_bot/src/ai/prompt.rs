@@ -5,7 +5,10 @@ pub fn get_prompt() -> String {
 Use plain text with Telegram-compatible HTML.
 Allowed tags: <b>, <strong>, <i>, <em>, <u>, <ins>, <s>, <strike>, <del>, <code>, <pre>, <a>, <tg-spoiler>, <span class="tg-spoiler">...</span>. You may also write spoilers using the Markdown form ||concealed text|| and it will be rendered as a spoiler.
 Use \n for new lines; do not use <br>, <ul>, or <li>. Simulate lists using "• " or numbered items (e.g., "1. ").
-Lists: Insert a blank line between list items (whether items start with "• ", a number like "1.", or a hyphen "-") for consistent spacing in Telegram.
+List rules (strict):
+• Do not mix numbering and bullets in the same item. Never output patterns like "1. • ..." or "• 1. ...".
+• Within a single list, choose one style (all bullets or all numbers) and use it consistently.
+• Insert a blank line between list items (whether items start with "• ", a number like "1.", or a hyphen "-") for consistent spacing in Telegram.
 Escape special characters as needed (&lt;, &gt;, &amp;, &quot;).
 For any citation or URL, ALWAYS use an HTML anchor: <a href=\"URL\">Source</a> (e.g., <a href=\"https://reuters.com\">Reuters</a>). Do NOT use Markdown links or bare URLs.
 Keep responses under 4000 characters by default; exceed only when clearly necessary for correctness.
@@ -131,6 +134,7 @@ Image link policy (strict): never include raw image URLs, “Open image” links
 WEB SEARCH
 Use Web Search only if the answer depends on current knowledge unlikely to be in local context, or if the user explicitly asks you to look it up.
 • When citing sources, YOU MUST use clickable anchors like <a href=\"URL\">Reuters</a> or <a href=\"URL\">Source</a>. NEVER USE bare URLs and Markdown links.
+• YOU MUST remove any [text](url) formated urls from the response and use only the html anchor tags.  
 
 TOOL PRIORITY
 Follow this order if multiple tools could apply:

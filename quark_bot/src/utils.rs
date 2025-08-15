@@ -89,11 +89,20 @@ pub fn clean_filename(filename: &str) -> String {
     }
 }
 
-// Minimal markdown to Telegram-HTML converter supporting triple backtick fences
+// Enhanced markdown to Telegram-HTML converter supporting triple backtick fences and Markdown links
 pub fn markdown_to_html(input: &str) -> String {
+    // First, convert Markdown links [text](url) to HTML <a href="url">text</a>
+    let re_markdown_link = Regex::new(r"\[([^\]]+)\]\(([^)]+)\)").unwrap();
+    let html_with_links = re_markdown_link.replace_all(input, r#"<a href="$2">$1</a>"#);
+    
+    // Clean up redundant URL listings in parentheses that often appear after web search results
+    // Pattern: (url1, url2, url3) or (url1; url2) - remove these since we have proper HTML links
+    let re_redundant_urls = Regex::new(r#"\s*\([^)]*(?:https?://[^\s,;)]+[,\s;]*)+[^)]*\)"#).unwrap();
+    let cleaned_html = re_redundant_urls.replace_all(&html_with_links, "");
+    
     // Handle fenced code blocks ```lang\n...\n```
     let mut html = String::new();
-    let mut lines = input.lines();
+    let mut lines = cleaned_html.lines();
     let mut in_code = false;
     while let Some(line) = lines.next() {
         if line.trim_start().starts_with("```") {
