@@ -1,40 +1,58 @@
 use anyhow::Result;
-use teloxide::{prelude::*, types::{InlineKeyboardMarkup, Message, ParseMode}};
 use chrono::Utc;
+use teloxide::{
+    prelude::*,
+    types::{InlineKeyboardMarkup, Message, ParseMode},
+};
 use uuid::Uuid;
 
 use crate::{
     dependencies::BotDependencies,
-    scheduled_prompts::dto::{PendingStep, PendingWizardState, RepeatPolicy, ScheduledPromptRecord},
-    scheduled_prompts::runner::{register_schedule, register_all_schedules},
-    scheduled_prompts::storage::ScheduledStorage,
-    scheduled_prompts::wizard::summarize,
+    scheduled_prompts::dto::{
+        PendingStep, PendingWizardState, RepeatPolicy, ScheduledPromptRecord,
+    },
+    scheduled_prompts::helpers::summarize,
+    scheduled_prompts::runner::{register_all_schedules, register_schedule},
 };
 
 pub async fn bootstrap_scheduled_prompts(bot: Bot, bot_deps: BotDependencies) -> Result<()> {
     register_all_schedules(bot, bot_deps).await
 }
 
-pub async fn handle_scheduleprompt_command(bot: Bot, msg: Message, bot_deps: BotDependencies) -> Result<()> {
+pub async fn handle_scheduleprompt_command(
+    bot: Bot,
+    msg: Message,
+    bot_deps: BotDependencies,
+) -> Result<()> {
     if !msg.chat.is_group() && !msg.chat.is_supergroup() {
-        bot.send_message(msg.chat.id, "❌ This command is only available in groups.").await?;
+        bot.send_message(msg.chat.id, "❌ This command is only available in groups.")
+            .await?;
         return Ok(());
     }
 
     // Admin check
     let admins = bot.get_chat_administrators(msg.chat.id).await?;
-    let user = match msg.from { Some(u) => u, None => { return Ok(()); } };
+    let user = match msg.from {
+        Some(u) => u,
+        None => {
+            return Ok(());
+        }
+    };
     if !admins.iter().any(|m| m.user.id == user.id) {
-        bot.send_message(msg.chat.id, "❌ Only administrators can use this command.").await?;
+        bot.send_message(msg.chat.id, "❌ Only administrators can use this command.")
+            .await?;
         return Ok(());
     }
 
-    let username = match user.username.clone() { Some(u) => u, None => {
-        bot.send_message(msg.chat.id, "❌ Username required to schedule prompts.").await?;
-        return Ok(());
-    }};
+    let username = match user.username.clone() {
+        Some(u) => u,
+        None => {
+            bot.send_message(msg.chat.id, "❌ Username required to schedule prompts.")
+                .await?;
+            return Ok(());
+        }
+    };
 
-    let storage = ScheduledStorage::new(&bot_deps.db)?;
     let state = PendingWizardState {
         group_id: msg.chat.id.0 as i64,
         creator_user_id: user.id.0 as i64,
@@ -45,36 +63,49 @@ pub async fn handle_scheduleprompt_command(bot: Bot, msg: Message, bot_deps: Bot
         minute_utc: None,
         repeat: None,
     };
-    storage.put_pending((&state.group_id, &state.creator_user_id), &state)?;
+    bot_deps
+        .scheduled_storage
+        .put_pending((&state.group_id, &state.creator_user_id), &state)?;
 
     let note = "\n\nℹ️ Note about tools for scheduled prompts:\n\n• Unavailable: any tool that requires user confirmation or performs transactions (e.g., pay users, withdrawals, funding, creating proposals or other interactive flows).\n\nTip: Schedule informational queries, summaries, monitoring, or analytics. Avoid actions that need real-time human approval.";
 
-    bot
-        .send_message(
-            msg.chat.id,
-            format!(
-                "📝 Please reply to this message with the prompt you want to schedule.{}",
-                note
-            ),
-        )
-        .await?;
+    bot.send_message(
+        msg.chat.id,
+        format!(
+            "📝 Please reply to this message with the prompt you want to schedule.{}",
+            note
+        ),
+    )
+    .await?;
     Ok(())
 }
 
-pub async fn handle_listscheduled_command(bot: Bot, msg: Message, bot_deps: BotDependencies) -> Result<()> {
+pub async fn handle_listscheduled_command(
+    bot: Bot,
+    msg: Message,
+    bot_deps: BotDependencies,
+) -> Result<()> {
     // Admin check
     let admins = bot.get_chat_administrators(msg.chat.id).await?;
-    let user = match msg.from { Some(u) => u, None => { return Ok(()); } };
+    let user = match msg.from {
+        Some(u) => u,
+        None => {
+            return Ok(());
+        }
+    };
     if !admins.iter().any(|m| m.user.id == user.id) {
-        bot.send_message(msg.chat.id, "❌ Only administrators can use this command.").await?;
+        bot.send_message(msg.chat.id, "❌ Only administrators can use this command.")
+            .await?;
         return Ok(());
     }
 
-    let storage = ScheduledStorage::new(&bot_deps.db)?;
-    let list = storage.list_schedules_for_group(msg.chat.id.0 as i64);
+    let list = bot_deps
+        .scheduled_storage
+        .list_schedules_for_group(msg.chat.id.0 as i64);
 
     if list.is_empty() {
-        bot.send_message(msg.chat.id, "📭 No active scheduled prompts in this group.").await?;
+        bot.send_message(msg.chat.id, "📭 No active scheduled prompts in this group.")
+            .await?;
         return Ok(());
     }
 
@@ -98,11 +129,17 @@ pub async fn handle_listscheduled_command(bot: Bot, msg: Message, bot_deps: BotD
             rec.start_hour_utc,
             rec.start_minute_utc,
             repeat_label,
-            if rec.prompt.len() > 180 { format!("{}…", &rec.prompt[..180]) } else { rec.prompt.clone() }
+            if rec.prompt.len() > 180 {
+                format!("{}…", &rec.prompt[..180])
+            } else {
+                rec.prompt.clone()
+            }
         );
-        let kb = InlineKeyboardMarkup::new(vec![vec![
-            teloxide::types::InlineKeyboardButton::callback("❌ Cancel".to_string(), format!("sched_cancel:{}", rec.id)),
-        ]]);
+        let kb =
+            InlineKeyboardMarkup::new(vec![vec![teloxide::types::InlineKeyboardButton::callback(
+                "❌ Cancel".to_string(),
+                format!("sched_cancel:{}", rec.id),
+            )]]);
         bot.send_message(msg.chat.id, title)
             .reply_markup(kb)
             .await?;
@@ -117,8 +154,10 @@ pub async fn finalize_and_register(
     state: PendingWizardState,
 ) -> Result<()> {
     // Enforce per-group cap: max 10 active schedules
-    let storage = ScheduledStorage::new(&bot_deps.db)?;
-    let active_count = storage.list_schedules_for_group(state.group_id).len();
+    let active_count = bot_deps
+        .scheduled_storage
+        .list_schedules_for_group(state.group_id)
+        .len();
     if active_count >= 10 {
         bot.send_message(
             ChatId(state.group_id as i64),
@@ -148,9 +187,9 @@ pub async fn finalize_and_register(
         conversation_response_id: None,
     };
 
-    storage.put_schedule(&rec)?;
+    bot_deps.scheduled_storage.put_schedule(&rec)?;
     register_schedule(bot.clone(), bot_deps.clone(), &mut rec).await?;
-    storage.put_schedule(&rec)?;
+    bot_deps.scheduled_storage.put_schedule(&rec)?;
 
     bot.send_message(
         ChatId(rec.group_id as i64),
@@ -173,5 +212,3 @@ pub async fn finalize_and_register(
 
     Ok(())
 }
-
-
