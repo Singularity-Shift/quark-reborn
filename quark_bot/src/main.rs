@@ -52,6 +52,7 @@ use crate::assets::media_aggregator;
 use crate::bot::handler_tree::handler_tree;
 use crate::scheduled_prompts::handler::bootstrap_scheduled_prompts;
 use tokio_cron_scheduler::JobScheduler;
+use crate::ai::schedule_guard::ScheduleGuardService;
 
 #[tokio::main(flavor = "multi_thread", worker_threads = 4)]
 async fn main() {
@@ -116,6 +117,10 @@ async fn main() {
     let payment = Payment::new(&db).unwrap();
 
     let ai = AI::new(openai_api_key.clone(), google_cloud);
+    let schedule_guard = std::sync::Arc::new(
+        ScheduleGuardService::new(openai_api_key.clone())
+            .expect("Failed to create ScheduleGuardService"),
+    );
 
     let user_convos = UserConversations::new(&db).unwrap();
     let user_model_prefs = UserModelPreferences::new(&db).unwrap();
@@ -222,6 +227,7 @@ async fn main() {
         scheduler: std::sync::Arc::new(user_scheduler),
         payment: payment.clone(),
         default_payment_prefs,
+        schedule_guard: schedule_guard.clone(),
     };
 
     // Bootstrap user-defined schedules (load and register)

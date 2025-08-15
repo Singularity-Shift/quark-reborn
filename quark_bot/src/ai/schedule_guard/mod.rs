@@ -1,15 +1,11 @@
 use anyhow::Result;
 use open_ai_rust_responses_by_sshift::{Client, Model, Request, ReasoningEffort, Verbosity};
 
+pub mod result;
+pub use result::ScheduleGuardResult;
+
 pub struct ScheduleGuardService {
 	client: Client,
-}
-
-#[derive(Debug, Clone)]
-pub struct ScheduleGuardResult {
-	pub verdict: String, // "P" or "F"
-	pub reason: Option<String>,
-	pub total_tokens: u32,
 }
 
 impl ScheduleGuardService {

@@ -14,7 +14,7 @@ use serde_json::value;
 use crate::{
     ai::{
         moderation::{ModerationOverrides, ModerationService},
-        schedule_guard::ScheduleGuardService,
+        
         vector_store::list_user_files_with_names,
     },
     user_model_preferences::handler::initialize_user_preferences,
@@ -1335,10 +1335,10 @@ pub async fn handle_message(bot: Bot, msg: Message, bot_deps: BotDependencies) -
                     if is_reply || (!is_command && !text_raw.trim().is_empty()) {
                         let text = text_raw.to_string();
                         // Guard scheduled prompt against forbidden tools
-                        if let Ok(openai_api_key) = std::env::var("OPENAI_API_KEY") {
-                            if let Ok(guard) = ScheduleGuardService::new(openai_api_key) {
-                                match guard.check_prompt(&text).await {
-                                    Ok(res) => {
+                        {
+                            let guard = bot_deps.schedule_guard.clone();
+                            match guard.check_prompt(&text).await {
+                                Ok(res) => {
                                         // Bill the group for the guard check like moderation
                                         if let Some(group_credentials) = bot_deps.group.get_credentials(msg.chat.id) {
                                             if let Err(e) = create_purchase_request(
@@ -1371,10 +1371,9 @@ pub async fn handle_message(bot: Bot, msg: Message, bot_deps: BotDependencies) -
                                             // Do not advance wizard; let user try again by sending a new prompt
                                             return Ok(());
                                         }
-                                    }
-                                    Err(e) => {
-                                        log::warn!("schedule_guard check failed: {}", e);
-                                    }
+                                }
+                                Err(e) => {
+                                    log::warn!("schedule_guard check failed: {}", e);
                                 }
                             }
                         }
