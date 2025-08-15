@@ -153,7 +153,7 @@ pub async fn create_purchase_request(
     let (currency, coin_version) = if let Some(gid) = &group_id {
         let key = gid.clone();
         let prefs: Option<crate::payment::dto::PaymentPrefs> =
-            bot_deps.payment.get_payment_token_session(key);
+            bot_deps.payment.get_payment_token(key);
         if prefs.is_some() {
             let prefs = prefs.unwrap();
             (prefs.currency, prefs.version)
@@ -166,7 +166,7 @@ pub async fn create_purchase_request(
     } else {
         let key = user_id;
         let prefs: Option<crate::payment::dto::PaymentPrefs> =
-            bot_deps.payment.get_payment_token_session(key);
+            bot_deps.payment.get_payment_token(key);
         if prefs.is_some() {
             let prefs = prefs.unwrap();
             (prefs.currency, prefs.version)

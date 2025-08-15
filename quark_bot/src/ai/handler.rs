@@ -1,8 +1,14 @@
+use crate::ai::actions::{
+    execute_fear_and_greed_index, execute_get_recent_messages_for_chat, execute_get_time,
+    execute_new_pools, execute_search_pools, execute_trending_pools,
+};
 use crate::ai::dto::AIResponse;
 use crate::ai::gcs::GcsImageUploader;
 use crate::ai::prompt::get_prompt;
-use crate::ai::tools::{execute_custom_tool, get_all_custom_tools, get_time_tool, get_fear_and_greed_index_tool, get_trending_pools_tool, get_search_pools_tool, get_new_pools_tool, get_recent_messages_tool};
-use crate::ai::actions::{execute_get_time, execute_fear_and_greed_index, execute_trending_pools, execute_search_pools, execute_new_pools, execute_get_recent_messages_for_chat};
+use crate::ai::tools::{
+    execute_custom_tool, get_all_custom_tools, get_fear_and_greed_index_tool, get_new_pools_tool,
+    get_recent_messages_tool, get_search_pools_tool, get_time_tool, get_trending_pools_tool,
+};
 use crate::dependencies::BotDependencies;
 use crate::user_conversation::handler::UserConversations;
 use base64::{Engine as _, engine::general_purpose};
@@ -131,18 +137,24 @@ impl AI {
             user_credentials.resource_account_address
         };
 
-        let coin_address = bot_deps.panora.aptos.get_token_address().await;
+        let coin = if group_id.is_some() {
+            bot_deps
+                .payment
+                .get_payment_token(group_id.clone().unwrap())
+        } else {
+            bot_deps.payment.get_payment_token(user_id.to_string())
+        };
 
-        if coin_address.is_err() {
-            return Err(anyhow::anyhow!("Coin address not found"));
+        if coin.is_none() {
+            return Err(anyhow::anyhow!("Coin not found"));
         }
 
-        let coin_address = coin_address.unwrap();
+        let coin = coin.unwrap();
 
         let user_balance = bot_deps
             .panora
             .aptos
-            .get_account_balance(&address, &coin_address)
+            .get_account_balance(&address, &coin.currency)
             .await;
 
         if user_balance.is_err() {
@@ -151,7 +163,7 @@ impl AI {
 
         let user_balance = user_balance.unwrap();
 
-        let token = bot_deps.panora.get_token_ai_fees().await;
+        let token = bot_deps.panora.get_token_by_symbol(&coin.label).await;
 
         if token.is_err() {
             return Err(anyhow::anyhow!("Token not found"));
@@ -177,12 +189,6 @@ impl AI {
 
         let token_decimals = token.decimals;
 
-        if token_decimals.is_none() {
-            return Err(anyhow::anyhow!("Token decimals not found"));
-        }
-
-        let token_decimals = token_decimals.unwrap();
-
         let min_deposit = bot_deps.panora.min_deposit / token_price;
 
         let min_deposit = (min_deposit as f64 * 10_f64.powi(token_decimals as i32)) as u64;
@@ -200,12 +206,12 @@ impl AI {
 
             return Err(anyhow::anyhow!(format!(
                 "User balance is less than the minimum deposit. Please fund your account transfering {} to <code>{}</code> address. Minimum deposit: {} {} (Your balance: {} {})",
-                token.symbol.clone().unwrap_or("".to_string()),
+                token.symbol,
                 address,
                 min_deposit_formatted,
-                token.symbol.clone().unwrap_or("".to_string()),
+                token.symbol,
                 user_balance_formatted,
-                token.symbol.unwrap_or("".to_string())
+                token.symbol
             )));
         }
 
@@ -634,26 +640,25 @@ impl AI {
 
         // Token checks for group account
         let address = group_credentials.resource_account_address;
-        let coin_address = bot_deps
-            .panora
-            .aptos
-            .get_token_address()
-            .await
-            .map_err(|_| anyhow::anyhow!("Coin address not found"))?;
-        let token = bot_deps.panora.get_token_ai_fees().await?;
+        let coin = bot_deps.payment.get_payment_token(group_id.clone());
+        if coin.is_none() {
+            return Err(anyhow::anyhow!("Coin not found"));
+        }
+        let coin = coin.unwrap();
+
+        let token = bot_deps.panora.get_token_by_symbol(&coin.label).await?;
+
         let token_price = token
             .usd_price
             .ok_or_else(|| anyhow::anyhow!("Token price not found"))?
             .parse::<f64>()?;
-        let token_decimals = token
-            .decimals
-            .ok_or_else(|| anyhow::anyhow!("Token decimals not found"))?;
+        let token_decimals = token.decimals;
         let min_deposit = (bot_deps.panora.min_deposit / token_price) as f64;
         let min_deposit = (min_deposit * 10_f64.powi(token_decimals as i32)) as u64;
         let group_balance = bot_deps
             .panora
             .aptos
-            .get_account_balance(&address, &coin_address)
+            .get_account_balance(&address, &coin.currency)
             .await?;
         if group_balance < min_deposit as i64 {
             let min_deposit_formatted = format!(
@@ -666,12 +671,12 @@ impl AI {
             );
             return Err(anyhow::anyhow!(format!(
                 "User balance is less than the minimum deposit. Please fund your account transfering {} to <code>{}</code> address. Minimum deposit: {} {} (Your balance: {} {})",
-                token.symbol.clone().unwrap_or("".to_string()),
+                token.symbol.clone(),
                 address,
                 min_deposit_formatted,
-                token.symbol.clone().unwrap_or("".to_string()),
+                token.symbol.clone(),
                 group_balance_formatted,
-                token.symbol.unwrap_or("".to_string())
+                token.symbol
             )));
         }
 
@@ -703,7 +708,10 @@ impl AI {
 
         // Label for per-schedule conversation identity (Responses API max length: 64)
         // Use a compact, deterministic label based only on schedule_id
-        let sid_clean: String = schedule_id.chars().filter(|c| c.is_ascii_hexdigit()).collect();
+        let sid_clean: String = schedule_id
+            .chars()
+            .filter(|c| c.is_ascii_hexdigit())
+            .collect();
         let sid_short: String = sid_clean.chars().take(16).collect();
         let user_label = format!("schedule-{}", sid_short);
         let system_prompt = format!("Entity {}: {}", user_label, self.system_prompt);
@@ -726,15 +734,13 @@ impl AI {
                 }
             }
             Model::GPT5 | Model::GPT5Mini => {
-                {
-                    let prefs = bot_deps.user_model_prefs.get_preferences(&creator_username);
-                    let verbosity = prefs.gpt5_verbosity.unwrap_or(Verbosity::Medium);
-                    request_builder = request_builder.verbosity(verbosity);
-                    if let Some(mode) = prefs.gpt5_mode {
-                        if mode == crate::user_model_preferences::dto::Gpt5Mode::Reasoning {
-                            let eff = prefs.gpt5_effort.unwrap_or(ReasoningEffort::Medium);
-                            request_builder = request_builder.reasoning_effort(eff);
-                        }
+                let prefs = bot_deps.user_model_prefs.get_preferences(&creator_username);
+                let verbosity = prefs.gpt5_verbosity.unwrap_or(Verbosity::Medium);
+                request_builder = request_builder.verbosity(verbosity);
+                if let Some(mode) = prefs.gpt5_mode {
+                    if mode == crate::user_model_preferences::dto::Gpt5Mode::Reasoning {
+                        let eff = prefs.gpt5_effort.unwrap_or(ReasoningEffort::Medium);
+                        request_builder = request_builder.reasoning_effort(eff);
                     }
                 }
             }
@@ -793,7 +799,8 @@ impl AI {
 
             let mut function_outputs = Vec::new();
             for tc in &custom_tool_calls {
-                let args_value: serde_json::Value = serde_json::from_str(&tc.arguments).unwrap_or_else(|_| serde_json::json!({}));
+                let args_value: serde_json::Value =
+                    serde_json::from_str(&tc.arguments).unwrap_or_else(|_| serde_json::json!({}));
                 let result = match tc.name.as_str() {
                     "get_current_time" => execute_get_time(&args_value).await,
                     "get_fear_and_greed_index" => execute_fear_and_greed_index(&args_value).await,

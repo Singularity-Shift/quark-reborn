@@ -12,7 +12,7 @@ impl Payment {
         Ok(Self { db: tree })
     }
 
-    pub fn get_payment_token_session(&self, id: String) -> Option<PaymentPrefs> {
+    pub fn get_payment_token(&self, id: String) -> Option<PaymentPrefs> {
         let session = self.db.get(id).unwrap_or(None);
         if session.is_none() {
             return None;
@@ -22,7 +22,7 @@ impl Payment {
         Some(session)
     }
 
-    pub fn set_payment_token_session(&self, id: String, value: PaymentPrefs) {
+    pub fn set_payment_token(&self, id: String, value: PaymentPrefs) {
         self.db
             .insert(id, serde_json::to_vec(&value).unwrap())
             .unwrap();
