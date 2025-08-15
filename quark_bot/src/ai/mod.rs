@@ -3,6 +3,7 @@ pub mod dto;
 pub mod gcs;
 pub mod handler;
 pub mod moderation;
+pub mod schedule_guard;
 pub mod prompt;
 pub mod tools;
 pub mod vector_store;
