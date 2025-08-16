@@ -2,7 +2,7 @@ use std::collections::HashSet;
 
 use anyhow::Result;
 use futures::stream::{self, StreamExt};
-use teloxide::{prelude::Requester, types::{Message, UserId}, Bot};
+use teloxide::{prelude::*, types::{Message, UserId, ParseMode}, Bot};
 
 use crate::credentials::dto::Credentials;
 use crate::dependencies::BotDependencies;
@@ -103,7 +103,7 @@ pub async fn handle_announcement(
     .await?;
 
     // Prepare announcement message with header
-    let announcement_text = format!("📢 **GLOBAL ANNOUNCEMENT**\n\n{}", text);
+    let announcement_text = format!("📢 <b>GLOBAL ANNOUNCEMENT</b>\n\n{}", text);
 
     let recipient_count = recipients.len();
 
@@ -165,10 +165,14 @@ async fn send_announcement_to_user(bot: Bot, user_id: UserId, text: &str) -> Res
     if text.len() > TELEGRAM_MESSAGE_LIMIT {
         let chunks = split_text(text, TELEGRAM_MESSAGE_LIMIT);
         for chunk in chunks {
-            bot.send_message(user_id, chunk).await?;
+            bot.send_message(user_id, chunk)
+                .parse_mode(ParseMode::Html)
+                .await?;
         }
     } else {
-        bot.send_message(user_id, text).await?;
+        bot.send_message(user_id, text)
+            .parse_mode(ParseMode::Html)
+            .await?;
     }
 
     Ok(())
