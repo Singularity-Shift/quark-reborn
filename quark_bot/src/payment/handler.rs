@@ -171,7 +171,11 @@ async fn handle_payment_selected(
 
             // Build entries (label, currency, version)
             let mut entries: Vec<PaymentPrefs> = Vec::new();
-            for addr in allowed {
+            for mut addr in allowed {
+                if addr == "0x1" {
+                    addr = "0x1::aptos_coin::AptosCoin".to_string();
+                }
+
                 let token = tokens.iter().find(|t| {
                     t.token_address.as_ref().is_some() && t.token_address.as_ref().unwrap() == &addr
                         || t.fa_address == addr
