@@ -1489,7 +1489,7 @@ pub async fn handle_message(bot: Bot, msg: Message, bot_deps: BotDependencies) -
                 bot.send_message(
                     msg.chat.id,
                     format!(
-                        "User balance is less than the minimum deposit. Please fund your account transfering {} to <code>{}</code> address. Minimum deposit: {} {} (Your balance: {} {})",
+                        "User balance is less than the minimum deposit. Please fund your account transfering {} to ```{}``` address. Minimum deposit: {} {} (Your balance: {} {})",
                         token.symbol, 
                         address,
                         min_deposit_formatted,
