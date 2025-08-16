@@ -14,11 +14,11 @@ Price(
         ),
         (
             name: GPT5,
-            price: 0.034,
+            price: 0.01200,
         ),
         (
             name: GPT41,
-            price: 0.0136,
+            price: 0.01920,
         ),
         (
             name: GPT41Mini,
@@ -26,25 +26,25 @@ Price(
         ),
         (
             name: GPT5Mini,
-            price: 0.00272,
+            price: 0.00240,
         ),
         (
             name: GPT5Nano,
-            price: 0.00068,
+            price: 0.00048,
         ),
     ],
     tool: [
         (
             name: FileSearch,
-            price: 0.00425,
+            price: 0.01,
         ),
         (
             name: ImageGeneration,
-            price: 0.25,
+            price: 0.06,
         ),
         (
             name: WebSearchPreview,
-            price: 0.05,
+            price: 0.04000,
         ),
     ],
 )
