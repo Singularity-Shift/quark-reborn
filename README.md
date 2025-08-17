@@ -310,7 +310,7 @@ cargo test --test integration_tests
 ## 📚 Documentation
 
 - **[Architecture Documentation](Architecture.md)** - System design and component interactions
-- **[License](LICENSE)** - Dual license (GPL-3.0 or Commercial)
+- **[License](LICENSE)** - Dual license (GPL-3.0 or Commercial) + Smart Contracts (CC BY-NC-ND 4.0)
 - **[Consumer README](quark_consumer/README.md)** - Payment processor setup details
 
 ## 🤝 Contributing
@@ -323,9 +323,18 @@ cargo test --test integration_tests
 
 ## 📄 License
 
-This project is dual-licensed under:
+This project uses a multi-tier licensing approach:
+
+### Software Components
 - **GNU General Public License v3.0 (GPL-3.0)** - [Full License Text](LICENSE)
 - **Commercial License** - Contact [james@sshiftgpt.com](mailto:james@sshiftgpt.com) or [spielcrypto@sshiftgpt.com](mailto:spielcrypto@sshiftgpt.com)
+
+### Smart Contracts
+- **Creative Commons Attribution-NonCommercial-NoDerivatives 4.0 (CC BY-NC-ND 4.0)**
+- Smart contracts in the `contracts/` directory are licensed under CC BY-NC-ND 4.0
+- This allows sharing and adaptation for non-commercial purposes only
+- **No commercial use** of smart contracts (original or modified versions) is permitted
+- **No distribution** of modified smart contracts is allowed
 
 ## 🆘 Support
 
