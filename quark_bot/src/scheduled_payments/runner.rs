@@ -102,10 +102,14 @@ pub async fn register_schedule(
                     if rec.notify_on_success {
                         let network = std::env::var("APTOS_NETWORK").unwrap_or_else(|_| "mainnet".to_string()).to_lowercase();
                         let hash = resp.hash;
+                        let amount_smallest = rec.amount_smallest_units.unwrap_or(0);
+                        let decimals = rec.decimals.unwrap_or(8) as i32;
+                        let human_amount = (amount_smallest as f64) / 10f64.powi(decimals);
+                        let symbol = rec.symbol.clone().unwrap_or_default();
                         let text = format!(
-                            "✅ Payment sent\nAmount: {} {}\nTo: @{}\nSchedule: {}\n🔗 Explorer: https://explorer.aptoslabs.com/txn/{}?network={}",
-                            rec.amount_smallest_units.unwrap_or(0),
-                            rec.symbol.clone().unwrap_or_default(),
+                            "✅ Payment sent\nAmount: {} {:.4}\nTo: @{}\nSchedule: {}\n🔗 Explorer: https://explorer.aptoslabs.com/txn/{}?network={}",
+                            symbol,
+                            human_amount,
                             rec.recipient_username.clone().unwrap_or_default(),
                             rec.id,
                             hash,
