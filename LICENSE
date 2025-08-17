@@ -67,13 +67,21 @@
  * Under the following terms:
  *   - Attribution: You must give appropriate credit, provide a link to the
  *     license, and indicate if changes were made.
- *   - NonCommercial: You may not use the smart contracts for commercial purposes.
+ *   - NonCommercial: You may not use the smart contracts OR ANY MODIFIED
+ *     VERSIONS for commercial purposes. This includes but is not limited to:
+ *     * Using the original smart contracts for profit
+ *     * Using adapted/remixed versions for profit
+ *     * Incorporating modified smart contracts into commercial projects
+ *     * Any derivative work that generates revenue or commercial value
  *   - NoDerivatives: If you remix, transform, or build upon the smart contracts,
  *     you may not distribute the modified materials.
  *
+ * IMPORTANT: The NonCommercial restriction applies to BOTH the original smart
+ * contracts AND any adapted/derivative versions. You cannot circumvent the
+ * commercial restriction by modifying the code.
+ *
  * Full license text available at:
  *   https://creativecommons.org/licenses/by-nc-nd/4.0/
- *
  * ----------------------------------------------------------------------------
  *
  * By choosing which license to accept, you agree to abide by its terms.
