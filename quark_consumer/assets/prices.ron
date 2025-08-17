@@ -18,7 +18,7 @@ Price(
         ),
         (
             name: GPT41,
-            price: 0.01920,
+            price: 0.0128,
         ),
         (
             name: GPT41Mini,
@@ -40,7 +40,7 @@ Price(
         ),
         (
             name: ImageGeneration,
-            price: 0.06,
+            price: 0.16,
         ),
         (
             name: WebSearchPreview,
