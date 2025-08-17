@@ -20,10 +20,10 @@ PAY_USERS_WORKFLOW.md
 SCHEDULEPROMPT_WORKFLOW.md
 
 # AI Service Files (use templates instead)
-quark_bot/src/ai/prompt.rs
-quark_bot/src/ai/moderation/moderation_service.rs
-quark_bot/src/ai/moderation/overrides.rs
-quark_bot/src/ai/schedule_guard/schedule_guard_service.rs
+# quark_bot/src/ai/prompt.rs
+# quark_bot/src/ai/moderation/moderation_service.rs
+# quark_bot/src/ai/moderation/overrides.rs
+# quark_bot/src/ai/schedule_guard/schedule_guard_service.rs
 
 
 
