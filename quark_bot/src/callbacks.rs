@@ -6,6 +6,7 @@ use crate::ai::vector_store::{
 use crate::dao::handler::{handle_dao_preference_callback, handle_disable_notifications_callback};
 use crate::dependencies::BotDependencies;
 use crate::scheduled_prompts::callbacks::handle_scheduled_prompts_callback;
+use crate::scheduled_payments::callbacks::handle_scheduled_payments_callback;
 use crate::user_model_preferences::callbacks::handle_model_preferences_callback;
 use crate::utils;
 use anyhow::Result;
@@ -1162,6 +1163,9 @@ If you have questions, ask an admin before posting.
         } else if data.starts_with("sched_") {
             // Handle scheduled prompts wizard and management callbacks
             handle_scheduled_prompts_callback(bot, query, bot_deps).await?;
+        } else if data.starts_with("schedpay_") {
+            // Handle scheduled payments wizard and management callbacks
+            handle_scheduled_payments_callback(bot, query, bot_deps).await?;
         } else if data == "open_payment_settings"
             || data == "open_group_payment_settings"
             || data == "payment_selected"

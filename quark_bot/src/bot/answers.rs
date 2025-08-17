@@ -18,6 +18,9 @@ use crate::dependencies::BotDependencies;
 use crate::scheduled_prompts::handler::{
     handle_listscheduled_command, handle_scheduleprompt_command,
 };
+use crate::scheduled_payments::handler::{
+    handle_listscheduledpayments_command, handle_schedulepayment_command,
+};
 
 pub async fn answers(
     bot: Bot,
@@ -228,6 +231,12 @@ pub async fn answers(
         }
         Command::ListScheduled => {
             handle_listscheduled_command(bot, msg, bot_deps.clone()).await?;
+        }
+        Command::SchedulePayment => {
+            handle_schedulepayment_command(bot, msg, bot_deps.clone()).await?;
+        }
+        Command::ListScheduledPayments => {
+            handle_listscheduledpayments_command(bot, msg, bot_deps.clone()).await?;
         }
     };
     Ok(())
