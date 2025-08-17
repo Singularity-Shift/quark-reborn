@@ -53,7 +53,32 @@
  *
  * ----------------------------------------------------------------------------
  *
+ * SMART CONTRACTS LICENSE
+ * ============================================================
+ *
+ * All smart contracts in the contracts/ directory are licensed under the
+ * Creative Commons Attribution-NonCommercial-NoDerivatives 4.0 International
+ * License (CC BY-NC-ND 4.0).
+ *
+ * This means you are free to:
+ *   - Share: Copy and redistribute the smart contracts in any medium or format
+ *   - Adapt: Remix, transform, and build upon the smart contracts
+ *
+ * Under the following terms:
+ *   - Attribution: You must give appropriate credit, provide a link to the
+ *     license, and indicate if changes were made.
+ *   - NonCommercial: You may not use the smart contracts for commercial purposes.
+ *   - NoDerivatives: If you remix, transform, or build upon the smart contracts,
+ *     you may not distribute the modified materials.
+ *
+ * Full license text available at:
+ *   https://creativecommons.org/licenses/by-nc-nd/4.0/
+ *
+ * ----------------------------------------------------------------------------
+ *
  * By choosing which license to accept, you agree to abide by its terms.
+ * Smart contracts are governed by CC BY-NC-ND 4.0, while the rest of the
+ * software is governed by the dual license options above.
  *
  * ============================================================
  */
