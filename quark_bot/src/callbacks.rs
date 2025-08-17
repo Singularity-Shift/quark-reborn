@@ -276,7 +276,7 @@ pub async fn handle_callback_query(
                 if let teloxide::types::MaybeInaccessibleMessage::Regular(m) = message {
                     let keyboard = InlineKeyboardMarkup::new(vec![
                         vec![InlineKeyboardButton::callback(
-                            "GPT-4.1 (💰 Expensive - Great for Code)",
+                            "GPT-4.1 (💰  Most Expensive)",
                             "select_chat_model:GPT41",
                         )],
                         vec![InlineKeyboardButton::callback(
