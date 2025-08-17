@@ -135,7 +135,10 @@ pub async fn handle_scheduled_payments_callback(
                 amount_display: rec
                     .amount_smallest_units
                     .and_then(|v| rec.decimals.map(|d| v as f64 / 10f64.powi(d as i32))),
-                date: rec.start_timestamp_utc.map(|ts| chrono::DateTime::<chrono::Utc>::from_timestamp(ts, 0).map(|dt| dt.format("%Y-%m-%d").to_string()).unwrap_or_else(|| "".into())),
+                date: rec
+                    .start_timestamp_utc
+                    .and_then(|ts| chrono::DateTime::<chrono::Utc>::from_timestamp(ts, 0)
+                        .map(|dt| dt.format("%Y-%m-%d").to_string())),
                 hour_utc: rec
                     .start_timestamp_utc
                     .and_then(|ts| chrono::DateTime::<chrono::Utc>::from_timestamp(ts, 0).map(|dt| dt.hour() as u8)),
