@@ -89,11 +89,15 @@ pub fn summarize(state: &PendingPaymentWizardState) -> String {
         .minute_utc
         .map(|m| format!("{:02}", m))
         .unwrap_or("--".into());
-    let repeat = match state.repeat {
-        Some(RepeatPolicy::Daily) => "Daily".to_string(),
-        Some(RepeatPolicy::Weekly) => "Weekly / 1w".to_string(),
-        Some(_) => "(unsupported)".to_string(),
-        None => "(not set)".to_string(),
+    let repeat = match (state.repeat.clone(), state.weekly_weeks) {
+        (Some(RepeatPolicy::Daily), _) => "Daily".to_string(),
+        (Some(RepeatPolicy::Weekly), Some(1)) => "Weekly / 1w".to_string(),
+        (Some(RepeatPolicy::Weekly), Some(2)) => "2-Weekly / 2w".to_string(),
+        (Some(RepeatPolicy::Weekly), Some(4)) => "4-Weekly / 4w".to_string(),
+        (Some(RepeatPolicy::Weekly), Some(w)) => format!("Every {}w", w),
+        (Some(RepeatPolicy::Weekly), None) => "Weekly".to_string(),
+        (Some(_), _) => "(unsupported)".to_string(),
+        (None, _) => "(not set)".to_string(),
     };
     format!(
         "💸 Payment schedule (UTC)\nRecipient: {}\nAmount: {} {}\nFirst run: {} {}:{}\nRepeat: {}",

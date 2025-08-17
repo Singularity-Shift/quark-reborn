@@ -42,7 +42,7 @@ pub async fn handle_scheduled_payments_callback(
                 .reply_markup(crate::scheduled_payments::wizard::build_minutes_keyboard_payments())
                 .await?;
         }
-    } else if data.starts_with("schedpay_min:") || data.starts_with("sched_min:") {
+    } else if data.starts_with("schedpay_min:") {
         let minute: u8 = data.split(':').nth(1).unwrap_or("0").parse().unwrap_or(0);
         if let Some(mut st) = bot_deps.scheduled_payments.get_pending(key) {
             st.step = PendingPaymentStep::AwaitingRepeat;
