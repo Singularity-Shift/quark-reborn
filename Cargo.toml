@@ -4,6 +4,7 @@ members = [
     "quark_core",
     "quark_bot",
     "quark_server", "quark_consumer"]
+exclude = ["scripts"]
 
 [workspace.dependencies]
 teloxide = { version = "0.17.0", features = ["macros"] }
