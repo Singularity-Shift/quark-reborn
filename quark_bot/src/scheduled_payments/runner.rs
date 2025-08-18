@@ -75,11 +75,34 @@ pub async fn register_schedule(
                     Some(c) => c,
                     None => return Err(anyhow::anyhow!("Group credentials not found")),
                 };
+                
+                // Validate critical payment data before proceeding
+                let amount = match rec.amount_smallest_units {
+                    Some(amt) => {
+                        if amt > 0 {
+                            amt
+                        } else {
+                            return Err(anyhow::anyhow!("Scheduled payment amount cannot be zero"));
+                        }
+                    },
+                    None => return Err(anyhow::anyhow!("Scheduled payment amount is missing")),
+                };
+                
+                let coin_type = match &rec.token_type {
+                    Some(token) if !token.is_empty() => token.clone(),
+                    Some(_) => return Err(anyhow::anyhow!("Scheduled payment token type is empty")),
+                    None => return Err(anyhow::anyhow!("Scheduled payment token type is missing")),
+                };
+                
+                let recipient_address = match &rec.recipient_address {
+                    Some(addr) if !addr.is_empty() => addr.clone(),
+                    Some(_) => return Err(anyhow::anyhow!("Scheduled payment recipient address is empty")),
+                    None => return Err(anyhow::anyhow!("Scheduled payment recipient address is missing")),
+                };
+                
                 let token = group_credentials.jwt;
-                let amount = rec.amount_smallest_units.unwrap_or(0);
-                let coin_type = rec.token_type.clone().unwrap_or_default();
                 let version = quark_core::helpers::dto::CoinVersion::V1;
-                let users = vec![rec.recipient_address.clone().unwrap_or_default()];
+                let users = vec![recipient_address];
                 let payload = quark_core::helpers::dto::PayUsersRequest { amount, users, coin_type, version };
                 bot_deps.service.pay_members(token, payload).await
             })().await;
@@ -105,12 +128,13 @@ pub async fn register_schedule(
                         let amount_smallest = rec.amount_smallest_units.unwrap_or(0);
                         let decimals = rec.decimals.unwrap_or(8) as i32;
                         let human_amount = (amount_smallest as f64) / 10f64.powi(decimals);
-                        let symbol = rec.symbol.clone().unwrap_or_default();
+                        let symbol = rec.symbol.as_deref().unwrap_or("Unknown");
+                        let recipient_username = rec.recipient_username.as_deref().unwrap_or("Unknown");
                         let text = format!(
                             "✅ Payment sent\nAmount: {} {:.4}\nTo: @{}\nSchedule: {}\n🔗 Explorer: https://explorer.aptoslabs.com/txn/{}?network={}",
                             symbol,
                             human_amount,
-                            rec.recipient_username.clone().unwrap_or_default(),
+                            recipient_username,
                             rec.id,
                             hash,
                             network
