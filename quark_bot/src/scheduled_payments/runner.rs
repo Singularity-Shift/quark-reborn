@@ -101,7 +101,11 @@ pub async fn register_schedule(
                 };
                 
                 let token = group_credentials.jwt;
-                let version = quark_core::helpers::dto::CoinVersion::V1;
+                let version = if coin_type.contains("::") {
+                    quark_core::helpers::dto::CoinVersion::V1
+                } else {
+                    quark_core::helpers::dto::CoinVersion::V2
+                };
                 let users = vec![recipient_address];
                 let payload = quark_core::helpers::dto::PayUsersRequest { amount, users, coin_type, version };
                 bot_deps.service.pay_members(token, payload).await
