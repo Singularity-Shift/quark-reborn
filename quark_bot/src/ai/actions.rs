@@ -1724,20 +1724,18 @@ pub async fn execute_prices(_arguments: &serde_json::Value) -> String {
     "💰 <b>Model Prices</b> <i>(per 1000 tokens)</i>
 
 🤖 <b>AI Models:</b>
-• <code>o3</code> <i>(retired)</i> - <b>$0.0136</b>
-• <code>o4-mini</code> <i>(retired)</i> - <b>$0.00748</b>
-• <code>GPT-5</code> - <b>$0.034</b>
-• <code>GPT-4.1</code> - <b>$0.0136</b>
-• <code>GPT-5-mini</code> - <b>$0.00272</b>
-• <code>sentinel (GPT-5-nano)</code> - <b>$0.00068</b>
+• <code>gpt-4.1</code> - <b>$0.0128</b>
+• <code>gpt-5</code> - <b>$0.01200</b>
+• <code>gpt-5-mini</code> - <b>$0.00240</b>
+• <code>gpt-5-nano (sentinel)</code> - <b>$0.00048</b>
 
-🛠️ <b>Other Services:</b>
-• <code>GPT-image-1</code> - <b>$0.25</b>
-• <code>File search (storage)</code> - <b>FREE</b> 🎉
-• <code>File search</code> - <b>$0.00425</b>
+🛠️ <b>Tools:</b>
+• <code>FileSearch</code> - <b>$0.01</b>
+• <code>ImageGeneration</code> - <b>$0.16</b>
+• <code>WebSearchPreview</code> - <b>$0.04</b>
 
 💳 <b>Payment Information:</b>
-💰 Payment is made in <b>📒</b> at the <u>dollar market rate</u>
+💰 Payment is made in <b>your selected payment token (deafult 📒)</b> at the <u>dollar market rate</u>
 ⚠️ <i>All prices are subject to change based on provider rates</i>"
         .to_string()
 }
