@@ -101,7 +101,7 @@ pub fn summarize(state: &PendingPaymentWizardState) -> String {
     };
     format!(
         "💸 Payment schedule (UTC)\nRecipient: {}\nAmount: {} {}\nFirst run: {} {}:{}\nRepeat: {}",
-        recipient, symbol, amount, date, hour, minute, repeat
+        recipient, amount, symbol, date, hour, minute, repeat
     )
 }
 

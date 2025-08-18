@@ -131,9 +131,9 @@ pub async fn register_schedule(
                         let symbol = rec.symbol.as_deref().unwrap_or("Unknown");
                         let recipient_username = rec.recipient_username.as_deref().unwrap_or("Unknown");
                         let text = format!(
-                            "✅ Payment sent\nAmount: {} {:.4}\nTo: @{}\nSchedule: {}\n🔗 Explorer: https://explorer.aptoslabs.com/txn/{}?network={}",
-                            symbol,
+                            "✅ Payment sent\nAmount: {:.4} {}\nTo: @{}\nSchedule: {}\n🔗 Explorer: https://explorer.aptoslabs.com/txn/{}?network={}",
                             human_amount,
+                            symbol,
                             recipient_username,
                             rec.id,
                             hash,
