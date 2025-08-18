@@ -1390,6 +1390,96 @@ pub async fn handle_message(bot: Bot, msg: Message, bot_deps: BotDependencies) -
             }
         }
 
+        // Scheduled payments wizard: capture free text steps
+        if let Some(user) = &msg.from {
+            let pay_key = (&msg.chat.id.0, &(user.id.0 as i64));
+            if let Some(mut st) = bot_deps.scheduled_payments.get_pending(pay_key) {
+                let text_raw = msg.text().or_else(|| msg.caption()).unwrap_or("").trim().to_string();
+                if text_raw.eq_ignore_ascii_case("/cancel") || text_raw.to_lowercase().starts_with("/cancel@") {
+                    bot_deps.scheduled_payments.delete_pending(pay_key)?;
+                    bot.send_message(msg.chat.id, "✅ Cancelled scheduled payment setup.").await?;
+                    return Ok(());
+                }
+                if text_raw.is_empty() || text_raw.starts_with('/') { return Ok(()); }
+                match st.step {
+                    crate::scheduled_payments::dto::PendingPaymentStep::AwaitingRecipient => {
+                        // Expect @username
+                        let uname = text_raw.trim_start_matches('@').to_string();
+                        if let Some(creds) = bot_deps.auth.get_credentials(&uname) {
+                            st.recipient_username = Some(uname);
+                            st.recipient_address = Some(creds.resource_account_address);
+                            st.step = crate::scheduled_payments::dto::PendingPaymentStep::AwaitingToken;
+                            bot_deps.scheduled_payments.put_pending(pay_key, &st)?;
+                            bot.send_message(msg.chat.id, "💳 Send token symbol (e.g., APT, USDC, or emoji)").await?;
+                        } else {
+                            bot.send_message(msg.chat.id, "❌ Unknown user. Please send a valid @username.").await?;
+                        }
+                        return Ok(());
+                    }
+                    crate::scheduled_payments::dto::PendingPaymentStep::AwaitingToken => {
+                        let symbol_input = if text_raw.chars().any(|c| c.is_ascii_alphabetic()) { text_raw.to_uppercase() } else { text_raw.clone() };
+                        let (token_type, decimals, symbol) = if symbol_input.eq_ignore_ascii_case("APT") || symbol_input.eq_ignore_ascii_case("APTOS") {
+                            ("0x1::aptos_coin::AptosCoin".to_string(), 8u8, "APT".to_string())
+                        } else {
+                            match bot_deps.panora.get_token_by_symbol(&symbol_input).await {
+                                Ok(token) => {
+                                    let t = if token.token_address.is_some() { token.token_address.unwrap() } else { token.fa_address };
+                                    (t, token.decimals, token.symbol)
+                                }
+                                Err(_) => {
+                                    bot.send_message(msg.chat.id, "❌ Token not found. Try again (e.g., APT, USDC)").await?;
+                                    return Ok(());
+                                }
+                            }
+                        };
+                        st.symbol = Some(symbol);
+                        st.token_type = Some(token_type);
+                        st.decimals = Some(decimals);
+                        st.step = crate::scheduled_payments::dto::PendingPaymentStep::AwaitingAmount;
+                        bot_deps.scheduled_payments.put_pending(pay_key, &st)?;
+                        bot.send_message(msg.chat.id, "💰 Send amount (decimal)").await?;
+                        return Ok(());
+                    }
+                    crate::scheduled_payments::dto::PendingPaymentStep::AwaitingAmount => {
+                        let parsed = text_raw.replace('_', "").replace(',', "");
+                        match parsed.parse::<f64>() {
+                            Ok(v) if v > 0.0 => {
+                                st.amount_display = Some(v);
+                                st.step = crate::scheduled_payments::dto::PendingPaymentStep::AwaitingDate;
+                                bot_deps.scheduled_payments.put_pending(pay_key, &st)?;
+                                bot.send_message(msg.chat.id, "📅 Send start date in YYYY-MM-DD (UTC)").await?;
+                            }
+                            _ => {
+                                bot.send_message(msg.chat.id, "❌ Invalid amount. Please send a positive number.").await?;
+                            }
+                        }
+                        return Ok(());
+                    }
+                    crate::scheduled_payments::dto::PendingPaymentStep::AwaitingDate => {
+                        if chrono::NaiveDate::parse_from_str(&text_raw, "%Y-%m-%d").is_ok() {
+                            st.date = Some(text_raw);
+                            st.step = crate::scheduled_payments::dto::PendingPaymentStep::AwaitingHour;
+                            bot_deps.scheduled_payments.put_pending(pay_key, &st)?;
+                            let kb = crate::scheduled_payments::wizard::build_hours_keyboard_payments();
+                            bot.send_message(msg.chat.id, "⏰ Select hour (UTC)").reply_markup(kb).await?;
+                        } else {
+                            bot.send_message(msg.chat.id, "❌ Invalid date. Use YYYY-MM-DD.").await?;
+                        }
+                        return Ok(());
+                    }
+                    crate::scheduled_payments::dto::PendingPaymentStep::AwaitingConfirm => {
+                        // Support 'skip' to keep existing values during edit flow
+                        if text_raw.eq_ignore_ascii_case("skip") {
+                            // do nothing, keep values
+                            bot.send_message(msg.chat.id, "✔️ Keeping existing values. Use buttons to confirm.").await?;
+                            return Ok(());
+                        }
+                    }
+                    _ => {}
+                }
+            }
+        }
+
         // Check if sentinel is on for this group
         let sentinel_on = sentinel_tree
             .get(chat_id)
