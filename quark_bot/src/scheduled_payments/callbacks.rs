@@ -289,19 +289,28 @@ pub async fn handle_scheduled_payments_callback(
         }
     } else if data.starts_with("schedpay_close:") {
         let id = data.split(':').nth(1).unwrap_or("");
-        if let Some(rec) = bot_deps.scheduled_payments.get_schedule(id) {
-            // Only the creator can close their own scheduled payment display
-            if rec.creator_user_id != user.id.0 as i64 {
-                bot.answer_callback_query(query.id).text("❌ Only the creator can close this display").await?;
-                return Ok(());
+        if !id.is_empty() {
+            // ID provided - validate creator and close specific payment display
+            if let Some(rec) = bot_deps.scheduled_payments.get_schedule(id) {
+                // Only the creator can close their own scheduled payment display
+                if rec.creator_user_id != user.id.0 as i64 {
+                    bot.answer_callback_query(query.id).text("❌ Only the creator can close this display").await?;
+                    return Ok(());
+                }
+                bot.answer_callback_query(query.id).text("Closed").await?;
+                if let Some(teloxide::types::MaybeInaccessibleMessage::Regular(m)) = &query.message {
+                    let _ = bot.edit_message_reply_markup(m.chat.id, m.id).await;
+                }
+            } else {
+                // Schedule not found - still respond to prevent UI hang
+                bot.answer_callback_query(query.id).text("ℹ️ Scheduled payment not found").await?;
             }
+        } else {
+            // No ID provided - just close the current message markup (for backward compatibility)
             bot.answer_callback_query(query.id).text("Closed").await?;
             if let Some(teloxide::types::MaybeInaccessibleMessage::Regular(m)) = &query.message {
                 let _ = bot.edit_message_reply_markup(m.chat.id, m.id).await;
             }
-        } else {
-            // Schedule not found - still respond to prevent UI hang
-            bot.answer_callback_query(query.id).text("ℹ️ Scheduled payment not found").await?;
         }
     }
 
