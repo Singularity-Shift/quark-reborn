@@ -3,6 +3,7 @@ use std::sync::Arc;
 use crate::message_history::handler::HistoryStorage;
 use crate::payment::dto::PaymentPrefs;
 use crate::scheduled_prompts::storage::ScheduledStorage;
+use crate::scheduled_payments::storage::ScheduledPaymentsStorage;
 use crate::{
     ai::handler::AI, assets::media_aggregator::MediaGroupAggregator, credentials::handler::Auth,
     dao::dao::Dao, group::handler::Group, panora::handler::Panora, payment::payment::Payment,
@@ -27,6 +28,7 @@ pub struct BotDependencies {
     pub group: Group,
     pub dao: Dao,
     pub scheduled_storage: ScheduledStorage,
+    pub scheduled_payments: ScheduledPaymentsStorage,
     pub media_aggregator: Arc<MediaGroupAggregator>,
     pub history_storage: HistoryStorage,
     pub pending_transactions: PendingTransactions,
