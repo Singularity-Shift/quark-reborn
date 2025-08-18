@@ -92,6 +92,9 @@ pub async fn handle_scheduled_payments_callback(
             bot_deps.scheduled_payments.delete_pending(key)?;
             super::handler::finalize_and_register_payment(bot.clone(), bot_deps.clone(), st).await?;
             bot.answer_callback_query(query.id).await?;
+        } else {
+            // No pending payment exists - still respond to prevent UI hang
+            bot.answer_callback_query(query.id).text("ℹ️ No pending payment to confirm").await?;
         }
     } else if data == "schedpay_cancel" {
         // Only the creator can cancel their own pending payment
@@ -105,6 +108,9 @@ pub async fn handle_scheduled_payments_callback(
             if let Some(teloxide::types::MaybeInaccessibleMessage::Regular(m)) = &query.message {
                 let _ = bot.edit_message_reply_markup(m.chat.id, m.id).await;
             }
+        } else {
+            // No pending payment exists - still respond to prevent UI hang
+            bot.answer_callback_query(query.id).text("ℹ️ No pending payment to cancel").await?;
         }
     } else if data.starts_with("schedpay_toggle:") {
         let id = data.split(':').nth(1).unwrap_or("");
@@ -119,6 +125,9 @@ pub async fn handle_scheduled_payments_callback(
             bot.answer_callback_query(query.id)
                 .text(if rec.active { "▶️ Resumed" } else { "⏸ Paused" })
                 .await?;
+        } else {
+            // Schedule not found - still respond to prevent UI hang
+            bot.answer_callback_query(query.id).text("ℹ️ Scheduled payment not found").await?;
         }
     } else if data.starts_with("schedpay_delete:") {
         let id = data.split(':').nth(1).unwrap_or("");
@@ -134,6 +143,9 @@ pub async fn handle_scheduled_payments_callback(
             if let Some(teloxide::types::MaybeInaccessibleMessage::Regular(m)) = &query.message {
                 let _ = bot.delete_message(m.chat.id, m.id).await;
             }
+        } else {
+            // Schedule not found - still respond to prevent UI hang
+            bot.answer_callback_query(query.id).text("ℹ️ Scheduled payment not found").await?;
         }
     } else if data.starts_with("schedpay_edit:") {
         // Creator-only edit: present submenu and open scoped wizard
@@ -271,11 +283,25 @@ pub async fn handle_scheduled_payments_callback(
             rec.next_run_at = Some(Utc::now().timestamp());
             let _ = bot_deps.scheduled_payments.put_schedule(&rec);
             bot.answer_callback_query(query.id).text("⚡ Queued to run").await?;
+        } else {
+            // Schedule not found - still respond to prevent UI hang
+            bot.answer_callback_query(query.id).text("ℹ️ Scheduled payment not found").await?;
         }
     } else if data.starts_with("schedpay_close:") {
-        bot.answer_callback_query(query.id).text("Closed").await?;
-        if let Some(teloxide::types::MaybeInaccessibleMessage::Regular(m)) = &query.message {
-            let _ = bot.edit_message_reply_markup(m.chat.id, m.id).await;
+        let id = data.split(':').nth(1).unwrap_or("");
+        if let Some(rec) = bot_deps.scheduled_payments.get_schedule(id) {
+            // Only the creator can close their own scheduled payment display
+            if rec.creator_user_id != user.id.0 as i64 {
+                bot.answer_callback_query(query.id).text("❌ Only the creator can close this display").await?;
+                return Ok(());
+            }
+            bot.answer_callback_query(query.id).text("Closed").await?;
+            if let Some(teloxide::types::MaybeInaccessibleMessage::Regular(m)) = &query.message {
+                let _ = bot.edit_message_reply_markup(m.chat.id, m.id).await;
+            }
+        } else {
+            // Schedule not found - still respond to prevent UI hang
+            bot.answer_callback_query(query.id).text("ℹ️ Scheduled payment not found").await?;
         }
     }
 
