@@ -52,6 +52,10 @@ pub enum Command {
     SchedulePrompt,
     #[command(description = "List active scheduled prompts (admins only).")]
     ListScheduled,
+    #[command(description = "Schedule a token payment to a user (group admins only).")]
+    SchedulePayment,
+    #[command(description = "List your scheduled token payments (group admins only).")]
+    ListScheduledPayments,
     #[command(description = "Open group settings menu (admins only).")]
     Groupsettings,
 }

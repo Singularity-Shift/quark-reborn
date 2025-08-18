@@ -14,6 +14,7 @@ mod panora;
 mod payment;
 mod pending_transactions;
 mod scheduled_prompts;
+mod scheduled_payments;
 mod services;
 mod user_conversation;
 mod user_model_preferences;
@@ -51,6 +52,8 @@ use crate::assets::command_image_collector;
 use crate::assets::media_aggregator;
 use crate::bot::handler_tree::handler_tree;
 use crate::scheduled_prompts::handler::bootstrap_scheduled_prompts;
+use crate::scheduled_payments::runner::register_all_schedules as bootstrap_scheduled_payments;
+use crate::scheduled_payments::storage::ScheduledPaymentsStorage;
 use tokio_cron_scheduler::JobScheduler;
 use crate::ai::schedule_guard::schedule_guard_service::ScheduleGuardService;
 use crate::ai::moderation::ModerationService;
@@ -114,6 +117,7 @@ async fn main() {
     let dao_db = db.open_tree("dao").expect("Failed to open dao tree");
     let dao = Dao::new(dao_db);
     let scheduled_storage = ScheduledStorage::new(&db).expect("Failed to open scheduled storage");
+    let scheduled_payments = ScheduledPaymentsStorage::new(&db).expect("Failed to open scheduled payments storage");
 
     let payment = Payment::new(&db).unwrap();
 
@@ -175,6 +179,14 @@ async fn main() {
             "listscheduled",
             "List active scheduled prompts (admins only).",
         ),
+        BotCommand::new(
+            "schedulepayment",
+            "Schedule a token payment to a user (admins only).",
+        ),
+        BotCommand::new(
+            "listscheduledpayments",
+            "List scheduled token payments (admins only).",
+        ),
         BotCommand::new("walletaddress", "Get your wallet address."),
         // Removed selectreasoningmodel (unified under selectmodel)
         // selectmodel and mysettings entries merged under /usersettings
@@ -221,6 +233,7 @@ async fn main() {
         group: group.clone(),
         dao: dao.clone(),
         scheduled_storage: scheduled_storage.clone(),
+        scheduled_payments: scheduled_payments.clone(),
         media_aggregator: media_aggregator.clone(),
         history_storage: history_storage.clone(),
         pending_transactions: pending_transactions.clone(),
@@ -235,6 +248,9 @@ async fn main() {
     // Bootstrap user-defined schedules (load and register)
     if let Err(e) = bootstrap_scheduled_prompts(bot.clone(), bot_deps.clone()).await {
         log::error!("Failed to bootstrap scheduled prompts: {}", e);
+    }
+    if let Err(e) = bootstrap_scheduled_payments(bot.clone(), bot_deps.clone()).await {
+        log::error!("Failed to bootstrap scheduled payments: {}", e);
     }
 
     Dispatcher::builder(bot.clone(), handler_tree())
