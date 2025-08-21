@@ -1,10 +1,9 @@
+use crate::credentials::dto::Credentials;
 use anyhow::Result;
 use quark_core::helpers::jwt::JwtManager;
 use serde_json;
 use sled::Tree;
 use teloxide::types::{Message, UserId};
-
-use crate::credentials::dto::Credentials;
 
 #[derive(Clone)]
 pub struct Auth {
@@ -123,5 +122,19 @@ impl Auth {
 
         println!("❌ No credentials found for user {}", username);
         return false;
+    }
+
+    pub fn get_all_users(&self) -> Result<Vec<Credentials>> {
+        let users = self
+            .db
+            .iter()
+            .map(|result| {
+                let (_, value) = result?;
+                let credentials: Credentials = serde_json::from_slice(&value).unwrap();
+                Ok(credentials)
+            })
+            .collect::<Result<Vec<Credentials>>>();
+
+        users
     }
 }

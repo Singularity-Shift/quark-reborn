@@ -1,16 +1,16 @@
 //! Callback query handlers for quark_bot.
 
+use crate::ai::moderation::dto::{ModerationSettings, ModerationState};
 use crate::ai::vector_store::{
     delete_file_from_vector_store, delete_vector_store, list_user_files_with_names,
 };
 use crate::dao::handler::{handle_dao_preference_callback, handle_disable_notifications_callback};
 use crate::dependencies::BotDependencies;
-use crate::scheduled_prompts::callbacks::handle_scheduled_prompts_callback;
 use crate::scheduled_payments::callbacks::handle_scheduled_payments_callback;
+use crate::scheduled_prompts::callbacks::handle_scheduled_prompts_callback;
 use crate::user_model_preferences::callbacks::handle_model_preferences_callback;
 use crate::utils;
 use anyhow::Result;
-use chrono::{DateTime, Utc};
 use teloxide::{
     prelude::*,
     types::{InlineKeyboardButton, InlineKeyboardMarkup},
@@ -667,36 +667,30 @@ pub async fn handle_callback_query(
 
                 if let teloxide::types::MaybeInaccessibleMessage::Regular(m) = message {
                     // If a moderation wizard is in progress for this admin, delete its prompt and clear state
-                    let formatted_group_id =
-                        format!("{}-{}", m.chat.id.0, bot_deps.group.account_seed);
-                    let mod_wizard_tree =
-                        bot_deps.db.open_tree("moderation_settings_wizard").unwrap();
-                    let wizard_key = format!("{}_{}", query.from.id.0, formatted_group_id);
-                    if let Ok(Some(raw)) = mod_wizard_tree.get(wizard_key.as_bytes()) {
-                        #[derive(serde::Deserialize)]
-                        struct WizardState {
-                            wizard_message_id: Option<i64>,
-                        }
-                        if let Ok(ws) = serde_json::from_slice::<WizardState>(&raw) {
-                            if let Some(mid) = ws.wizard_message_id {
-                                if let Err(e) = bot
-                                    .delete_message(
-                                        m.chat.id,
-                                        teloxide::types::MessageId(mid as i32),
-                                    )
-                                    .await
-                                {
-                                    log::warn!(
-                                        "Failed to delete moderation wizard message {}: {}",
-                                        mid,
-                                        e
-                                    );
-                                }
+                    let moderation_state = bot_deps
+                        .moderation
+                        .get_moderation_state(m.chat.id.to_string());
+
+                    if moderation_state.is_ok() {
+                        let state = moderation_state.unwrap();
+                        if let Some(mid) = state.message_id {
+                            let deleted_message = bot
+                                .delete_message(m.chat.id, teloxide::types::MessageId(mid as i32))
+                                .await;
+
+                            if deleted_message.is_err() {
+                                log::warn!(
+                                    "Failed to delete moderation settings message {}: {}",
+                                    mid,
+                                    deleted_message.err().unwrap()
+                                );
                             }
                         }
-                        // Clear wizard state
-                        let _ = mod_wizard_tree.remove(wizard_key.as_bytes());
+                        bot_deps
+                            .moderation
+                            .remove_moderation_state(m.chat.id.to_string())?;
                     }
+
                     let kb = InlineKeyboardMarkup::new(vec![
                         vec![InlineKeyboardButton::callback(
                             "💳 Payment Settings",
@@ -736,38 +730,29 @@ pub async fn handle_callback_query(
                             .await?;
                         return Ok(());
                     }
-                    // If a moderation wizard is in progress for this admin, delete its prompt and clear state
-                    let formatted_group_id =
-                        format!("{}-{}", m.chat.id.0, bot_deps.group.account_seed);
-                    let mod_wizard_tree =
-                        bot_deps.db.open_tree("moderation_settings_wizard").unwrap();
-                    let wizard_key = format!("{}_{}", query.from.id.0, formatted_group_id);
-                    if let Ok(Some(raw)) = mod_wizard_tree.get(wizard_key.as_bytes()) {
-                        #[derive(serde::Deserialize)]
-                        struct WizardState {
-                            wizard_message_id: Option<i64>,
-                        }
-                        if let Ok(ws) = serde_json::from_slice::<WizardState>(&raw) {
-                            if let Some(mid) = ws.wizard_message_id {
-                                if let Err(e) = bot
-                                    .delete_message(
-                                        m.chat.id,
-                                        teloxide::types::MessageId(mid as i32),
-                                    )
-                                    .await
-                                {
-                                    log::warn!(
-                                        "Failed to delete moderation wizard message {}: {}",
-                                        mid,
-                                        e
-                                    );
-                                }
+
+                    let moderation_state = bot_deps
+                        .moderation
+                        .get_moderation_state(m.chat.id.to_string());
+                    if moderation_state.is_ok() {
+                        let state = moderation_state.unwrap();
+                        if let Some(mid) = state.message_id {
+                            if let Err(e) = bot
+                                .delete_message(m.chat.id, teloxide::types::MessageId(mid as i32))
+                                .await
+                            {
+                                log::warn!(
+                                    "Failed to delete moderation wizard message {}: {}",
+                                    mid,
+                                    e
+                                );
                             }
                         }
-                        // Clear wizard state
-                        let _ = mod_wizard_tree.remove(wizard_key.as_bytes());
+                        bot_deps
+                            .moderation
+                            .remove_moderation_state(m.chat.id.to_string())?;
                     }
-                    let _ = bot.edit_message_reply_markup(m.chat.id, m.id).await;
+                    bot.edit_message_reply_markup(m.chat.id, m.id).await?;
                     bot.answer_callback_query(query.id).text("Closed").await?;
                 }
             }
@@ -801,37 +786,14 @@ pub async fn handle_callback_query(
                     }
 
                     // Read sentinel state
-                    let sentinel_tree = bot_deps.db.open_tree("sentinel_state").unwrap();
-                    let chat_id_bytes = m.chat.id.0.to_be_bytes();
-                    let sentinel_on = sentinel_tree
-                        .get(chat_id_bytes)
-                        .unwrap()
-                        .map(|v| v == b"on")
-                        .unwrap_or(false);
+
+                    let sentinel_on = bot_deps.sentinel.get_sentinel(m.chat.id.to_string());
 
                     // Read moderation settings for this group
-                    let formatted_group_id =
-                        format!("{}-{}", m.chat.id.0, bot_deps.group.account_seed);
-                    let settings_tree = bot_deps.db.open_tree("moderation_settings").unwrap();
-                    let mut allowed_count = 0usize;
-                    let mut disallowed_count = 0usize;
-                    let mut updated_at_display = String::from("(none)");
-                    if let Ok(Some(raw)) = settings_tree.get(formatted_group_id.as_bytes()) {
-                        #[derive(serde::Deserialize)]
-                        struct ModerationSettings {
-                            allowed_items: Vec<String>,
-                            disallowed_items: Vec<String>,
-                            updated_at_unix_ms: i64,
-                        }
-                        if let Ok(ms) = serde_json::from_slice::<ModerationSettings>(&raw) {
-                            allowed_count = ms.allowed_items.len();
-                            disallowed_count = ms.disallowed_items.len();
-                            let dt = DateTime::<Utc>::from_timestamp_millis(ms.updated_at_unix_ms)
-                                .map(|d| d.format("%Y-%m-%d %H:%M UTC").to_string())
-                                .unwrap_or_else(|| ms.updated_at_unix_ms.to_string());
-                            updated_at_display = dt;
-                        }
-                    }
+                    let settings = bot_deps
+                        .moderation
+                        .get_moderation_settings(m.chat.id.to_string())
+                        .unwrap_or(ModerationSettings::from((vec![], vec![], 0, 0)));
 
                     let text = format!(
                         concat!(
@@ -842,9 +804,9 @@ pub async fn handle_callback_query(
                             "Choose an action below:"
                         ),
                         sentinel = if sentinel_on { "ON" } else { "OFF" },
-                        allowed = allowed_count,
-                        disallowed = disallowed_count,
-                        updated = updated_at_display,
+                        allowed = settings.allowed_items.len(),
+                        disallowed = settings.disallowed_items.len(),
+                        updated = settings.updated_at_unix_ms.to_string(),
                     );
 
                     let toggle_label = if sentinel_on {
@@ -860,8 +822,8 @@ pub async fn handle_callback_query(
                     let kb = InlineKeyboardMarkup::new(vec![
                         vec![InlineKeyboardButton::callback(toggle_label, toggle_cb)],
                         vec![InlineKeyboardButton::callback(
-                            "📝 Start Moderation Wizard",
-                            "mod_wizard_start",
+                            "📝 Start Moderation Settings",
+                            "mod_settings_start",
                         )],
                         vec![InlineKeyboardButton::callback(
                             "🧹 Reset Custom Rules",
@@ -893,15 +855,13 @@ pub async fn handle_callback_query(
                             .await?;
                         return Ok(());
                     }
-                    let sentinel_tree = bot_deps.db.open_tree("sentinel_state").unwrap();
-                    let chat_id_bytes = m.chat.id.0.to_be_bytes();
                     if data == "mod_toggle_sentinel_on" {
-                        sentinel_tree.insert(chat_id_bytes, b"on").unwrap();
+                        bot_deps.sentinel.set_sentinel(m.chat.id.to_string(), true);
                         bot.answer_callback_query(query.id)
                             .text("🛡️ Sentinel is now ON")
                             .await?;
                     } else {
-                        sentinel_tree.insert(chat_id_bytes, b"off").unwrap();
+                        bot_deps.sentinel.set_sentinel(m.chat.id.to_string(), false);
                         bot.answer_callback_query(query.id)
                             .text("🔕 Sentinel is now OFF")
                             .await?;
@@ -909,33 +869,12 @@ pub async fn handle_callback_query(
                     // Refresh submenu
                     // Reuse the same rendering path by simulating the branch
                     // (duplicate minimal logic for clarity)
-                    let sentinel_on = sentinel_tree
-                        .get(chat_id_bytes)
-                        .unwrap()
-                        .map(|v| v == b"on")
-                        .unwrap_or(false);
-                    let formatted_group_id =
-                        format!("{}-{}", m.chat.id.0, bot_deps.group.account_seed);
-                    let settings_tree = bot_deps.db.open_tree("moderation_settings").unwrap();
-                    let mut allowed_count = 0usize;
-                    let mut disallowed_count = 0usize;
-                    let mut updated_at_display = String::from("(none)");
-                    if let Ok(Some(raw)) = settings_tree.get(formatted_group_id.as_bytes()) {
-                        #[derive(serde::Deserialize)]
-                        struct ModerationSettings {
-                            allowed_items: Vec<String>,
-                            disallowed_items: Vec<String>,
-                            updated_at_unix_ms: i64,
-                        }
-                        if let Ok(ms) = serde_json::from_slice::<ModerationSettings>(&raw) {
-                            allowed_count = ms.allowed_items.len();
-                            disallowed_count = ms.disallowed_items.len();
-                            let dt = DateTime::<Utc>::from_timestamp_millis(ms.updated_at_unix_ms)
-                                .map(|d| d.format("%Y-%m-%d %H:%M UTC").to_string())
-                                .unwrap_or_else(|| ms.updated_at_unix_ms.to_string());
-                            updated_at_display = dt;
-                        }
-                    }
+                    let sentinel_on = bot_deps.sentinel.get_sentinel(m.chat.id.to_string());
+                    let settings = bot_deps
+                        .moderation
+                        .get_moderation_settings(m.chat.id.to_string())
+                        .unwrap_or(ModerationSettings::from((vec![], vec![], 0, 0)));
+
                     let text = format!(
                         concat!(
                             "🛡️ <b>Moderation Settings</b>\n\n",
@@ -945,9 +884,9 @@ pub async fn handle_callback_query(
                             "Choose an action below:"
                         ),
                         sentinel = if sentinel_on { "ON" } else { "OFF" },
-                        allowed = allowed_count,
-                        disallowed = disallowed_count,
-                        updated = updated_at_display,
+                        allowed = settings.allowed_items.len(),
+                        disallowed = settings.disallowed_items.len(),
+                        updated = settings.updated_at_unix_ms.to_string(),
                     );
                     let toggle_label = if sentinel_on {
                         "🔕 Turn OFF Sentinel"
@@ -962,8 +901,8 @@ pub async fn handle_callback_query(
                     let kb = InlineKeyboardMarkup::new(vec![
                         vec![InlineKeyboardButton::callback(toggle_label, toggle_cb)],
                         vec![InlineKeyboardButton::callback(
-                            "📝 Start Moderation Wizard",
-                            "mod_wizard_start",
+                            "📝 Start Moderation Settings",
+                            "mod_settings_start",
                         )],
                         vec![InlineKeyboardButton::callback(
                             "🧹 Reset Custom Rules",
@@ -984,7 +923,7 @@ pub async fn handle_callback_query(
                         .await?;
                 }
             }
-        } else if data == "mod_wizard_start" {
+        } else if data == "mod_settings_start" {
             // Initialize moderation wizard for the requesting admin
             if let Some(message) = &query.message {
                 if let teloxide::types::MaybeInaccessibleMessage::Regular(m) = message {
@@ -995,26 +934,12 @@ pub async fn handle_callback_query(
                             .await?;
                         return Ok(());
                     }
-                    let formatted_group_id =
-                        format!("{}-{}", m.chat.id.0, bot_deps.group.account_seed);
-                    let mod_wizard_tree =
-                        bot_deps.db.open_tree("moderation_settings_wizard").unwrap();
-                    #[derive(serde::Serialize, serde::Deserialize)]
-                    struct WizardState {
-                        step: String,
-                        allowed_items: Option<Vec<String>>,
-                        wizard_message_id: Option<i64>,
-                    }
-                    let state = WizardState {
-                        step: "AwaitingAllowed".to_string(),
-                        allowed_items: None,
-                        wizard_message_id: None,
-                    };
-                    let wizard_key = format!("{}_{}", query.from.id.0, formatted_group_id);
-                    let payload = serde_json::to_vec(&state).unwrap();
-                    mod_wizard_tree
-                        .insert(wizard_key.as_bytes(), payload)
-                        .unwrap();
+
+                    let mut state =
+                        ModerationState::from(("AwaitingAllowed".to_string(), None, None));
+                    bot_deps
+                        .moderation
+                        .set_moderation_state(m.chat.id.to_string(), state.clone())?;
                     // Prompt Step 1/2 in chat
                     let sent = bot.send_message(
                         m.chat.id,
@@ -1022,13 +947,11 @@ pub async fn handle_callback_query(
                     )
                     .parse_mode(teloxide::types::ParseMode::Html)
                     .await?;
-                    // Persist the wizard prompt message id
-                    let mut ws = state;
-                    ws.wizard_message_id = Some(sent.id.0 as i64);
-                    let payload = serde_json::to_vec(&ws).unwrap();
-                    mod_wizard_tree
-                        .insert(wizard_key.as_bytes(), payload)
-                        .unwrap();
+
+                    state.message_id = Some(sent.id.0 as i64);
+                    bot_deps
+                        .moderation
+                        .set_moderation_state(m.chat.id.to_string(), state)?;
                     bot.answer_callback_query(query.id)
                         .text("📝 Wizard started")
                         .await?;
@@ -1045,24 +968,14 @@ pub async fn handle_callback_query(
                             .await?;
                         return Ok(());
                     }
-                    let formatted_group_id =
-                        format!("{}-{}", m.chat.id.0, bot_deps.group.account_seed);
-                    let settings_tree = bot_deps.db.open_tree("moderation_settings").unwrap();
-                    let _ = settings_tree.remove(formatted_group_id.as_bytes());
-                    let mod_wizard_tree =
-                        bot_deps.db.open_tree("moderation_settings_wizard").unwrap();
-                    let wizard_key = format!("{}_{}", query.from.id.0, formatted_group_id);
-                    let _ = mod_wizard_tree.remove(wizard_key.as_bytes());
+                    bot_deps
+                        .moderation
+                        .remove_moderation_state(m.chat.id.to_string())?;
                     bot.answer_callback_query(query.id)
                         .text("🧹 Custom rules reset")
                         .await?;
                     // Re-open moderation settings view
-                    let sentinel_tree = bot_deps.db.open_tree("sentinel_state").unwrap();
-                    let sentinel_on = sentinel_tree
-                        .get(m.chat.id.0.to_be_bytes())
-                        .unwrap()
-                        .map(|v| v == b"on")
-                        .unwrap_or(false);
+                    let sentinel_on = bot_deps.sentinel.get_sentinel(m.chat.id.to_string());
                     let text = format!(
                         concat!(
                             "🛡️ <b>Moderation Settings</b>\n\n",
@@ -1086,8 +999,8 @@ pub async fn handle_callback_query(
                     let kb = InlineKeyboardMarkup::new(vec![
                         vec![InlineKeyboardButton::callback(toggle_label, toggle_cb)],
                         vec![InlineKeyboardButton::callback(
-                            "📝 Start Moderation Wizard",
-                            "mod_wizard_start",
+                            "📝 Start Moderation Settings",
+                            "mod_settings_start",
                         )],
                         vec![InlineKeyboardButton::callback(
                             "🧹 Reset Custom Rules",
@@ -1179,10 +1092,6 @@ If you have questions, ask an admin before posting.
                 .text("❌ Unknown action")
                 .await?;
         }
-    } else {
-        bot.answer_callback_query(query.id)
-            .text("❌ No action specified")
-            .await?;
     }
 
     Ok(())

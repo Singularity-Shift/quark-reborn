@@ -2,9 +2,12 @@ use std::collections::HashSet;
 
 use anyhow::Result;
 use futures::stream::{self, StreamExt};
-use teloxide::{prelude::*, types::{Message, UserId, ParseMode}, Bot};
+use teloxide::{
+    Bot,
+    prelude::*,
+    types::{Message, ParseMode, UserId},
+};
 
-use crate::credentials::dto::Credentials;
 use crate::dependencies::BotDependencies;
 
 use super::announcement::AnnouncerAuth;
@@ -46,8 +49,11 @@ pub async fn handle_announcement(
         Ok(auth) => auth,
         Err(e) => {
             log::error!("Failed to load announcer auth: {}", e);
-            bot.send_message(msg.chat.id, "❌ Configuration error. Please contact an administrator.")
-                .await?;
+            bot.send_message(
+                msg.chat.id,
+                "❌ Configuration error. Please contact an administrator.",
+            )
+            .await?;
             return Ok(());
         }
     };
@@ -143,12 +149,9 @@ async fn gather_recipients(bot_deps: &BotDependencies) -> Result<HashSet<UserId>
     let mut recipients = HashSet::new();
 
     // Get all logged-in users from the Auth store only
-    let auth_tree = bot_deps.db.open_tree("auth")?;
-    for result in auth_tree.iter() {
-        let (_, value) = result?;
-        if let Ok(credentials) = serde_json::from_slice::<Credentials>(&value) {
-            recipients.insert(credentials.user_id);
-        }
+    let users = bot_deps.auth.get_all_users()?;
+    for user in users {
+        recipients.insert(user.user_id);
     }
 
     // Per feedback: recipients should be determined solely from the auth store.
@@ -206,5 +209,3 @@ fn split_text(text: &str, limit: usize) -> Vec<String> {
 
     chunks
 }
-
-

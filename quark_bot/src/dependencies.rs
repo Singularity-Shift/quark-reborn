@@ -1,9 +1,12 @@
 use std::sync::Arc;
 
+use crate::ai::moderation::ModerationService;
+use crate::ai::schedule_guard::schedule_guard_service::ScheduleGuardService;
+use crate::ai::sentinel::sentinel::SentinelService;
 use crate::message_history::handler::HistoryStorage;
 use crate::payment::dto::PaymentPrefs;
-use crate::scheduled_prompts::storage::ScheduledStorage;
 use crate::scheduled_payments::storage::ScheduledPaymentsStorage;
+use crate::scheduled_prompts::storage::ScheduledStorage;
 use crate::{
     ai::handler::AI, assets::media_aggregator::MediaGroupAggregator, credentials::handler::Auth,
     dao::dao::Dao, group::handler::Group, panora::handler::Panora, payment::payment::Payment,
@@ -11,8 +14,6 @@ use crate::{
     user_conversation::handler::UserConversations, yield_ai::yield_ai::YieldAI,
 };
 use tokio_cron_scheduler::JobScheduler;
-use crate::ai::schedule_guard::schedule_guard_service::ScheduleGuardService;
-use crate::ai::moderation::ModerationService;
 
 #[derive(Clone)]
 pub struct BotDependencies {
@@ -33,9 +34,10 @@ pub struct BotDependencies {
     pub history_storage: HistoryStorage,
     pub pending_transactions: PendingTransactions,
     pub yield_ai: YieldAI,
-    pub scheduler: Arc<JobScheduler>,
+    pub scheduler: JobScheduler,
     pub payment: Payment,
     pub default_payment_prefs: PaymentPrefs,
     pub schedule_guard: ScheduleGuardService,
     pub moderation: ModerationService,
+    pub sentinel: SentinelService,
 }

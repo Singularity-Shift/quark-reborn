@@ -264,9 +264,8 @@ pub async fn handle_dao_preference_callback(
         let group_id = msg.chat.id.to_string();
         let user_id = query.from.id.0.to_string();
         let formatted_group_id = format!("{}-{}", group_id, bot_deps.group.account_seed);
-        let dao_token_input_tree = bot_deps.db.open_tree("dao_token_input_pending").unwrap();
         let key = format!("{}_{}", user_id, formatted_group_id);
-        dao_token_input_tree.remove(key.as_bytes()).unwrap();
+        bot_deps.dao.remove_pending_tokens(key).unwrap();
 
         bot.edit_message_text(
             msg.chat.id,
@@ -553,10 +552,10 @@ pub async fn handle_dao_preference_callback(
         let user_id = query.from.id.0.to_string();
 
         // Store pending token input state in database
-        let dao_token_input_tree = bot_deps.db.open_tree("dao_token_input_pending").unwrap();
         let key = format!("{}_{}", user_id, group_id);
-        dao_token_input_tree
-            .insert(key.as_bytes(), group_id.as_bytes())
+        bot_deps
+            .dao
+            .insert_pending_tokens(key, group_id.to_string())
             .unwrap();
 
         // Prompt user to send a message with the token ticker
@@ -1255,9 +1254,8 @@ pub async fn handle_dao_preference_callback(
 
         // Clear any pending token input state
         let user_id = query.from.id.0.to_string();
-        let dao_token_input_tree = bot_deps.db.open_tree("dao_token_input_pending").unwrap();
         let key = format!("{}_{}", user_id, group_id_formatted);
-        dao_token_input_tree.remove(key.as_bytes()).unwrap();
+        bot_deps.dao.remove_pending_tokens(key).unwrap();
         let current_prefs = match bot_deps
             .dao
             .get_dao_admin_preferences(group_id_formatted.clone())
