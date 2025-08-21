@@ -13,8 +13,8 @@ mod message_history;
 mod panora;
 mod payment;
 mod pending_transactions;
-mod scheduled_prompts;
 mod scheduled_payments;
+mod scheduled_prompts;
 mod services;
 mod user_conversation;
 mod user_model_preferences;
@@ -24,7 +24,7 @@ mod yield_ai;
 mod dependencies;
 
 use crate::{
-    ai::{gcs::GcsImageUploader, handler::AI},
+    ai::{gcs::GcsImageUploader, handler::AI, sentinel::sentinel::SentinelService},
     aptos::handler::Aptos,
     credentials::handler::Auth,
     dao::dao::Dao,
@@ -48,15 +48,15 @@ use teloxide::dispatching::dialogue::InMemStorage;
 use teloxide::prelude::*;
 use teloxide::types::BotCommand;
 
+use crate::ai::moderation::ModerationService;
+use crate::ai::schedule_guard::schedule_guard_service::ScheduleGuardService;
 use crate::assets::command_image_collector;
 use crate::assets::media_aggregator;
 use crate::bot::handler_tree::handler_tree;
-use crate::scheduled_prompts::handler::bootstrap_scheduled_prompts;
 use crate::scheduled_payments::runner::register_all_schedules as bootstrap_scheduled_payments;
 use crate::scheduled_payments::storage::ScheduledPaymentsStorage;
+use crate::scheduled_prompts::handler::bootstrap_scheduled_prompts;
 use tokio_cron_scheduler::JobScheduler;
-use crate::ai::schedule_guard::schedule_guard_service::ScheduleGuardService;
-use crate::ai::moderation::ModerationService;
 
 #[tokio::main(flavor = "multi_thread", worker_threads = 4)]
 async fn main() {
@@ -117,15 +117,17 @@ async fn main() {
     let dao_db = db.open_tree("dao").expect("Failed to open dao tree");
     let dao = Dao::new(dao_db);
     let scheduled_storage = ScheduledStorage::new(&db).expect("Failed to open scheduled storage");
-    let scheduled_payments = ScheduledPaymentsStorage::new(&db).expect("Failed to open scheduled payments storage");
+    let scheduled_payments =
+        ScheduledPaymentsStorage::new(&db).expect("Failed to open scheduled payments storage");
 
     let payment = Payment::new(&db).unwrap();
 
     let ai = AI::new(openai_api_key.clone(), google_cloud);
     let schedule_guard = ScheduleGuardService::new(openai_api_key.clone())
         .expect("Failed to create ScheduleGuardService");
-    let moderation = ModerationService::new(openai_api_key.clone())
+    let moderation = ModerationService::new(openai_api_key.clone(), db.clone())
         .expect("Failed to create ModerationService");
+    let sentinel = SentinelService::new(db.clone());
 
     let user_convos = UserConversations::new(&db).unwrap();
     let user_model_prefs = UserModelPreferences::new(&db).unwrap();
@@ -137,10 +139,11 @@ async fn main() {
         .expect("Failed to schedule jobs");
 
     // Initialize a dedicated scheduler for user scheduled prompts
-    let user_scheduler = JobScheduler::new()
+    let scheduler = JobScheduler::new()
         .await
         .expect("Failed to create user scheduled prompts scheduler");
-    user_scheduler
+
+    scheduler
         .start()
         .await
         .expect("Failed to start user scheduled prompts scheduler");
@@ -222,27 +225,28 @@ async fn main() {
         PaymentPrefs::from((default_symbol, default_currency, default_version));
 
     let bot_deps = BotDependencies {
-        db: db.clone(),
-        auth: auth.clone(),
-        service: service.clone(),
-        user_convos: user_convos.clone(),
-        user_model_prefs: user_model_prefs.clone(),
-        ai: ai.clone(),
-        cmd_collector: cmd_collector.clone(),
-        panora: panora_for_dispatcher.clone(),
-        group: group.clone(),
-        dao: dao.clone(),
-        scheduled_storage: scheduled_storage.clone(),
-        scheduled_payments: scheduled_payments.clone(),
-        media_aggregator: media_aggregator.clone(),
-        history_storage: history_storage.clone(),
-        pending_transactions: pending_transactions.clone(),
-        yield_ai: yield_ai.clone(),
-        scheduler: std::sync::Arc::new(user_scheduler),
-        payment: payment.clone(),
+        db,
+        auth,
+        service,
+        user_convos,
+        user_model_prefs,
+        ai,
+        cmd_collector,
+        panora: panora_for_dispatcher,
+        group,
+        dao,
+        scheduled_storage,
+        scheduled_payments,
+        media_aggregator,
+        history_storage,
+        pending_transactions,
+        yield_ai,
+        scheduler,
+        payment,
         default_payment_prefs,
-        schedule_guard: schedule_guard,
-        moderation: moderation,
+        schedule_guard,
+        moderation,
+        sentinel,
     };
 
     // Bootstrap user-defined schedules (load and register)

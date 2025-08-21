@@ -1,6 +1,6 @@
 //! Command handlers for quark_bot Telegram bot.
 use crate::{
-    assets::handler::handle_file_upload, bot::hooks::{fund_account_hook, pay_users_hook, withdraw_funds_hook}, credentials::dto::CredentialsPayload, dependencies::BotDependencies, group::dto::GroupCredentials, payment::dto::PaymentPrefs, utils::{self, create_purchase_request}
+    ai::moderation::{dto::{ModerationSettings, ModerationState}}, assets::handler::handle_file_upload, bot::hooks::{fund_account_hook, pay_users_hook, withdraw_funds_hook}, credentials::dto::CredentialsPayload, dependencies::BotDependencies, group::dto::GroupCredentials, payment::dto::PaymentPrefs, utils::{self, create_purchase_request}
 };
 use anyhow::Result as AnyResult;
 use aptos_rust_sdk_types::api_types::view::ViewRequest;
@@ -966,11 +966,9 @@ pub async fn handle_chat(
             }
         }
         Err(e) => {
-            bot.send_message(
-                msg.chat.id,
-                format!("An error occurred while processing your request: {}", e),
-            )
-            .await?;
+            bot.send_message(msg.chat.id, format!("An error occurred while processing your request: {}", e))
+                .parse_mode(ParseMode::Html)
+                .await?;
         }
     }
 
@@ -1062,10 +1060,8 @@ pub async fn handle_message(bot: Bot, msg: Message, bot_deps: BotDependencies) -
     if !msg.chat.is_private() {
         group_id = Some(msg.chat.id.to_string());
         let profile = std::env::var("PROFILE").unwrap_or("prod".to_string());
-        let sentinel_tree = bot_deps.db.open_tree("sentinel_state").unwrap();
-        let chat_id = msg.chat.id.0.to_be_bytes();
+        let chat_id = msg.chat.id;
         let user = msg.from.clone();
-        let formatted_group_id = format!("{}-{}", msg.chat.id.0, bot_deps.group.account_seed);
 
         if user.is_none() {
             return Ok(());
@@ -1106,14 +1102,13 @@ pub async fn handle_message(bot: Bot, msg: Message, bot_deps: BotDependencies) -
         if let Some(user) = &msg.from {
             let user_id = user.id.0.to_string();
             let current_group_id = msg.chat.id.to_string();
-            let dao_token_input_tree = bot_deps.db.open_tree("dao_token_input_pending").unwrap();
 
             // Try to find the pending token input with the formatted group ID
             let formatted_group_id =
                 format!("{}-{}", current_group_id, bot_deps.group.account_seed);
             let key = format!("{}_{}", user_id, formatted_group_id);
 
-            if let Ok(Some(_)) = dao_token_input_tree.get(key.as_bytes()) {
+            if let Ok(_) = bot_deps.dao.get_pending_tokens(key.clone()) {
                 // User is in token input mode
                 if let Some(text) = msg.text() {
                     let text = text.trim();
@@ -1138,7 +1133,7 @@ pub async fn handle_message(bot: Bot, msg: Message, bot_deps: BotDependencies) -
                                 .set_dao_admin_preferences(formatted_group_id.clone(), prefs)
                             {
                                 // Clear the pending state
-                                dao_token_input_tree.remove(key.as_bytes()).unwrap();
+                                bot_deps.dao.remove_pending_tokens(key).unwrap();
 
                                 bot.send_message(
                                     msg.chat.id,
@@ -1151,7 +1146,7 @@ pub async fn handle_message(bot: Bot, msg: Message, bot_deps: BotDependencies) -
                         }
 
                         // If we get here, there was an error
-                        dao_token_input_tree.remove(key.as_bytes()).unwrap();
+                        bot_deps.dao.remove_pending_tokens(key).unwrap();
                         bot.send_message(msg.chat.id, "❌ Error updating DAO token preference")
                             .await?;
                         return Ok(());
@@ -1170,20 +1165,8 @@ pub async fn handle_message(bot: Bot, msg: Message, bot_deps: BotDependencies) -
 
         // Moderation settings wizard: capture replies
         if let Some(user) = &msg.from {
-            let mod_wizard_tree = bot_deps.db.open_tree("moderation_settings_wizard").unwrap();
-            let wizard_key = format!("{}_{}", user.id.0, formatted_group_id);
-            if let Ok(Some(raw)) = mod_wizard_tree.get(wizard_key.as_bytes()) {
-                #[derive(Serialize, Deserialize, Clone)]
-                struct WizardState {
-                    step: String,
-                    allowed_items: Option<Vec<String>>,
-                    wizard_message_id: Option<i64>,
-                }
-                let mut state: WizardState = serde_json::from_slice(&raw).unwrap_or(WizardState {
-                    step: "AwaitingAllowed".to_string(),
-                    allowed_items: None,
-                    wizard_message_id: None,
-                });
+            // Only process moderation wizard if user is actually in wizard state
+            if let Ok(mut moderation_state) = bot_deps.moderation.get_moderation_state(chat_id.to_string()) {
                 let text = msg
                     .text()
                     .or_else(|| msg.caption())
@@ -1192,24 +1175,24 @@ pub async fn handle_message(bot: Bot, msg: Message, bot_deps: BotDependencies) -
                     .to_string();
                 if !text.is_empty() {
                     let parse_items = |s: &str| -> Vec<String> {
-                        s.split(';')
-                            .map(|x| x.trim())
-                            .filter(|x| !x.is_empty())
-                            .take(50)
-                            .map(|x| x.to_string())
-                            .collect::<Vec<_>>()
+                    s.split(';')
+                        .map(|x| x.trim())
+                        .filter(|x| !x.is_empty())
+                        .take(50)
+                        .map(|x| x.to_string())
+                        .collect::<Vec<_>>()
                     };
-                    if state.step == "AwaitingAllowed" {
+                    if moderation_state.step == "AwaitingAllowed" {
                         let is_skip = text.eq_ignore_ascii_case("na");
                         let items = if is_skip {
                             Vec::new()
                         } else {
                             parse_items(&text)
                         };
-                        state.allowed_items = Some(items);
-                        state.step = "AwaitingDisallowed".to_string();
+                        moderation_state.allowed_items = Some(items);
+                        moderation_state.step = "AwaitingDisallowed".to_string();
                         // Remove previous prompt (Step 1) if present
-                        if let Some(mid) = state.wizard_message_id {
+                        if let Some(mid) = moderation_state.message_id {
                             let _ = bot
                                 .delete_message(msg.chat.id, teloxide::types::MessageId(mid as i32))
                                 .await;
@@ -1222,46 +1205,27 @@ pub async fn handle_message(bot: Bot, msg: Message, bot_deps: BotDependencies) -
                             .parse_mode(ParseMode::Html)
                             .await?;
                         // Track Step 2 prompt for cleanup
-                        state.wizard_message_id = Some(sent.id.0 as i64);
-                        let payload = serde_json::to_vec(&state).unwrap();
-                        mod_wizard_tree
-                            .insert(wizard_key.as_bytes(), payload)
-                            .unwrap();
+                        moderation_state.message_id = Some(sent.id.0 as i64);
+                        bot_deps.moderation.set_moderation_state(chat_id.to_string(), moderation_state).unwrap();
                         return Ok(());
-                    } else if state.step == "AwaitingDisallowed" {
+                    } else if moderation_state.step == "AwaitingDisallowed" {
                         let is_skip = text.eq_ignore_ascii_case("na");
                         let disallowed = if is_skip {
                             Vec::new()
                         } else {
                             parse_items(&text)
                         };
-                        let allowed = state.allowed_items.unwrap_or_default();
+                        let allowed = moderation_state.allowed_items.unwrap_or_default();
                         // Save to moderation_settings tree
-                        #[derive(Serialize, Deserialize)]
-                        struct ModerationSettings {
-                            allowed_items: Vec<String>,
-                            disallowed_items: Vec<String>,
-                            updated_by_user_id: i64,
-                            updated_at_unix_ms: i64,
-                        }
-                        let settings = ModerationSettings {
-                            allowed_items: allowed.clone(),
-                            disallowed_items: disallowed.clone(),
-                            updated_by_user_id: user.id.0 as i64,
-                            updated_at_unix_ms: chrono::Utc::now().timestamp_millis(),
-                        };
-                        let settings_tree = bot_deps.db.open_tree("moderation_settings").unwrap();
-                        let value = serde_json::to_vec(&settings).unwrap();
-                        settings_tree
-                            .insert(formatted_group_id.as_bytes(), value)
-                            .unwrap();
+                        let settings = ModerationSettings::from((allowed.clone(), disallowed.clone(), user.id.0 as i64, chrono::Utc::now().timestamp_millis()));
+                        bot_deps.moderation.set_or_update_moderation_settings(chat_id.to_string(), settings).unwrap();
                         // Clear wizard and remove last prompt if present
-                        if let Some(mid) = state.wizard_message_id {
+                        if let Some(mid) = moderation_state.message_id {
                             let _ = bot
                                 .delete_message(msg.chat.id, teloxide::types::MessageId(mid as i32))
                                 .await;
                         }
-                        mod_wizard_tree.remove(wizard_key.as_bytes()).unwrap();
+                        bot_deps.moderation.remove_moderation_state(chat_id.to_string()).unwrap();
                         let allowed_list = if allowed.is_empty() {
                             "<i>(none)</i>".to_string()
                         } else {
@@ -1295,24 +1259,6 @@ pub async fn handle_message(bot: Bot, msg: Message, bot_deps: BotDependencies) -
                             .await?;
                         return Ok(());
                     }
-                } else {
-                    // Ask again depending on step
-                    if state.step == "AwaitingAllowed" {
-                        bot.send_message(
-                            msg.chat.id,
-                            "Please send allowed items in one message, separated by <code>;</code>.\n\n<b>Be specific</b>: include concrete phrases and examples.\n\n<b>Note</b>: Allowed items can reduce moderation strictness and add instability if done poorly — recommended to skip for novice prompters. To skip, send <code>na</code>.",
-                        )
-                        .parse_mode(ParseMode::Html)
-                        .await?;
-                    } else {
-                        bot.send_message(
-                            msg.chat.id,
-                            "Please send disallowed items in one message, separated by <code>;</code>.\n\n<b>Be specific</b>: include concrete phrases, patterns, and examples.\n\nTo skip, send <code>na</code>.",
-                        )
-                        .parse_mode(ParseMode::Html)
-                        .await?;
-                    }
-                    return Ok(());
                 }
             }
         }
@@ -1481,17 +1427,16 @@ pub async fn handle_message(bot: Bot, msg: Message, bot_deps: BotDependencies) -
         }
 
         // Check if sentinel is on for this group
-        let sentinel_on = sentinel_tree
-            .get(chat_id)
-            .unwrap()
-            .map(|v| v == b"on")
-            .unwrap_or(false);
+        let sentinel_on = bot_deps.sentinel.get_sentinel(chat_id.to_string());
         if sentinel_on {
             // Skip moderation if this user is in moderation settings wizard
-            if let Some(user) = &msg.from {
-                let mod_wizard_tree = bot_deps.db.open_tree("moderation_settings_wizard").unwrap();
-                let wizard_key = format!("{}_{}", user.id.0, formatted_group_id);
-                if let Ok(Some(_)) = mod_wizard_tree.get(wizard_key.as_bytes()) {
+            if let Some(_) = &msg.from {
+                let moderation_state = bot_deps.moderation.get_moderation_state(chat_id.to_string()).unwrap_or(ModerationState {
+                    step: "AwaitingAllowed".to_string(),
+                    allowed_items: None,
+                    message_id: None,
+                });
+                if moderation_state.step == "AwaitingAllowed" {
                     return Ok(());
                 }
             }
@@ -1579,7 +1524,7 @@ pub async fn handle_message(bot: Bot, msg: Message, bot_deps: BotDependencies) -
                 bot.send_message(
                     msg.chat.id,
                     format!(
-                        "User balance is less than the minimum deposit. Please fund your account transfering {} to ```{}``` address. Minimum deposit: {} {} (Your balance: {} {})",
+                        "User balance is less than the minimum deposit. Please fund your account transfering {} to <code>{}</code> address. Minimum deposit: {} {} (Your balance: {} {})",
                         token.symbol, 
                         address,
                         min_deposit_formatted,
@@ -1596,27 +1541,19 @@ pub async fn handle_message(bot: Bot, msg: Message, bot_deps: BotDependencies) -
             // Use the same moderation logic as /mod, via injected dependency
             let moderation_service = bot_deps.moderation.clone();
             // Load overrides
-            let settings_tree = bot_deps.db.open_tree("moderation_settings").unwrap();
-            let overrides = if let Ok(Some(raw)) = settings_tree.get(formatted_group_id.as_bytes())
-            {
-                #[derive(Serialize, Deserialize)]
-                struct ModerationSettings {
-                    allowed_items: Vec<String>,
-                    disallowed_items: Vec<String>,
-                    updated_by_user_id: i64,
-                    updated_at_unix_ms: i64,
-                }
-                if let Ok(ms) = serde_json::from_slice::<ModerationSettings>(&raw) {
-                    Some(ModerationOverrides {
-                        allowed_items: ms.allowed_items,
-                        disallowed_items: ms.disallowed_items,
-                    })
-                } else {
+            let overrides = bot_deps.moderation.get_moderation_settings(chat_id.to_string());
+
+            let overrides = match overrides {
+                Ok(overrides) => Some(ModerationOverrides {
+                    allowed_items: overrides.allowed_items,
+                    disallowed_items: overrides.disallowed_items,
+                }),
+                Err(e) => {
+                    log::error!("Failed to get moderation settings: {}", e);
                     None
                 }
-            } else {
-                None
             };
+
             let message_text = msg.text().or_else(|| msg.caption()).unwrap_or("");
             match moderation_service
                 .moderate_message(message_text, &bot, &msg, &msg, overrides)

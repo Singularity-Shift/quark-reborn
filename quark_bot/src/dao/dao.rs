@@ -413,4 +413,34 @@ impl Dao {
 
         Ok(())
     }
+
+    pub fn insert_pending_tokens(&self, key: String, value: String) -> Result<()> {
+        self.db.insert(key.as_bytes(), value.as_bytes())?;
+
+        Ok(())
+    }
+
+    pub fn get_pending_tokens(&self, key: String) -> Result<String> {
+        let value = self.db.get(key.as_bytes());
+
+        if value.is_err() {
+            return Err(anyhow::anyhow!("No pending tokens found"));
+        }
+
+        let value = value.unwrap();
+
+        if value.is_none() {
+            return Err(anyhow::anyhow!("No pending tokens found"));
+        }
+
+        let value = value.unwrap();
+
+        Ok(String::from_utf8(value.to_vec()).unwrap())
+    }
+
+    pub fn remove_pending_tokens(&self, key: String) -> Result<()> {
+        self.db.remove(key.as_bytes())?;
+
+        Ok(())
+    }
 }
