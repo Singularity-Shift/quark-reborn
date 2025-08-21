@@ -822,8 +822,8 @@ pub async fn handle_callback_query(
                     let kb = InlineKeyboardMarkup::new(vec![
                         vec![InlineKeyboardButton::callback(toggle_label, toggle_cb)],
                         vec![InlineKeyboardButton::callback(
-                            "📝 Start Moderation Wizard",
-                            "mod_wizard_start",
+                            "📝 Start Moderation Settings",
+                            "mod_settings_start",
                         )],
                         vec![InlineKeyboardButton::callback(
                             "🧹 Reset Custom Rules",
@@ -901,7 +901,7 @@ pub async fn handle_callback_query(
                     let kb = InlineKeyboardMarkup::new(vec![
                         vec![InlineKeyboardButton::callback(toggle_label, toggle_cb)],
                         vec![InlineKeyboardButton::callback(
-                            "📝 Start Moderation settings",
+                            "📝 Start Moderation Settings",
                             "mod_settings_start",
                         )],
                         vec![InlineKeyboardButton::callback(
@@ -999,8 +999,8 @@ pub async fn handle_callback_query(
                     let kb = InlineKeyboardMarkup::new(vec![
                         vec![InlineKeyboardButton::callback(toggle_label, toggle_cb)],
                         vec![InlineKeyboardButton::callback(
-                            "📝 Start Moderation Wizard",
-                            "mod_wizard_start",
+                            "📝 Start Moderation Settings",
+                            "mod_settings_start",
                         )],
                         vec![InlineKeyboardButton::callback(
                             "🧹 Reset Custom Rules",
