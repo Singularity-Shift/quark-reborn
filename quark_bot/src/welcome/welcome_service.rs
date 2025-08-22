@@ -67,6 +67,13 @@ impl WelcomeService {
             return Ok(());
         }
 
+        // Check if this user is already being processed to prevent duplicates
+        let key = format!("{}:{}", chat_id.0, user_id.0);
+        if let Ok(Some(_)) = self.verifications_db.get(key.as_bytes()) {
+            log::info!("User {} in chat {} is already being processed, skipping duplicate", user_id.0, chat_id.0);
+            return Ok(());
+        }
+
         let settings = self.get_settings(chat_id);
         
         // Mute the new member immediately

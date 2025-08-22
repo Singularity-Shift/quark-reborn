@@ -38,6 +38,7 @@ async fn handle_chat_member_update(
         // Check if this is a new member (not a status change)
         if let teloxide::types::ChatMemberStatus::Left = update.old_chat_member.status() {
             // New member joined
+            log::info!("Chat member update: new member {} joined chat {}", update.new_chat_member.user.id.0, update.chat.id.0);
             let welcome_service = bot_deps.welcome_service.clone();
             
             if welcome_service.is_enabled(update.chat.id) {
@@ -82,11 +83,13 @@ pub fn handler_tree() -> Handler<'static, Result<()>, DpHandlerDescription> {
                     dptree::entry()
                         .filter(|msg: Message| msg.new_chat_members().map(|m| !m.is_empty()).unwrap_or(false))
                         .endpoint(|bot: Bot, msg: Message, bot_deps: BotDependencies| async move {
+                            log::info!("Service message: new members detected in chat {}", msg.chat.id.0);
                             let welcome_service = bot_deps.welcome_service.clone();
 
                             if welcome_service.is_enabled(msg.chat.id) {
                                 if let Some(members) = msg.new_chat_members() {
                                     for user in members {
+                                        log::info!("Service message: processing new member {} in chat {}", user.id.0, msg.chat.id.0);
                                         let username = user.username.clone();
                                         let first_name = user.first_name.clone();
                                         if let Err(e) = welcome_service
