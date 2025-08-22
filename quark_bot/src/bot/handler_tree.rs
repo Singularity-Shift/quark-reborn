@@ -6,7 +6,7 @@ use teloxide::{
     dispatching::{DpHandlerDescription, HandlerExt, UpdateFilterExt, dialogue::InMemStorage},
     dptree::{self, Handler},
     prelude::Requester,
-    types::{Message, Update},
+    types::{Message, Update, ChatMemberUpdated},
 };
 
 use crate::{
@@ -25,6 +25,36 @@ To use commands like `/c` or `/newchat`, you need to authenticate first.
 Please use `/login` to authenticate.",
     )
     .await?;
+    Ok(())
+}
+
+async fn handle_chat_member_update(
+    bot: Bot,
+    update: ChatMemberUpdated,
+    bot_deps: BotDependencies,
+) -> Result<()> {
+    // Only handle new chat members joining
+    if let teloxide::types::ChatMemberStatus::Member = update.new_chat_member.status() {
+        // Check if this is a new member (not a status change)
+        if let teloxide::types::ChatMemberStatus::Left = update.old_chat_member.status() {
+            // New member joined
+            let welcome_service = bot_deps.welcome_service.clone();
+            
+            if welcome_service.is_enabled(update.chat.id) {
+                let user = &update.new_chat_member.user;
+                let username = user.username.clone();
+                let first_name = user.first_name.clone();
+                
+                if let Err(e) = welcome_service
+                    .handle_new_member(&bot, update.chat.id, user.id, username, first_name)
+                    .await
+                {
+                    log::error!("Failed to handle new member: {}", e);
+                }
+            }
+        }
+    }
+    
     Ok(())
 }
 
@@ -171,6 +201,13 @@ pub fn handler_tree() -> Handler<'static, Result<()>, DpHandlerDescription> {
              query: teloxide::types::CallbackQuery,
              bot_deps: BotDependencies| async move {
                 handle_callback_query(bot, query, bot_deps).await
+            },
+        ))
+        .branch(Update::filter_chat_member().endpoint(
+            |bot: Bot,
+             update: ChatMemberUpdated,
+             bot_deps: BotDependencies| async move {
+                handle_chat_member_update(bot, update, bot_deps).await
             },
         ))
 }
