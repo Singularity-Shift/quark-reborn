@@ -2,6 +2,8 @@ use std::env;
 
 use chrono::Utc;
 use quark_core::helpers::dto::CoinVersion;
+use teloxide::Bot;
+use teloxide::prelude::Requester;
 use teloxide::types::{ChatId, Message};
 
 use crate::dependencies::BotDependencies;
@@ -1156,6 +1158,7 @@ fn format_fear_and_greed_response(data: &serde_json::Value) -> String {
 
 pub async fn execute_pay_users(
     arguments: &serde_json::Value,
+    bot: Bot,
     msg: Message,
     bot_deps: BotDependencies,
     group_id: Option<String>,
@@ -1242,6 +1245,27 @@ pub async fn execute_pay_users(
 
     // Get JWT token and determine if it's a group transfer
     let (jwt_token, is_group_transfer) = if group_id.is_some() {
+        let admin_ids = bot.get_chat_administrators(msg.chat.id).await;
+
+        if admin_ids.is_err() {
+            log::error!(
+                "❌ Error getting chat administrators: {}",
+                admin_ids.err().unwrap()
+            );
+            return "❌ Error getting chat administrators".to_string();
+        }
+
+        let admin_ids = admin_ids.unwrap();
+
+        let is_admin = admin_ids
+            .iter()
+            .any(|admin| admin.user.id.to_string() == user_id.to_string());
+
+        if !is_admin {
+            log::error!("❌ User is not an admin");
+            return "❌ Only admins can send tokens to members".to_string();
+        }
+
         let group_credentials = bot_deps.group.get_credentials(msg.chat.id);
 
         if group_credentials.is_none() {

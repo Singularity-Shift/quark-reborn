@@ -1,44 +1,20 @@
 #!/bin/bash
 
-# Script to download AI files from Google Drive and replace them in the project
-# This script compiles and runs the Rust downloader using Google Drive API
+# Script to download AI files from Google Cloud Storage
+# Make sure you have the required environment variables set:
+# - BUCKET: The Google Cloud Storage bucket name
+# - PROJECT_ID: (optional) The Google Cloud project ID
+# - GOOGLE_APPLICATION_CREDENTIALS: Path to service account key file (optional, uses ADC if not set)
 
 set -e
 
-echo "🔧 Setting up AI files downloader..."
+echo "🚀 Building and running AI files download script..."
 
-# Check if we're in the right directory
-if [ ! -f "Cargo.toml" ]; then
-    echo "❌ Error: This script must be run from the project root directory"
-    echo "   Current directory: $(pwd)"
-    echo "   Expected: quark-reborn/"
-    exit 1
-fi
-
-# Change to scripts directory
-cd scripts
-
-# Check if Rust is installed
-if ! command -v cargo &> /dev/null; then
-    echo "❌ Error: Rust/Cargo is not installed"
-    echo "   Please install Rust from https://rustup.rs/"
-    exit 1
-fi
-
-# Compile the downloader
-echo "📦 Compiling downloader..."
+# Build the project
 cargo build --release
 
-# Run the downloader
-echo "🚀 Running downloader..."
-./target/release/download_ai_files
+# Run the download script
+echo "📥 Starting download process..."
+./target/release/quark-scripts --download
 
-# Check if successful
-if [ $? -eq 0 ]; then
-    echo "✅ AI files download completed successfully!"
-    echo "📁 Files have been replaced in their respective locations"
-    echo "💾 Original files have been backed up with .backup extension"
-else
-    echo "❌ Download failed. Check the error messages above."
-    exit 1
-fi
+echo "✅ Download script completed!"

@@ -8,6 +8,7 @@ use crate::dao::handler::{handle_dao_preference_callback, handle_disable_notific
 use crate::dependencies::BotDependencies;
 use crate::scheduled_payments::callbacks::handle_scheduled_payments_callback;
 use crate::scheduled_prompts::callbacks::handle_scheduled_prompts_callback;
+use crate::sponsor::handler::handle_sponsor_settings_callback;
 use crate::user_model_preferences::callbacks::handle_model_preferences_callback;
 use crate::utils;
 use anyhow::Result;
@@ -627,6 +628,10 @@ pub async fn handle_callback_query(
                                     "open_moderation_settings",
                                 )],
                                 vec![InlineKeyboardButton::callback(
+                                    "🎯 Sponsor Settings",
+                                    "open_sponsor_settings",
+                                )],
+                                vec![InlineKeyboardButton::callback(
                                     "🔄 Migrate Group ID",
                                     "open_migrate_group_id",
                                 )],
@@ -639,7 +644,7 @@ pub async fn handle_callback_query(
                             bot.edit_message_text(
                                 m.chat.id,
                                 m.id,
-                                "⚙️ <b>Group Settings</b>\n\n• Configure payment token, DAO preferences, and group migration.\n\n💡 Only group administrators can access these settings."
+                                "⚙️ <b>Group Settings</b>\n\n• Configure payment token, DAO preferences, moderation, sponsor settings, and group migration.\n\n💡 Only group administrators can access these settings."
                             )
                             .parse_mode(teloxide::types::ParseMode::Html)
                             .reply_markup(kb)
@@ -705,6 +710,10 @@ pub async fn handle_callback_query(
                             "open_moderation_settings",
                         )],
                         vec![InlineKeyboardButton::callback(
+                            "🎯 Sponsor Settings",
+                            "open_sponsor_settings",
+                        )],
+                        vec![InlineKeyboardButton::callback(
                             "🔄 Migrate Group ID",
                             "open_migrate_group_id",
                         )],
@@ -713,7 +722,7 @@ pub async fn handle_callback_query(
                             "group_settings_close",
                         )],
                     ]);
-                    bot.edit_message_text(m.chat.id, m.id, "⚙️ <b>Group Settings</b>\n\n• Configure payment token, DAO preferences, and group migration.\n\n💡 Only group administrators can access these settings.")
+                    bot.edit_message_text(m.chat.id, m.id, "⚙️ <b>Group Settings</b>\n\n• Configure payment token, DAO preferences, moderation, sponsor settings, and group migration.\n\n💡 Only group administrators can access these settings.")
                         .parse_mode(teloxide::types::ParseMode::Html)
                         .reply_markup(kb)
                         .await?;
@@ -772,6 +781,14 @@ pub async fn handle_callback_query(
         {
             // Handle DAO preferences callbacks
             handle_dao_preference_callback(bot, query, bot_deps).await?;
+        } else if data == "open_sponsor_settings"
+            || data.starts_with("sponsor_set_")
+            || data.starts_with("sponsor_interval_")
+            || data == "sponsor_disable"
+            || data == "sponsor_cancel_input"
+        {
+            // Handle sponsor settings callbacks
+            handle_sponsor_settings_callback(bot, query, bot_deps).await?;
         } else if data == "open_moderation_settings" {
             // Open Moderation submenu inside Group Settings
             if let Some(message) = &query.message {
@@ -822,7 +839,7 @@ pub async fn handle_callback_query(
                     let kb = InlineKeyboardMarkup::new(vec![
                         vec![InlineKeyboardButton::callback(toggle_label, toggle_cb)],
                         vec![InlineKeyboardButton::callback(
-                            "📝 Start Moderation Settings",
+                            "📝 Start Moderation Wizard",
                             "mod_settings_start",
                         )],
                         vec![InlineKeyboardButton::callback(
@@ -901,7 +918,7 @@ pub async fn handle_callback_query(
                     let kb = InlineKeyboardMarkup::new(vec![
                         vec![InlineKeyboardButton::callback(toggle_label, toggle_cb)],
                         vec![InlineKeyboardButton::callback(
-                            "📝 Start Moderation Settings",
+                            "📝 Start Moderation Wizard",
                             "mod_settings_start",
                         )],
                         vec![InlineKeyboardButton::callback(
@@ -999,7 +1016,7 @@ pub async fn handle_callback_query(
                     let kb = InlineKeyboardMarkup::new(vec![
                         vec![InlineKeyboardButton::callback(toggle_label, toggle_cb)],
                         vec![InlineKeyboardButton::callback(
-                            "📝 Start Moderation Settings",
+                            "📝 Start Moderation Wizard",
                             "mod_settings_start",
                         )],
                         vec![InlineKeyboardButton::callback(
@@ -1009,6 +1026,10 @@ pub async fn handle_callback_query(
                         vec![InlineKeyboardButton::callback(
                             "📜 Show Default Rules",
                             "mod_show_defaults",
+                        )],
+                        vec![InlineKeyboardButton::callback(
+                            "🎯 Sponsor Settings",
+                            "open_sponsor_settings",
                         )],
                         vec![InlineKeyboardButton::callback(
                             "↩️ Back",

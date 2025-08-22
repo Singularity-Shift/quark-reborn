@@ -344,8 +344,10 @@ pub async fn execute_custom_tool(
         "get_new_pools" => execute_new_pools(arguments).await,
         "get_current_time" => execute_get_time(arguments).await,
         "get_fear_and_greed_index" => execute_fear_and_greed_index(arguments).await,
-        "get_pay_users" => execute_pay_users(arguments, msg, bot_deps.clone(), group_id).await,
-        "create_proposal" => execute_create_proposal(arguments, bot, msg, group_id, bot_deps.clone()).await,
+        "get_pay_users" => execute_pay_users(arguments, bot, msg, bot_deps.clone(), group_id).await,
+        "create_proposal" => {
+            execute_create_proposal(arguments, bot, msg, group_id, bot_deps.clone()).await
+        }
         "get_recent_messages" => execute_get_recent_messages(msg, bot_deps).await,
         _ => {
             format!("Error: Unknown custom tool '{}'", tool_name)
