@@ -77,6 +77,30 @@ pub fn handler_tree() -> Handler<'static, Result<()>, DpHandlerDescription> {
                         }
                     }
                 })
+                // Fallback: handle new members via service messages (in case chat_member updates are not delivered)
+                .branch(
+                    dptree::entry()
+                        .filter(|msg: Message| msg.new_chat_members().map(|m| !m.is_empty()).unwrap_or(false))
+                        .endpoint(|bot: Bot, msg: Message, bot_deps: BotDependencies| async move {
+                            let welcome_service = bot_deps.welcome_service.clone();
+
+                            if welcome_service.is_enabled(msg.chat.id) {
+                                if let Some(members) = msg.new_chat_members() {
+                                    for user in members {
+                                        let username = user.username.clone();
+                                        let first_name = user.first_name.clone();
+                                        if let Err(e) = welcome_service
+                                            .handle_new_member(&bot, msg.chat.id, user.id, username, first_name)
+                                            .await
+                                        {
+                                            log::error!("Failed to handle new member (message event): {}", e);
+                                        }
+                                    }
+                                }
+                            }
+
+                            Ok(())
+                        }))
                 .branch(
                     dptree::entry()
                         .filter(|msg: Message| {

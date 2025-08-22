@@ -132,27 +132,51 @@ impl WelcomeService {
         chat_id: ChatId,
         user_id: UserId,
     ) -> Result<()> {
+        log::info!("Starting verification for user {} in chat {}", user_id.0, chat_id.0);
         let key = format!("{}:{}", chat_id.0, user_id.0);
         
         // Get verification record
         let verification = if let Ok(Some(bytes)) = self.verifications_db.get(key.as_bytes()) {
             if let Ok(verification) = serde_json::from_slice::<PendingVerification>(&bytes) {
+                log::info!("Found verification record for user {}: expires at {}", user_id.0, verification.expires_at);
                 verification
             } else {
+                log::error!("Failed to deserialize verification data for user {}", user_id.0);
                 return Err(anyhow::anyhow!("Invalid verification data"));
             }
         } else {
+            log::error!("No verification record found for user {} in chat {}", user_id.0, chat_id.0);
             return Err(anyhow::anyhow!("Verification not found"));
         };
         
         // Check if verification is expired
         if is_verification_expired(verification.expires_at) {
+            log::warn!("Verification expired for user {} in chat {}", user_id.0, chat_id.0);
             return Err(anyhow::anyhow!("Verification expired"));
+        }
+        
+        log::info!("Attempting to unmute user {} in chat {}", user_id.0, chat_id.0);
+        
+        // Check if bot has admin permissions (only once)
+        let bot_info = bot.get_me().await?;
+        let chat_member = bot.get_chat_member(chat_id, bot_info.id).await?;
+        
+        if !chat_member.is_privileged() {
+            log::error!("Bot is not an admin in chat {}, cannot perform verification actions", chat_id.0);
+            return Err(anyhow::anyhow!("Bot is not an admin in this chat"));
         }
         
         // Unmute the user
         let full_permissions = ChatPermissions::all();
-        bot.restrict_chat_member(chat_id, user_id, full_permissions).await?;
+        match bot.restrict_chat_member(chat_id, user_id, full_permissions).await {
+            Ok(_) => log::info!("Successfully unmuted user {} in chat {}", user_id.0, chat_id.0),
+            Err(e) => {
+                log::error!("Failed to unmute user {} in chat {}: {}", user_id.0, chat_id.0, e);
+                return Err(anyhow::anyhow!("Failed to unmute user: {}", e));
+            }
+        }
+        
+        log::info!("Updating verification message for user {} in chat {}", user_id.0, chat_id.0);
         
         // Update verification message
         let success_text = format!(
@@ -160,14 +184,31 @@ impl WelcomeService {
             verification.first_name
         );
         
-        bot.edit_message_text(chat_id, teloxide::types::MessageId(verification.verification_message_id), success_text).await?;
+        match bot.edit_message_text(chat_id, teloxide::types::MessageId(verification.verification_message_id), success_text).await {
+            Ok(_) => log::info!("Successfully updated verification message for user {} in chat {}", user_id.0, chat_id.0),
+            Err(e) => {
+                log::error!("Failed to update verification message for user {} in chat {}: {}", user_id.0, chat_id.0, e);
+                return Err(anyhow::anyhow!("Failed to update message: {}", e));
+            }
+        }
+        
+        log::info!("Removing verification record for user {} in chat {}", user_id.0, chat_id.0);
         
         // Remove verification record
-        self.verifications_db.remove(key.as_bytes())?;
+        if let Err(e) = self.verifications_db.remove(key.as_bytes()) {
+            log::error!("Failed to remove verification record for user {} in chat {}: {}", user_id.0, chat_id.0, e);
+            return Err(anyhow::anyhow!("Failed to remove verification record: {}", e));
+        }
+        
+        log::info!("Updating statistics for user {} in chat {}", user_id.0, chat_id.0);
         
         // Update statistics
-        self.update_stats(chat_id, true)?;
+        if let Err(e) = self.update_stats(chat_id, true) {
+            log::error!("Failed to update stats for user {} in chat {}: {}", user_id.0, chat_id.0, e);
+            return Err(anyhow::anyhow!("Failed to update stats: {}", e));
+        }
         
+        log::info!("Verification completed successfully for user {} in chat {}", user_id.0, chat_id.0);
         Ok(())
     }
 
