@@ -15,11 +15,11 @@ use crate::bot::handler::{
     handle_wallet_address,
 };
 use crate::dependencies::BotDependencies;
-use crate::scheduled_prompts::handler::{
-    handle_listscheduled_command, handle_scheduleprompt_command,
-};
 use crate::scheduled_payments::handler::{
     handle_listscheduledpayments_command, handle_schedulepayment_command,
+};
+use crate::scheduled_prompts::handler::{
+    handle_listscheduled_command, handle_scheduleprompt_command,
 };
 
 pub async fn answers(
@@ -78,8 +78,7 @@ pub async fn answers(
             let user = msg.from;
 
             if user.is_none() {
-                bot.send_message(msg.chat.id, "Please login to use this command.")
-                    .await?;
+                bot.send_message(msg.chat.id, "❌ User not found").await?;
                 return Ok(());
             }
 
@@ -87,8 +86,10 @@ pub async fn answers(
 
             let is_admin = users_admin.iter().any(|member| member.user.id == user.id);
 
-            if !is_admin {
-                bot.send_message(msg.chat.id, "Only group admins can use this command.")
+            let sponsor = bot_deps.sponsor.can_make_request(msg.chat.id.to_string());
+
+            if !is_admin && (sponsor.is_err() || !sponsor.unwrap()) {
+                bot.send_message(msg.chat.id, "Only group admins can use this command or requests allowed to members reached the limit.")
                     .await?;
                 return Ok(());
             }
@@ -114,14 +115,14 @@ pub async fn answers(
                 .await?;
             }
         }
-        
+
         Command::Mod => {
             handle_mod(bot, msg, bot_deps.clone()).await?;
         }
         Command::ModerationRules => {
             handle_moderation_rules(bot, msg).await?;
         }
-        
+
         Command::PromptExamples => {
             bot.send_message(msg.chat.id, "Here are some example prompts you can use:\n\n💰 Wallet & Balance:\n- /prompt \"What's my wallet address?\" or /p \"What's my wallet address?\"\n- /prompt \"Show my balance\" or /p \"Show my balance\"\n- /prompt \"Check my SUI balance\" or /p \"Check my SUI balance\"\n- /prompt \"How much do I have?\" or /p \"How much do I have?\"\n\n💸 Transactions:\n- /prompt \"Send 10 SUI to @username\" or /p \"Send 10 SUI to @username\"\n- /prompt \"Withdraw 5 SUI\" or /p \"Withdraw 5 SUI\"\n- /prompt \"Send 100 SUI to everyone\" or /p \"Send 100 SUI to everyone\"\n\n❓ General:\n- /prompt \"What can you help me with?\" or /p \"What can you help me with?\"\n- /prompt \"Explain how this bot works\" or /p \"Explain how this bot works\"\n\n💡 Tip: Use /p as a shortcut for /prompt!").await?;
             ()
@@ -211,6 +212,10 @@ pub async fn answers(
                             "open_moderation_settings",
                         )],
                         vec![InlineKeyboardButton::callback(
+                            "🎯 Sponsor Settings",
+                            "open_sponsor_settings",
+                        )],
+                        vec![InlineKeyboardButton::callback(
                             "🔄 Migrate Group ID",
                             "open_migrate_group_id",
                         )],
@@ -219,7 +224,7 @@ pub async fn answers(
                             "group_settings_close",
                         )],
                     ]);
-                    bot.send_message(msg.chat.id, "⚙️ <b>Group Settings</b>\n\n• Configure payment token, DAO preferences, and group migration.\n\n💡 Only group administrators can access these settings.")
+                    bot.send_message(msg.chat.id, "⚙️ <b>Group Settings</b>\n\n• Configure payment token, DAO preferences, moderation, sponsor settings, and group migration.\n\n💡 Only group administrators can access these settings.")
                         .parse_mode(ParseMode::Html)
                         .reply_markup(kb)
                         .await?;

@@ -1,246 +1,82 @@
 use std::env;
-use std::fs;
-use std::path::Path;
+use std::process;
 
-use anyhow::{anyhow, Result};
+use anyhow::Result;
 use dotenvy::dotenv;
-use google_cloud_default::WithAuthExt;
-use google_cloud_storage::client::{Client, ClientConfig};
-use google_cloud_storage::http::objects::download::Range;
-use google_cloud_storage::http::objects::get::GetObjectRequest;
-use google_cloud_storage::http::objects::list::ListObjectsRequest;
-use google_cloud_storage::http::objects::Object;
-use tokio;
+use getopts::Options;
 
-// Define target files with flexible matching
-const TARGET_FILES: &[(&str, &str, &[&str])] = &[
-    (
-        "../quark_bot/src/ai/prompt.rs",
-        "prompt.rs",
-        &["prompt", "prompt.rs", "ai_prompt", "ai_prompt.rs"],
-    ),
-    (
-        "../quark_bot/src/ai/moderation/moderation_service.rs",
-        "moderation_service.rs",
-        &["moderation_service", "moderation_service.rs", "moderation", "moderation.rs"],
-    ),
-    (
-        "../quark_bot/src/ai/moderation/overrides.rs",
-        "overrides.rs",
-        &["overrides", "overrides.rs", "moderation_overrides", "moderation_overrides.rs"],
-    ),
-    (
-        "../quark_bot/src/ai/schedule_guard/schedule_guard_service.rs",
-        "schedule_guard_service.rs",
-        &["schedule_guard_service", "schedule_guard_service.rs", "schedule_guard", "schedule_guard.rs"],
-    ),
-];
+use quark_scripts::{common::TARGET_FILES, download, upload};
+
+fn print_usage(program: &str, opts: Options) {
+    let brief = format!("Usage: {} [OPTIONS]", program);
+    print!("{}", opts.usage(&brief));
+    println!("\nOptions:");
+    println!("  -d, --download    Download AI files from Google Cloud Storage");
+    println!("  -u, --upload      Upload/update AI files to Google Cloud Storage");
+    println!("  -h, --help        Show this help message");
+    println!("\nEnvironment variables:");
+    println!("  BUCKET            Google Cloud Storage bucket name (required)");
+    println!("  PROJECT_ID        Google Cloud project ID (required)");
+    println!("  GOOGLE_ACCOUNT    Google Cloud account (required)");
+    println!("  CLOUD_ID          Google Cloud ID (required)");
+}
 
 #[tokio::main]
 async fn main() -> Result<()> {
     // Load environment variables from .env file
     dotenv().ok();
-    
-    println!("🚀 Starting AI files download and replacement from Google Cloud Storage...");
 
-    // Required environment variables for bucket and naming
-    let project_id = env::var("PROJECT_ID").unwrap_or_default();
-    let bucket_name = env::var("BUCKET")
-        .map_err(|_| anyhow!("BUCKET environment variable not set"))?;
+    let args: Vec<String> = env::args().collect();
+    let program = args[0].clone();
 
-    println!("✅ Environment variables loaded:");
-    if !project_id.is_empty() {
-        println!("   📁 Project ID: {}", project_id);
-    }
-    println!("   🪣 Bucket: {}", bucket_name);
+    let mut opts = Options::new();
+    opts.optflag(
+        "d",
+        "download",
+        "Download AI files from Google Cloud Storage",
+    );
+    opts.optflag(
+        "u",
+        "upload",
+        "Upload/update AI files to Google Cloud Storage",
+    );
+    opts.optflag("h", "help", "Show this help message");
 
-    // Create Google Cloud Storage client using Application Default Credentials
-    // This respects GOOGLE_APPLICATION_CREDENTIALS or `gcloud auth application-default login`
-    let config = ClientConfig::default().with_auth().await?;
-    let client = Client::new(config);
-    println!("🔗 Google Cloud Storage client created with ADC");
+    let matches = match opts.parse(&args[1..]) {
+        Ok(m) => m,
+        Err(f) => {
+            eprintln!("Error parsing arguments: {}", f);
+            print_usage(&program, opts);
+            process::exit(1);
+        }
+    };
 
-    // List objects
-    println!("🔍 Exploring Google Cloud Storage bucket...");
-    let bucket_objects = list_bucket_objects(&client, &bucket_name).await?;
-    
-    if bucket_objects.is_empty() {
-        println!("❌ No files found in the bucket");
-        println!("💡 This might mean:");
-        println!("   - The bucket is empty");
-        println!("   - The bucket name is incorrect");
-        println!("   - The credentials don't have access to this bucket");
+    if matches.opt_present("h") || matches.opt_present("help") {
+        print_usage(&program, opts);
         return Ok(());
     }
 
-    println!("📁 Files found in bucket:");
-    for obj in &bucket_objects {
-        println!("   - {} (Size: {} bytes)", obj.name, obj.size);
+    let download_flag = matches.opt_present("d") || matches.opt_present("download");
+    let upload_flag = matches.opt_present("u") || matches.opt_present("upload");
+
+    if download_flag && upload_flag {
+        eprintln!("Error: Cannot specify both download and upload options");
+        process::exit(1);
     }
 
-    // Create temporary directory for downloads
-    let temp_dir = "temp_downloads";
-    if Path::new(temp_dir).exists() {
-        fs::remove_dir_all(temp_dir)?;
-    }
-    fs::create_dir(temp_dir)?;
-
-    // Change to temp directory
-    env::set_current_dir(temp_dir)?;
-
-    // Try to download and map files
-    let mut downloaded_files = Vec::new();
-    
-    for (target_path, default_name, possible_names) in TARGET_FILES {
-        println!("📥 Looking for file to match: {}...", default_name);
-        
-        // Try to find a matching file
-        let matching_object = find_matching_object(&bucket_objects, possible_names);
-        
-        if let Some(obj) = matching_object {
-            println!("🎯 Found matching file: {} -> {}", obj.name, default_name);
-            
-            match download_file_from_storage(&client, &bucket_name, &obj.name, default_name).await {
-                Ok(_) => {
-                    println!("✅ Successfully downloaded {}", default_name);
-                    downloaded_files.push((default_name.to_string(), target_path.to_string()));
-                }
-                Err(e) => {
-                    println!("❌ Failed to download {}: {}", default_name, e);
-                }
-            }
-        } else {
-            println!("⚠️  No matching file found for {}", default_name);
-            println!("   Looking for files containing: {:?}", possible_names);
-        }
+    if !download_flag && !upload_flag {
+        eprintln!("Error: Must specify either download (-d) or upload (-u) option");
+        print_usage(&program, opts);
+        process::exit(1);
     }
 
-    // Move back to project root
-    env::set_current_dir("..")?;
-
-    // Replace files in their locations
-    for (filename, target_path) in downloaded_files {
-        let source_path = format!("{}/{}", temp_dir, filename);
-        let target_path = Path::new(&target_path);
-
-        if Path::new(&source_path).exists() {
-            // Ensure target directory exists
-            if let Some(parent) = target_path.parent() {
-                fs::create_dir_all(parent)?;
-            }
-
-            // Backup existing file if it exists
-            if target_path.exists() {
-                let backup_path = format!("{}.backup", target_path.display());
-                fs::copy(target_path, &backup_path)?;
-                println!("💾 Backed up {} to {}", target_path.display(), backup_path);
-            }
-
-            // Replace the file
-            fs::copy(&source_path, target_path)?;
-            println!("✅ Replaced {} at {}", filename, target_path.display());
-        } else {
-            println!(
-                "❌ Downloaded file {} not found, skipping replacement",
-                filename
-            );
-        }
+    if download_flag {
+        println!("📥 Download mode selected");
+        download::download_files(TARGET_FILES).await?;
+    } else if upload_flag {
+        println!("📤 Upload/update mode selected");
+        upload::upload_files(TARGET_FILES).await?;
     }
 
-    // Clean up temporary directory
-    fs::remove_dir_all(temp_dir)?;
-    println!("🧹 Cleaned up temporary files");
-
-    println!("🎉 AI files download and replacement completed!");
     Ok(())
-}
-
-async fn list_bucket_objects(
-    client: &Client,
-    bucket_name: &str,
-) -> Result<Vec<Object>> {
-    println!("🔍 Listing objects in bucket: {}", bucket_name);
-    
-    let request = ListObjectsRequest {
-        bucket: bucket_name.to_string(),
-        ..Default::default()
-    };
-
-    let response = client.list_objects(&request).await?;
-    
-    if let Some(items) = response.items {
-        println!("📊 Found {} objects in bucket", items.len());
-        Ok(items)
-    } else {
-        println!("📊 No objects found in bucket");
-        Ok(Vec::new())
-    }
-}
-
-fn find_matching_object<'a>(
-    bucket_objects: &'a [Object],
-    possible_names: &[&str],
-) -> Option<&'a Object> {
-    for obj in bucket_objects {
-        let object_name_lower = obj.name.to_lowercase();
-        
-        for possible_name in possible_names {
-            let possible_name_lower = possible_name.to_lowercase();
-            
-            // Check for exact match
-            if object_name_lower == possible_name_lower {
-                return Some(obj);
-            }
-            
-            // Check if object name contains the possible name
-            if object_name_lower.contains(&possible_name_lower) {
-                return Some(obj);
-            }
-            
-            // Check if possible name contains the object name (for partial matches)
-            if possible_name_lower.contains(&object_name_lower) {
-                return Some(obj);
-            }
-        }
-    }
-    None
-}
-
-async fn download_file_from_storage(
-    client: &Client,
-    bucket_name: &str,
-    object_name: &str,
-    filename: &str,
-) -> Result<()> {
-    println!("📥 Downloading {} from bucket {}...", object_name, bucket_name);
-    
-    let request = GetObjectRequest {
-        bucket: bucket_name.to_string(),
-        object: object_name.to_string(),
-        ..Default::default()
-    };
-
-    let response = client.download_object(&request, &Range::default()).await?;
-    
-    // Write to file
-    fs::write(filename, &response)?;
-    
-    println!("💾 Downloaded {} bytes for {}", response.len(), filename);
-    Ok(())
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_file_paths_exist() {
-        for (target_path, _, _) in TARGET_FILES {
-            assert!(
-                Path::new(target_path).parent().is_some(),
-                "Target path {} should have a parent directory",
-                target_path
-            );
-        }
-    }
 }

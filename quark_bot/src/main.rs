@@ -16,6 +16,7 @@ mod pending_transactions;
 mod scheduled_payments;
 mod scheduled_prompts;
 mod services;
+mod sponsor;
 mod user_conversation;
 mod user_model_preferences;
 mod utils;
@@ -24,8 +25,14 @@ mod yield_ai;
 mod dependencies;
 
 use crate::{
-    ai::{gcs::GcsImageUploader, handler::AI, sentinel::sentinel::SentinelService},
+    ai::{
+        gcs::GcsImageUploader, handler::AI, moderation::ModerationService,
+        schedule_guard::schedule_guard_service::ScheduleGuardService,
+        sentinel::sentinel::SentinelService,
+    },
     aptos::handler::Aptos,
+    assets::{command_image_collector, media_aggregator},
+    bot::handler_tree::handler_tree,
     credentials::handler::Auth,
     dao::dao::Dao,
     dependencies::BotDependencies,
@@ -35,8 +42,13 @@ use crate::{
     panora::handler::Panora,
     payment::{dto::PaymentPrefs, payment::Payment},
     pending_transactions::handler::PendingTransactions,
-    scheduled_prompts::storage::ScheduledStorage,
+    scheduled_payments::{
+        runner::register_all_schedules as bootstrap_scheduled_payments,
+        storage::ScheduledPaymentsStorage,
+    },
+    scheduled_prompts::{handler::bootstrap_scheduled_prompts, storage::ScheduledStorage},
     services::handler::Services,
+    sponsor::sponsor::Sponsor,
     user_conversation::handler::UserConversations,
     user_model_preferences::handler::UserModelPreferences,
     yield_ai::yield_ai::YieldAI,
@@ -48,14 +60,6 @@ use teloxide::dispatching::dialogue::InMemStorage;
 use teloxide::prelude::*;
 use teloxide::types::BotCommand;
 
-use crate::ai::moderation::ModerationService;
-use crate::ai::schedule_guard::schedule_guard_service::ScheduleGuardService;
-use crate::assets::command_image_collector;
-use crate::assets::media_aggregator;
-use crate::bot::handler_tree::handler_tree;
-use crate::scheduled_payments::runner::register_all_schedules as bootstrap_scheduled_payments;
-use crate::scheduled_payments::storage::ScheduledPaymentsStorage;
-use crate::scheduled_prompts::handler::bootstrap_scheduled_prompts;
 use tokio_cron_scheduler::JobScheduler;
 
 #[tokio::main(flavor = "multi_thread", worker_threads = 4)]
@@ -128,6 +132,7 @@ async fn main() {
     let moderation = ModerationService::new(openai_api_key.clone(), db.clone())
         .expect("Failed to create ModerationService");
     let sentinel = SentinelService::new(db.clone());
+    let sponsor = Sponsor::new(db.clone());
 
     let user_convos = UserConversations::new(&db).unwrap();
     let user_model_prefs = UserModelPreferences::new(&db).unwrap();
@@ -247,6 +252,7 @@ async fn main() {
         schedule_guard,
         moderation,
         sentinel,
+        sponsor,
     };
 
     // Bootstrap user-defined schedules (load and register)

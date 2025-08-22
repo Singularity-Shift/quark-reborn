@@ -1,7 +1,11 @@
 [package]
-name = "download_ai_files"
+name = "quark-scripts"
 version = "0.1.0"
 edition = "2021"
+
+[[bin]]
+name = "quark-scripts"
+path = "src/main.rs"
 
 [dependencies]
 anyhow = "1.0"
@@ -11,3 +15,5 @@ serde_json = "1.0"
 google-cloud-storage = "0.24"
 dotenvy = "0.15"
 google-cloud-default = "0.4"
+getopts = "0.2"
+cloud-storage = "0.11"

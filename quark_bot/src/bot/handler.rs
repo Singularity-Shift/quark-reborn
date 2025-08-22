@@ -1163,6 +1163,117 @@ pub async fn handle_message(bot: Bot, msg: Message, bot_deps: BotDependencies) -
             }
         }
 
+        // Sponsor settings input mode: capture replies
+        if let Some(user) = &msg.from {
+            let current_group_id = msg.chat.id.to_string();
+            
+            // Check if there's an active sponsor input mode for this group
+            if let Some(sponsor_state) = bot_deps.sponsor.get_sponsor_state(current_group_id.clone()) {
+                // Only process if the user is an admin
+                let is_admin = utils::is_admin(&bot, msg.chat.id, user.id).await;
+                if !is_admin {
+                    // Non-admin users typing during sponsor setup - ignore silently
+                    return Ok(());
+                }
+
+                // Check if this admin is the one who started the action
+                if let Some(admin_user_id) = sponsor_state.admin_user_id {
+                    if admin_user_id != user.id.0 {
+                        // Other admin users typing during sponsor setup - ignore silently
+                        return Ok(());
+                    }
+                }
+
+                if let Some(text) = msg.text() {
+                    let text = text.trim();
+                    if !text.is_empty() {
+                        match sponsor_state.step {
+                            crate::sponsor::dto::SponsorStep::AwaitingRequestLimit => {
+                                // Parse the request limit number
+                                match text.parse::<u64>() {
+                                    Ok(limit) => {
+                                        // Validate the limit
+                                        if limit == 0 {
+                                            bot.send_message(
+                                                msg.chat.id,
+                                                "❌ Request limit cannot be 0. Please enter a number greater than 0."
+                                            )
+                                            .await?;
+                                            return Ok(());
+                                        }
+
+                                        // Update the sponsor settings
+                                        let mut settings = bot_deps.sponsor.get_sponsor_settings(current_group_id.clone());
+                                        settings.requests = limit;
+
+                                        if let Err(e) = bot_deps
+                                            .sponsor
+                                            .set_or_update_sponsor_settings(current_group_id.clone(), settings)
+                                        {
+                                            bot.send_message(
+                                                msg.chat.id,
+                                                format!("❌ Failed to update request limit: {}", e)
+                                            )
+                                            .await?;
+                                            return Ok(());
+                                        }
+
+                                        // Clear the sponsor state
+                                        if let Err(e) = bot_deps.sponsor.remove_sponsor_state(current_group_id.clone()) {
+                                            log::warn!("Failed to remove sponsor state: {}", e);
+                                        }
+
+                                        // Send success message
+                                        bot.send_message(
+                                            msg.chat.id,
+                                            format!("✅ <b>Request limit updated to {} per interval</b>", limit)
+                                        )
+                                        .parse_mode(teloxide::types::ParseMode::Html)
+                                        .await?;
+
+                                        return Ok(());
+                                    }
+                                    Err(_) => {
+                                        bot.send_message(
+                                            msg.chat.id,
+                                            "❌ Invalid input. Please enter a valid number (e.g., 5, 10, 25, 100)."
+                                        )
+                                        .await?;
+                                        return Ok(());
+                                    }
+                                }
+                            }
+                            _ => {
+                                // Unknown step, clear sponsor state
+                                if let Err(e) = bot_deps.sponsor.remove_sponsor_state(current_group_id.clone()) {
+                                    log::warn!("Failed to remove sponsor state: {}", e);
+                                }
+                                bot.send_message(msg.chat.id, "❌ Unknown input step. Please try again.")
+                                    .await?;
+                                return Ok(());
+                            }
+                        }
+                    } else {
+                        // Empty text, ask for valid input
+                        bot.send_message(
+                            msg.chat.id,
+                            "❌ Please enter a valid number for the request limit."
+                        )
+                        .await?;
+                        return Ok(());
+                    }
+                } else {
+                    // No text, ask for valid input
+                    bot.send_message(
+                        msg.chat.id,
+                        "❌ Please send a text message with the number for the request limit."
+                    )
+                    .await?;
+                    return Ok(());
+                }
+            }
+        }
+
         // Moderation settings wizard: capture replies
         if let Some(user) = &msg.from {
             // Only process moderation wizard if user is actually in wizard state
