@@ -808,9 +808,9 @@ pub async fn handle_callback_query(
                     let chat_id = teloxide::types::ChatId(chat_id);
                     let user_id = teloxide::types::UserId(user_id);
                     
-                    log::info!("Calling welcome service verification for chat {} user {}", chat_id.0, user_id.0);
+                    log::info!("Calling welcome service verification for chat {} user {} (requested by {})", chat_id.0, user_id.0, query.from.id.0);
                     let welcome_service = bot_deps.welcome_service.clone();
-                    match welcome_service.handle_verification(&bot, chat_id, user_id).await {
+                    match welcome_service.handle_verification(&bot, chat_id, user_id, query.from.id).await {
                         Ok(_) => {
                             log::info!("Verification successful for user {} in chat {}", user_id.0, chat_id.0);
                             match bot.answer_callback_query(query.id)

@@ -121,8 +121,16 @@ impl WelcomeService {
         bot: &Bot,
         chat_id: ChatId,
         user_id: UserId,
+        requester_id: UserId, // Add the ID of the user who clicked the button
     ) -> Result<()> {
-        log::info!("Starting verification for user {} in chat {}", user_id.0, chat_id.0);
+        log::info!("Starting verification for user {} in chat {} (requested by user {})", user_id.0, chat_id.0, requester_id.0);
+        
+        // Verify that the user clicking the button is the same user who joined
+        if requester_id != user_id {
+            log::warn!("User {} attempted to verify user {} in chat {}", requester_id.0, user_id.0, chat_id.0);
+            return Err(anyhow::anyhow!("You can only verify yourself"));
+        }
+        
         let key = format!("{}:{}", chat_id.0, user_id.0);
         
         // Get verification record
