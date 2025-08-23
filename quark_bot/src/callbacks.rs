@@ -10,6 +10,7 @@ use crate::scheduled_payments::callbacks::handle_scheduled_payments_callback;
 use crate::scheduled_prompts::callbacks::handle_scheduled_prompts_callback;
 use crate::sponsor::handler::handle_sponsor_settings_callback;
 use crate::user_model_preferences::callbacks::handle_model_preferences_callback;
+use crate::welcome::handler::handle_welcome_settings_callback;
 use crate::utils;
 use anyhow::Result;
 use teloxide::{
@@ -22,6 +23,8 @@ pub async fn handle_callback_query(
     query: teloxide::types::CallbackQuery,
     bot_deps: BotDependencies,
 ) -> Result<()> {
+    log::info!("Received callback query from user {}: {:?}", query.from.id.0, query.data);
+    
     if let Some(data) = &query.data {
         let user_id = query.from.id.0 as i64;
 
@@ -789,6 +792,56 @@ pub async fn handle_callback_query(
         {
             // Handle sponsor settings callbacks
             handle_sponsor_settings_callback(bot, query, bot_deps).await?;
+        } else if data.starts_with("welcome_verify:") {
+            // Handle welcome verification callback
+            log::info!("Received welcome verification callback: {}", data);
+            let parts: Vec<&str> = data.split(':').collect();
+            log::info!("Callback parts: {:?}", parts);
+            
+            if parts.len() == 3 {
+                let chat_id = parts[1].parse::<i64>().unwrap_or(0);
+                let user_id = parts[2].parse::<u64>().unwrap_or(0);
+                log::info!("Parsed chat_id: {}, user_id: {}", chat_id, user_id);
+                
+                // Accept negative chat IDs (Telegram supergroups use negative IDs)
+                if chat_id != 0 && user_id > 0 {
+                    let chat_id = teloxide::types::ChatId(chat_id);
+                    let user_id = teloxide::types::UserId(user_id);
+                    
+                    log::info!("Calling welcome service verification for chat {} user {} (requested by {})", chat_id.0, user_id.0, query.from.id.0);
+                    let welcome_service = bot_deps.welcome_service.clone();
+                    match welcome_service.handle_verification(&bot, chat_id, user_id, query.from.id).await {
+                        Ok(_) => {
+                            log::info!("Verification successful for user {} in chat {}", user_id.0, chat_id.0);
+                            match bot.answer_callback_query(query.id)
+                                .text("✅ Verification successful! You can now participate in the group.")
+                                .await {
+                                Ok(_) => log::info!("Successfully answered callback query for user {}", user_id.0),
+                                Err(e) => log::error!("Failed to answer callback query for user {}: {}", user_id.0, e),
+                            }
+                        }
+                        Err(e) => {
+                            log::error!("Welcome verification failed for user {} in chat {}: {}", user_id.0, chat_id.0, e);
+                            match bot.answer_callback_query(query.id)
+                                .text("❌ Verification failed. Please contact an administrator.")
+                                .await {
+                                Ok(_) => log::info!("Successfully answered callback query for user {}", user_id.0),
+                                Err(e) => log::error!("Failed to answer callback query for user {}: {}", user_id.0, e),
+                            }
+                        }
+                    }
+                } else {
+                    log::error!("Invalid chat_id or user_id: chat_id={}, user_id={}", chat_id, user_id);
+                }
+            } else {
+                log::error!("Invalid callback format: expected 3 parts, got {}", parts.len());
+            }
+        } else if data == "welcome_settings"
+            || data.starts_with("welcome_")
+            || data.starts_with("welcome_back_to_")
+        {
+            // Handle welcome settings callbacks
+            handle_welcome_settings_callback(bot, query, bot_deps).await?;
         } else if data == "open_moderation_settings" {
             // Open Moderation submenu inside Group Settings
             if let Some(message) = &query.message {

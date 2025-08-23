@@ -1163,6 +1163,72 @@ pub async fn handle_message(bot: Bot, msg: Message, bot_deps: BotDependencies) -
             }
         }
 
+        // Welcome custom message input mode: capture replies
+        if let Some(user) = &msg.from {
+            let current_group_id = msg.chat.id.to_string();
+            let key = format!("welcome_custom_msg_input:{}", current_group_id);
+            
+            log::info!("Checking welcome input state for key: {}", key);
+            
+            // Check if there's an active welcome custom message input mode for this group
+            if let Some(_input_state) = bot_deps.welcome_service.get_input_state(&key) {
+                log::info!("Found welcome input state for group: {}", current_group_id);
+                // Only process if the user is an admin
+                let is_admin = utils::is_admin(&bot, msg.chat.id, user.id).await;
+                if !is_admin {
+                    // Non-admin users typing during welcome setup - ignore silently
+                    return Ok(());
+                }
+
+                if let Some(text) = msg.text() {
+                    let text = text.trim();
+                    if !text.is_empty() {
+                        if text == "/cancel" {
+                            // Cancel the custom message input
+                            bot_deps.welcome_service.clear_input_state(&key)?;
+                            bot.send_message(
+                                msg.chat.id,
+                                "❌ Custom message input cancelled."
+                            ).await?;
+                            return Ok(());
+                        }
+
+                        // Update the welcome settings with custom message
+                        let mut settings = bot_deps.welcome_service.get_settings(msg.chat.id);
+                        settings.custom_message = Some(text.to_string());
+                        settings.last_updated = chrono::Utc::now().timestamp();
+
+                        if let Err(e) = bot_deps.welcome_service.save_settings(msg.chat.id, settings) {
+                            bot.send_message(
+                                msg.chat.id,
+                                format!("❌ Failed to save custom message: {}", e)
+                            ).await?;
+                            return Ok(());
+                        }
+
+                        // Clear the input state
+                        bot_deps.welcome_service.clear_input_state(&key)?;
+
+                        // Send success message
+                        bot.send_message(
+                            msg.chat.id,
+                            "✅ <b>Custom welcome message updated successfully!</b>\n\n\
+                            New members will now see your custom message with placeholders replaced."
+                        ).parse_mode(teloxide::types::ParseMode::Html).await?;
+
+                        return Ok(());
+                    } else {
+                        // Empty text, ask for valid input
+                        bot.send_message(
+                            msg.chat.id,
+                            "❌ Please enter a valid welcome message. Use /cancel to cancel."
+                        ).await?;
+                        return Ok(());
+                    }
+                }
+            }
+        }
+
         // Sponsor settings input mode: capture replies
         if let Some(user) = &msg.from {
             let current_group_id = msg.chat.id.to_string();

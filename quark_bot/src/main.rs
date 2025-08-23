@@ -20,6 +20,7 @@ mod sponsor;
 mod user_conversation;
 mod user_model_preferences;
 mod utils;
+mod welcome;
 mod yield_ai;
 
 mod dependencies;
@@ -138,8 +139,9 @@ async fn main() {
     let user_model_prefs = UserModelPreferences::new(&db).unwrap();
     let pending_transactions = PendingTransactions::new(&db).unwrap();
     let yield_ai = YieldAI::new();
+    let welcome_service = welcome::welcome_service::WelcomeService::new(db.clone());
 
-    schedule_jobs(panora.clone(), bot.clone(), dao.clone())
+    schedule_jobs(panora.clone(), bot.clone(), dao.clone(), welcome_service.clone())
         .await
         .expect("Failed to schedule jobs");
 
@@ -253,6 +255,7 @@ async fn main() {
         moderation,
         sentinel,
         sponsor,
+        welcome_service,
     };
 
     // Bootstrap user-defined schedules (load and register)
@@ -262,6 +265,8 @@ async fn main() {
     if let Err(e) = bootstrap_scheduled_payments(bot.clone(), bot_deps.clone()).await {
         log::error!("Failed to bootstrap scheduled payments: {}", e);
     }
+    
+
 
     Dispatcher::builder(bot.clone(), handler_tree())
         .dependencies(dptree::deps![InMemStorage::<QuarkState>::new(), bot_deps])
