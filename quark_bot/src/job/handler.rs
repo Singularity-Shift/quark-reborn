@@ -43,7 +43,7 @@ pub fn job_token_list(panora: Panora) -> Job {
 }
 
 pub fn job_welcome_service_cleanup(welcome_service: WelcomeService, bot: Bot) -> Job {
-    Job::new_async("0 * * * * *", move |_uuid, _l| {
+    Job::new_async("0 */5 * * * *", move |_uuid, _l| {
         let welcome_service = welcome_service.clone();
         let bot = bot.clone();
         Box::pin(async move {
