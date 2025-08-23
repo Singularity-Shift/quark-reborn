@@ -127,6 +127,7 @@ impl CommandImageCollector {
                     msg,
                     text.to_string(),
                     group_id,
+                    false,
                     bot_deps.clone(),
                 )
                 .await

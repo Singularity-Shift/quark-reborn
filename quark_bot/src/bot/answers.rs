@@ -57,7 +57,7 @@ pub async fn answers(
                 )
                 .await?;
             } else {
-                handle_chat(bot, msg, prompt, None, bot_deps).await?;
+                handle_chat(bot, msg, prompt, None, false, bot_deps).await?;
             }
         }
         Command::G(prompt) => {
@@ -68,6 +68,15 @@ pub async fn answers(
             let group_id = msg.clone().chat.id.to_string();
 
             let multimedia_message = msg.clone();
+
+            if prompt.trim().is_empty() && multimedia_message.photo().is_none() {
+                bot.send_message(
+                    msg.chat.id,
+                    "Please include a message after /g, e.g. /g What is the weather today?",
+                )
+                .await?;
+                return Ok(());
+            }
 
             if !msg.chat.is_group() && !msg.chat.is_supergroup() {
                 bot.send_message(msg.chat.id, "This command can only be used in a group.")
@@ -88,7 +97,9 @@ pub async fn answers(
 
             let sponsor = bot_deps.sponsor.can_make_request(msg.chat.id.to_string());
 
-            if !is_admin && (sponsor.is_err() || !sponsor.unwrap()) {
+            let is_sponsor = sponsor.is_ok() && sponsor.unwrap();
+
+            if !is_admin && !is_sponsor {
                 bot.send_message(msg.chat.id, "Only group admins can use this command or requests allowed to members reached the limit.")
                     .await?;
                 return Ok(());
@@ -98,18 +109,13 @@ pub async fn answers(
                 cmd_collector
                     .add_command(multimedia_message, bot_deps.clone(), Some(group_id))
                     .await;
-            } else if prompt.trim().is_empty() {
-                bot.send_message(
-                    msg.chat.id,
-                    "Please include a message after /g, e.g. /g What is the weather today?",
-                )
-                .await?;
             } else {
                 handle_chat(
                     bot,
                     multimedia_message,
                     prompt,
                     Some(group_id),
+                    is_sponsor,
                     bot_deps.clone(),
                 )
                 .await?;
