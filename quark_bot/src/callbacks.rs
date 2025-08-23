@@ -635,6 +635,10 @@ pub async fn handle_callback_query(
                                     "open_sponsor_settings",
                                 )],
                                 vec![InlineKeyboardButton::callback(
+                                    "👋 Welcome Settings",
+                                    "welcome_settings",
+                                )],
+                                vec![InlineKeyboardButton::callback(
                                     "🔄 Migrate Group ID",
                                     "open_migrate_group_id",
                                 )],
@@ -715,6 +719,10 @@ pub async fn handle_callback_query(
                         vec![InlineKeyboardButton::callback(
                             "🎯 Sponsor Settings",
                             "open_sponsor_settings",
+                        )],
+                        vec![InlineKeyboardButton::callback(
+                            "👋 Welcome Settings",
+                            "welcome_settings",
                         )],
                         vec![InlineKeyboardButton::callback(
                             "🔄 Migrate Group ID",
