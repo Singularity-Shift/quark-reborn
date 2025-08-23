@@ -20,7 +20,6 @@ use crate::{
     services::handler::Services,
     sponsor::sponsor::Sponsor,
     user_conversation::handler::UserConversations,
-    welcome::welcome_service::WelcomeService,
     yield_ai::yield_ai::YieldAI,
 };
 use tokio_cron_scheduler::JobScheduler;
@@ -51,5 +50,4 @@ pub struct BotDependencies {
     pub moderation: ModerationService,
     pub sentinel: SentinelService,
     pub sponsor: Sponsor,
-    pub welcome_service: WelcomeService,
 }

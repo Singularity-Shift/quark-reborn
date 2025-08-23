@@ -10,7 +10,6 @@ use crate::{
     dao::{dao::Dao, dto::ProposalEntry},
     panora::handler::Panora,
     utils::format_timestamp,
-    welcome::welcome_service::WelcomeService,
 };
 use quark_core::helpers::dto::CoinVersion;
 
@@ -36,27 +35,6 @@ pub fn job_token_list(panora: Panora) -> Job {
                 Err(e) => {
                     log::error!("Failed to update Panora token list: {}", e);
                 }
-            }
-        })
-    })
-    .expect("Failed to create cron job")
-}
-
-pub fn job_welcome_service_cleanup(welcome_service: WelcomeService, bot: Bot) -> Job {
-    Job::new_async("0 */5 * * * *", move |_uuid, _l| {
-        let welcome_service = welcome_service.clone();
-        let bot = bot.clone();
-        Box::pin(async move {
-            log::info!("Running welcome service cleanup job");
-            
-            // Cleanup expired verifications
-            if let Err(e) = welcome_service.cleanup_all_expired_verifications(&bot).await {
-                log::error!("Failed to cleanup expired welcome verifications: {}", e);
-            }
-            
-            // Cleanup expired input states
-            if let Err(e) = welcome_service.cleanup_expired_input_states() {
-                log::error!("Failed to cleanup expired welcome input states: {}", e);
             }
         })
     })
