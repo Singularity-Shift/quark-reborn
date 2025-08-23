@@ -4,7 +4,7 @@ use teloxide::{
     prelude::*,
     types::{ChatId, ChatPermissions, UserId, InlineKeyboardButton, InlineKeyboardMarkup},
 };
-use tokio::time::{sleep, Duration};
+
 
 use crate::welcome::{
     dto::{PendingVerification, WelcomeSettings, WelcomeStats},
@@ -113,23 +113,6 @@ impl WelcomeService {
         let bytes = serde_json::to_vec(&verification)?;
         self.verifications_db.insert(key.as_bytes(), bytes)?;
         
-        // Schedule cleanup task
-        let bot_clone = bot.clone();
-        let service_clone = self.clone();
-        let chat_id_clone = chat_id;
-        let user_id_clone = user_id;
-        
-        tokio::spawn(async move {
-            sleep(Duration::from_secs(settings.verification_timeout)).await;
-            if let Err(e) = service_clone.cleanup_expired_verification(
-                &bot_clone,
-                chat_id_clone,
-                user_id_clone,
-            ).await {
-                log::error!("Failed to cleanup expired verification: {}", e);
-            }
-        });
-        
         Ok(())
     }
 
@@ -219,53 +202,7 @@ impl WelcomeService {
         Ok(())
     }
 
-    pub async fn cleanup_expired_verification(
-        &self,
-        bot: &Bot,
-        chat_id: ChatId,
-        user_id: UserId,
-    ) -> Result<()> {
-        let key = format!("{}:{}", chat_id.0, user_id.0);
-        
-        // Get verification record
-        let verification = if let Ok(Some(bytes)) = self.verifications_db.get(key.as_bytes()) {
-            if let Ok(verification) = serde_json::from_slice::<PendingVerification>(&bytes) {
-                verification
-            } else {
-                return Ok(());
-            }
-        } else {
-            return Ok(());
-        };
-        
-        // Check if verification is expired
-        if !is_verification_expired(verification.expires_at) {
-            return Ok(());
-        }
-        
-        // Remove user from group
-        if let Err(e) = bot.ban_chat_member(chat_id, user_id).await {
-            log::error!("Failed to ban expired verification user: {}", e);
-        }
-        
-        // Update verification message
-        let expired_text = format!(
-            "⏰ Verification expired for {}. User has been removed from the group.",
-            verification.first_name
-        );
-        
-        if let Err(e) = bot.edit_message_text(chat_id, teloxide::types::MessageId(verification.verification_message_id), expired_text).await {
-            log::error!("Failed to update expired verification message: {}", e);
-        }
-        
-        // Remove verification record
-        self.verifications_db.remove(key.as_bytes())?;
-        
-        // Update statistics
-        self.update_stats(chat_id, false)?;
-        
-        Ok(())
-    }
+
 
     fn update_stats(&self, chat_id: ChatId, success: bool) -> Result<()> {
         let key = format!("{}_stats", chat_id.0);
@@ -308,21 +245,54 @@ impl WelcomeService {
         WelcomeStats::default()
     }
 
-    pub fn cleanup_all_expired_verifications(&self) -> Result<()> {
-        let mut expired_keys = Vec::new();
+    pub async fn cleanup_all_expired_verifications(&self, bot: &Bot) -> Result<()> {
+        let mut expired_verifications = Vec::new();
         
+        // Collect all expired verifications
         for result in self.verifications_db.iter() {
             if let Ok((key, value)) = result {
                 if let Ok(verification) = serde_json::from_slice::<PendingVerification>(&value) {
                     if is_verification_expired(verification.expires_at) {
-                        expired_keys.push(key);
+                        expired_verifications.push((key, verification));
                     }
                 }
             }
         }
         
-        for key in expired_keys {
-            self.verifications_db.remove(&key)?;
+        let count = expired_verifications.len();
+        
+        // Process each expired verification
+        for (key, verification) in expired_verifications {
+            log::info!("Cleaning up expired verification for user {} in chat {}", verification.user_id.0, verification.chat_id.0);
+            
+            // Remove user from group
+            if let Err(e) = bot.ban_chat_member(verification.chat_id, verification.user_id).await {
+                log::error!("Failed to ban expired verification user {} in chat {}: {}", verification.user_id.0, verification.chat_id.0, e);
+            }
+            
+            // Update verification message
+            let expired_text = format!(
+                "⏰ Verification expired for {}. User has been removed from the group.",
+                verification.first_name
+            );
+            
+            if let Err(e) = bot.edit_message_text(verification.chat_id, teloxide::types::MessageId(verification.verification_message_id), expired_text).await {
+                log::error!("Failed to update expired verification message for user {} in chat {}: {}", verification.user_id.0, verification.chat_id.0, e);
+            }
+            
+            // Remove verification record
+            if let Err(e) = self.verifications_db.remove(&key) {
+                log::error!("Failed to remove expired verification record: {}", e);
+            }
+            
+            // Update statistics
+            if let Err(e) = self.update_stats(verification.chat_id, false) {
+                log::error!("Failed to update stats for expired verification: {}", e);
+            }
+        }
+        
+        if count > 0 {
+            log::info!("Cleaned up {} expired verifications", count);
         }
         
         Ok(())

@@ -268,10 +268,11 @@ async fn main() {
     
     // Schedule welcome service cleanup task
     let welcome_service = bot_deps.welcome_service.clone();
+    let bot_clone = bot.clone();
     tokio::spawn(async move {
         loop {
-            tokio::time::sleep(tokio::time::Duration::from_secs(300)).await; // Run every 5 minutes
-            if let Err(e) = welcome_service.cleanup_all_expired_verifications() {
+            tokio::time::sleep(tokio::time::Duration::from_secs(60)).await; // Run every minute
+            if let Err(e) = welcome_service.cleanup_all_expired_verifications(&bot_clone).await {
                 log::error!("Failed to cleanup expired welcome verifications: {}", e);
             }
             if let Err(e) = welcome_service.cleanup_expired_input_states() {
