@@ -79,7 +79,10 @@ pub async fn handle_welcome_settings_callback(
         _ => {}
     }
 
-    bot.answer_callback_query(query.id).await?;
+    // Answer callback query for all welcome callbacks to prevent retries
+    if data.starts_with("welcome_") {
+        bot.answer_callback_query(query.id).await?;
+    }
     Ok(())
 }
 
@@ -136,10 +139,19 @@ async fn show_welcome_settings_menu(
         )],
     ]);
 
-    bot.edit_message_text(msg.chat.id, msg.id, text)
+    match bot.edit_message_text(msg.chat.id, msg.id, text)
         .parse_mode(ParseMode::Html)
         .reply_markup(keyboard)
-        .await?;
+        .await {
+        Ok(_) => log::info!("Welcome settings menu updated successfully"),
+        Err(e) => {
+            if e.to_string().contains("message is not modified") {
+                log::info!("Welcome settings menu unchanged, skipping update");
+            } else {
+                return Err(anyhow::anyhow!("Failed to edit message: {}", e));
+            }
+        }
+    }
 
     Ok(())
 }
@@ -155,7 +167,7 @@ async fn toggle_welcome_feature(
     
     welcome_service.save_settings(msg.chat.id, settings.clone())?;
     
-    // Refresh the menu
+    // Always refresh the menu to show the new state
     show_welcome_settings_menu(bot, msg, welcome_service).await?;
     
     Ok(())
