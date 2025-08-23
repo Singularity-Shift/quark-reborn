@@ -1,6 +1,6 @@
 use crate::dao::dao::Dao;
 use crate::job::handler::{
-    job_active_daos, job_dao_results_cleanup, job_daos_results, job_token_ai_fees, job_token_list,
+    job_active_daos, job_dao_results_cleanup, job_daos_results, job_token_ai_fees, job_token_list, job_welcome_service_cleanup,
 };
 use crate::panora::handler::Panora;
 
@@ -8,7 +8,7 @@ use anyhow::Result;
 use teloxide::Bot;
 use tokio_cron_scheduler::JobScheduler;
 
-pub async fn schedule_jobs(panora: Panora, bot: Bot, dao: Dao) -> Result<()> {
+pub async fn schedule_jobs(panora: Panora, bot: Bot, dao: Dao, welcome_service: crate::welcome::welcome_service::WelcomeService) -> Result<()> {
     log::info!("Initializing job scheduler...");
 
     let scheduler = match JobScheduler::new().await {
@@ -25,6 +25,7 @@ pub async fn schedule_jobs(panora: Panora, bot: Bot, dao: Dao) -> Result<()> {
     let job_dao_results = job_daos_results(panora.clone(), bot.clone(), dao.clone());
     let job_active_daos = job_active_daos(dao.clone(), bot.clone());
     let job_dao_results_cleanup = job_dao_results_cleanup(dao.clone());
+    let job_welcome_service_cleanup = job_welcome_service_cleanup(welcome_service.clone(), bot.clone());
 
     // Add jobs to scheduler with error handling
     if let Err(e) = scheduler.add(job_token_list).await {
@@ -59,6 +60,11 @@ pub async fn schedule_jobs(panora: Panora, bot: Bot, dao: Dao) -> Result<()> {
     if let Err(e) = scheduler.add(job_dao_results_cleanup).await {
         log::error!("Failed to add DAO cleanup job to scheduler: {}", e);
         return Err(anyhow::anyhow!("Failed to add DAO cleanup job: {}", e));
+    }
+
+    if let Err(e) = scheduler.add(job_welcome_service_cleanup).await {
+        log::error!("Failed to add welcome service cleanup job to scheduler: {}", e);
+        return Err(anyhow::anyhow!("Failed to add welcome service cleanup job: {}", e));
     }
 
     log::info!("All jobs scheduled successfully");

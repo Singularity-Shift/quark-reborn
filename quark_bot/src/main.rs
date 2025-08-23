@@ -141,7 +141,7 @@ async fn main() {
     let yield_ai = YieldAI::new();
     let welcome_service = welcome::welcome_service::WelcomeService::new(db.clone());
 
-    schedule_jobs(panora.clone(), bot.clone(), dao.clone())
+    schedule_jobs(panora.clone(), bot.clone(), dao.clone(), welcome_service.clone())
         .await
         .expect("Failed to schedule jobs");
 
@@ -266,20 +266,7 @@ async fn main() {
         log::error!("Failed to bootstrap scheduled payments: {}", e);
     }
     
-    // Schedule welcome service cleanup task
-    let welcome_service = bot_deps.welcome_service.clone();
-    let bot_clone = bot.clone();
-    tokio::spawn(async move {
-        loop {
-            tokio::time::sleep(tokio::time::Duration::from_secs(60)).await; // Run every minute
-            if let Err(e) = welcome_service.cleanup_all_expired_verifications(&bot_clone).await {
-                log::error!("Failed to cleanup expired welcome verifications: {}", e);
-            }
-            if let Err(e) = welcome_service.cleanup_expired_input_states() {
-                log::error!("Failed to cleanup expired welcome input states: {}", e);
-            }
-        }
-    });
+
 
     Dispatcher::builder(bot.clone(), handler_tree())
         .dependencies(dptree::deps![InMemStorage::<QuarkState>::new(), bot_deps])
