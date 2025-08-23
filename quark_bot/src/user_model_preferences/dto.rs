@@ -1,5 +1,5 @@
-use serde::{Deserialize, Serialize};
 use open_ai_rust_responses_by_sshift::{ReasoningEffort, Verbosity};
+use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct ModelPreferences {
@@ -32,7 +32,7 @@ impl Default for ModelPreferences {
     fn default() -> Self {
         Self {
             chat_model: ChatModel::GPT5Mini,
-            temperature: 0.6,
+            temperature: 0.3,
             // Defaults for GPT-5 unified flow
             gpt5_mode: Some(Gpt5Mode::Regular),
             gpt5_effort: None,

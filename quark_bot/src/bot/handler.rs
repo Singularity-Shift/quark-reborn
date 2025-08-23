@@ -1,6 +1,6 @@
 //! Command handlers for quark_bot Telegram bot.
 use crate::{
-    ai::moderation::{dto::{ModerationSettings, ModerationState}}, assets::handler::handle_file_upload, bot::hooks::{fund_account_hook, pay_users_hook, withdraw_funds_hook}, credentials::dto::CredentialsPayload, dependencies::BotDependencies, group::dto::GroupCredentials, payment::dto::PaymentPrefs, utils::{self, create_purchase_request}
+    ai::moderation::dto::{ModerationSettings, ModerationState}, assets::handler::handle_file_upload, bot::hooks::{fund_account_hook, pay_users_hook, withdraw_funds_hook}, credentials::dto::CredentialsPayload, dependencies::BotDependencies, group::dto::GroupCredentials, payment::dto::PaymentPrefs, sponsor::dto::SponsorInterval, utils::{self, create_purchase_request}
 };
 use anyhow::Result as AnyResult;
 use aptos_rust_sdk_types::api_types::view::ViewRequest;
@@ -603,6 +603,7 @@ pub async fn handle_chat(
     msg: Message,
     prompt: String,
     group_id: Option<String>,
+    is_sponsor: bool,
     bot_deps: BotDependencies,
 ) -> AnyResult<()> {
     // Store group_id for later use to avoid move issues
@@ -646,7 +647,7 @@ pub async fn handle_chat(
     let username = username.unwrap();
 
     let credentials = bot_deps.auth.get_credentials(&username);
-    if credentials.is_none() {
+    if credentials.is_none() && !is_sponsor {
         typing_indicator_handle.abort();
         bot.send_message(msg.chat.id, "❌ Unable to verify permissions.")
             .await?;
@@ -654,8 +655,6 @@ pub async fn handle_chat(
     }
 
     let group_credentials = bot_deps.group.get_credentials(msg.chat.id);
-
-    let credentials = credentials.unwrap();
 
     // Load user's chat model preferences
     let preferences = bot_deps.user_model_prefs.get_preferences(username);
@@ -835,10 +834,10 @@ pub async fn handle_chat(
                 if group_credentials.is_some() {
                     group_credentials.unwrap().jwt
                 } else {
-                    credentials.jwt
+                    credentials.unwrap().jwt
                 }
             } else {
-                credentials.jwt
+                credentials.unwrap().jwt
             };
 
             if profile != "dev" {
@@ -1274,7 +1273,7 @@ pub async fn handle_message(bot: Bot, msg: Message, bot_deps: BotDependencies) -
 
                                         if let Err(e) = bot_deps
                                             .sponsor
-                                            .set_or_update_sponsor_settings(current_group_id.clone(), settings)
+                                            .set_or_update_sponsor_settings(current_group_id.clone(), settings.clone())
                                         {
                                             bot.send_message(
                                                 msg.chat.id,
@@ -1282,6 +1281,19 @@ pub async fn handle_message(bot: Bot, msg: Message, bot_deps: BotDependencies) -
                                             )
                                             .await?;
                                             return Ok(());
+                                        }
+
+                                        // Reset requests to new limit when limit changes
+                                        let new_requests = crate::sponsor::dto::SponsorRequest {
+                                            requests_left: limit,
+                                            last_request: chrono::Utc::now().timestamp() as u64,
+                                        };
+
+                                        if let Err(e) = bot_deps
+                                            .sponsor
+                                            .set_or_update_sponsor_requests(current_group_id.clone(), new_requests)
+                                        {
+                                            log::warn!("Failed to reset requests after limit change: {}", e);
                                         }
 
                                         // Clear the sponsor state
@@ -1296,6 +1308,58 @@ pub async fn handle_message(bot: Bot, msg: Message, bot_deps: BotDependencies) -
                                         )
                                         .parse_mode(teloxide::types::ParseMode::Html)
                                         .await?;
+
+                                        let settings = bot_deps.sponsor.get_sponsor_settings(current_group_id.to_string());
+                                        let (requests_left, total_requests) = bot_deps
+                                            .sponsor
+                                            .get_request_status(current_group_id.to_string())
+                                            .unwrap_or((0, 0));
+
+                                        let interval_text = match settings.interval {
+                                            SponsorInterval::Hourly => "Hourly",
+                                            SponsorInterval::Daily => "Daily",
+                                            SponsorInterval::Weekly => "Weekly",
+                                            SponsorInterval::Monthly => "Monthly",
+                                        };
+
+                                        let text = format!(
+                                            "🎯 <b>Sponsor Settings</b>\n\n\
+                                            <b>Current Status:</b>\n\
+                                            • Total Requests: <b>{}</b>\n\
+                                            • Requests Left: <b>{}</b>\n\
+                                            • Interval: <b>{}</b>\n\n\
+                                            <b>How it works:</b>\n\
+                                            • Users can use <code>/g</code> command\n\
+                                            • No registration required\n\
+                                            • Requests reset every interval\n\
+                                            • Only admins can change settings\n\n\
+                                            Choose an action below:",
+                                            total_requests, requests_left, interval_text
+                                        );
+
+                                        let kb = InlineKeyboardMarkup::new(vec![
+                                            vec![InlineKeyboardButton::callback(
+                                                "📊 Set Request Limit",
+                                                "sponsor_set_requests",
+                                            )],
+                                            vec![InlineKeyboardButton::callback(
+                                                "⏰ Set Interval",
+                                                "sponsor_set_interval",
+                                            )],
+                                            vec![InlineKeyboardButton::callback(
+                                                "🚫 Disable Sponsor",
+                                                "sponsor_disable",
+                                            )],
+                                            vec![InlineKeyboardButton::callback(
+                                                "↩️ Back",
+                                                "back_to_group_settings",
+                                            )],
+                                        ]);
+
+                                        bot.send_message(chat_id, text)
+                                            .parse_mode(teloxide::types::ParseMode::Html)
+                                            .reply_markup(kb)
+                                            .await?;
 
                                         return Ok(());
                                     }

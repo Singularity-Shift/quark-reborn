@@ -1,7 +1,8 @@
 use crate::dependencies::BotDependencies;
-use crate::sponsor::dto::{SponsorInterval, SponsorState, SponsorStep};
+use crate::sponsor::dto::{SponsorInterval, SponsorRequest, SponsorState, SponsorStep};
 use crate::utils;
 use anyhow::Result;
+use teloxide::types::MessageId;
 use teloxide::{
     prelude::*,
     types::{InlineKeyboardButton, InlineKeyboardMarkup},
@@ -27,57 +28,7 @@ pub async fn handle_sponsor_settings_callback(
                     return Ok(());
                 }
 
-                let group_id = m.chat.id.to_string();
-                let settings = bot_deps.sponsor.get_sponsor_settings(group_id.clone());
-                let (requests_left, total_requests) = bot_deps
-                    .sponsor
-                    .get_request_status(group_id)
-                    .unwrap_or((0, 0));
-
-                let interval_text = match settings.interval {
-                    SponsorInterval::Hourly => "Hourly",
-                    SponsorInterval::Daily => "Daily",
-                    SponsorInterval::Weekly => "Weekly",
-                    SponsorInterval::Monthly => "Monthly",
-                };
-
-                let text = format!(
-                    "🎯 <b>Sponsor Settings</b>\n\n\
-                    <b>Current Status:</b>\n\
-                    • Total Requests: <b>{}</b>\n\
-                    • Requests Left: <b>{}</b>\n\
-                    • Interval: <b>{}</b>\n\n\
-                    <b>How it works:</b>\n\
-                    • Users can use <code>/g</code> command\n\
-                    • No registration required\n\
-                    • Requests reset every interval\n\
-                    • Only admins can change settings\n\n\
-                    Choose an action below:",
-                    total_requests, requests_left, interval_text
-                );
-
-                let kb = InlineKeyboardMarkup::new(vec![
-                    vec![InlineKeyboardButton::callback(
-                        "📊 Set Request Limit",
-                        "sponsor_set_requests",
-                    )],
-                    vec![InlineKeyboardButton::callback(
-                        "⏰ Set Interval",
-                        "sponsor_set_interval",
-                    )],
-                    vec![InlineKeyboardButton::callback(
-                        "🚫 Disable Sponsor",
-                        "sponsor_disable",
-                    )],
-                    vec![InlineKeyboardButton::callback(
-                        "↩️ Back",
-                        "back_to_group_settings",
-                    )],
-                ]);
-
-                bot.edit_message_text(m.chat.id, m.id, text)
-                    .parse_mode(teloxide::types::ParseMode::Html)
-                    .reply_markup(kb)
+                show_sponsor_settings(&bot, m.chat.id, m.id, &bot_deps, &m.chat.id.to_string())
                     .await?;
             }
         }
@@ -153,57 +104,7 @@ pub async fn handle_sponsor_settings_callback(
                 }
 
                 // Return to sponsor settings
-                let settings = bot_deps.sponsor.get_sponsor_settings(group_id.clone());
-                let (requests_left, total_requests) = bot_deps
-                    .sponsor
-                    .get_request_status(group_id)
-                    .unwrap_or((0, 0));
-
-                let interval_text = match settings.interval {
-                    SponsorInterval::Hourly => "Hourly",
-                    SponsorInterval::Daily => "Daily",
-                    SponsorInterval::Weekly => "Weekly",
-                    SponsorInterval::Monthly => "Monthly",
-                };
-
-                let text = format!(
-                    "🎯 <b>Sponsor Settings</b>\n\n\
-                    <b>Current Status:</b>\n\
-                    • Total Requests: <b>{}</b>\n\
-                    • Requests Left: <b>{}</b>\n\
-                    • Interval: <b>{}</b>\n\n\
-                    <b>How it works:</b>\n\
-                    • Users can use <code>/g</code> command\n\
-                    • No registration required\n\
-                    • Requests reset every interval\n\
-                    • Only admins can change settings\n\n\
-                    Choose an action below:",
-                    total_requests, requests_left, interval_text
-                );
-
-                let kb = InlineKeyboardMarkup::new(vec![
-                    vec![InlineKeyboardButton::callback(
-                        "📊 Set Request Limit",
-                        "sponsor_set_requests",
-                    )],
-                    vec![InlineKeyboardButton::callback(
-                        "⏰ Set Interval",
-                        "sponsor_set_interval",
-                    )],
-                    vec![InlineKeyboardButton::callback(
-                        "🚫 Disable Sponsor",
-                        "sponsor_disable",
-                    )],
-                    vec![InlineKeyboardButton::callback(
-                        "↩️ Back",
-                        "back_to_group_settings",
-                    )],
-                ]);
-
-                bot.edit_message_text(m.chat.id, m.id, text)
-                    .parse_mode(teloxide::types::ParseMode::Html)
-                    .reply_markup(kb)
-                    .await?;
+                show_sponsor_settings(&bot, m.chat.id, m.id, &bot_deps, &group_id).await?;
 
                 bot.answer_callback_query(query.id)
                     .text("❌ Input mode cancelled")
@@ -314,12 +215,25 @@ pub async fn handle_sponsor_settings_callback(
 
                 if let Err(e) = bot_deps
                     .sponsor
-                    .set_or_update_sponsor_settings(group_id.clone(), settings)
+                    .set_or_update_sponsor_settings(group_id.clone(), settings.clone())
                 {
                     bot.answer_callback_query(query.id)
                         .text(&format!("❌ Failed to update settings: {}", e))
                         .await?;
                     return Ok(());
+                }
+
+                // Reset requests to full amount when interval changes since it's a new period
+                let new_requests = SponsorRequest {
+                    requests_left: settings.requests,
+                    last_request: chrono::Utc::now().timestamp() as u64,
+                };
+
+                if let Err(e) = bot_deps
+                    .sponsor
+                    .set_or_update_sponsor_requests(group_id.clone(), new_requests)
+                {
+                    log::warn!("Failed to reset requests after interval change: {}", e);
                 }
 
                 // Clear the sponsor state
@@ -339,57 +253,7 @@ pub async fn handle_sponsor_settings_callback(
                     .await?;
 
                 // Return to sponsor settings
-                let settings = bot_deps.sponsor.get_sponsor_settings(group_id.clone());
-                let (requests_left, total_requests) = bot_deps
-                    .sponsor
-                    .get_request_status(group_id)
-                    .unwrap_or((0, 0));
-
-                let interval_text = match settings.interval {
-                    SponsorInterval::Hourly => "Hourly",
-                    SponsorInterval::Daily => "Daily",
-                    SponsorInterval::Weekly => "Weekly",
-                    SponsorInterval::Monthly => "Monthly",
-                };
-
-                let text = format!(
-                    "🎯 <b>Sponsor Settings</b>\n\n\
-                    <b>Current Status:</b>\n\
-                    • Total Requests: <b>{}</b>\n\
-                    • Requests Left: <b>{}</b>\n\
-                    • Interval: <b>{}</b>\n\n\
-                    <b>How it works:</b>\n\
-                    • Users can use <code>/g</code> command\n\
-                    • No registration required\n\
-                    • Requests reset every interval\n\
-                    • Only admins can change settings\n\n\
-                    Choose an action below:",
-                    total_requests, requests_left, interval_text
-                );
-
-                let kb = InlineKeyboardMarkup::new(vec![
-                    vec![InlineKeyboardButton::callback(
-                        "📊 Set Request Limit",
-                        "sponsor_set_requests",
-                    )],
-                    vec![InlineKeyboardButton::callback(
-                        "⏰ Set Interval",
-                        "sponsor_set_interval",
-                    )],
-                    vec![InlineKeyboardButton::callback(
-                        "🚫 Disable Sponsor",
-                        "sponsor_disable",
-                    )],
-                    vec![InlineKeyboardButton::callback(
-                        "↩️ Back",
-                        "back_to_group_settings",
-                    )],
-                ]);
-
-                bot.edit_message_text(m.chat.id, m.id, text)
-                    .parse_mode(teloxide::types::ParseMode::Html)
-                    .reply_markup(kb)
-                    .await?;
+                show_sponsor_settings(&bot, m.chat.id, m.id, &bot_deps, &group_id).await?;
             }
         }
     } else if data == "sponsor_disable" {
@@ -436,60 +300,72 @@ pub async fn handle_sponsor_settings_callback(
                     .await?;
 
                 // Return to sponsor settings
-                let settings = bot_deps.sponsor.get_sponsor_settings(group_id.clone());
-                let (requests_left, total_requests) = bot_deps
-                    .sponsor
-                    .get_request_status(group_id)
-                    .unwrap_or((0, 0));
-
-                let interval_text = match settings.interval {
-                    SponsorInterval::Hourly => "Hourly",
-                    SponsorInterval::Daily => "Daily",
-                    SponsorInterval::Weekly => "Weekly",
-                    SponsorInterval::Monthly => "Monthly",
-                };
-
-                let text = format!(
-                    "🎯 <b>Sponsor Settings</b>\n\n\
-                    <b>Current Status:</b>\n\
-                    • Total Requests: <b>{}</b>\n\
-                    • Requests Left: <b>{}</b>\n\
-                    • Interval: <b>{}</b>\n\n\
-                    <b>How it works:</b>\n\
-                    • Users can use <code>/g</code> command\n\
-                    • No registration required\n\
-                    • Requests reset every interval\n\
-                    • Only admins can change settings\n\n\
-                    Choose an action below:",
-                    total_requests, requests_left, interval_text
-                );
-
-                let kb = InlineKeyboardMarkup::new(vec![
-                    vec![InlineKeyboardButton::callback(
-                        "📊 Set Request Limit",
-                        "sponsor_set_requests",
-                    )],
-                    vec![InlineKeyboardButton::callback(
-                        "⏰ Set Interval",
-                        "sponsor_set_interval",
-                    )],
-                    vec![InlineKeyboardButton::callback(
-                        "🚫 Disable Sponsor",
-                        "sponsor_disable",
-                    )],
-                    vec![InlineKeyboardButton::callback(
-                        "↩️ Back",
-                        "back_to_group_settings",
-                    )],
-                ]);
-
-                bot.edit_message_text(m.chat.id, m.id, text)
-                    .parse_mode(teloxide::types::ParseMode::Html)
-                    .reply_markup(kb)
-                    .await?;
+                show_sponsor_settings(&bot, m.chat.id, m.id, &bot_deps, &group_id).await?;
             }
         }
     }
+
+    Ok(())
+}
+
+async fn show_sponsor_settings(
+    bot: &Bot,
+    chat_id: ChatId,
+    message_id: MessageId,
+    bot_deps: &BotDependencies,
+    group_id: &str,
+) -> Result<()> {
+    let settings = bot_deps.sponsor.get_sponsor_settings(group_id.to_string());
+    let (requests_left, total_requests) = bot_deps
+        .sponsor
+        .get_request_status(group_id.to_string())
+        .unwrap_or((0, 0));
+
+    let interval_text = match settings.interval {
+        SponsorInterval::Hourly => "Hourly",
+        SponsorInterval::Daily => "Daily",
+        SponsorInterval::Weekly => "Weekly",
+        SponsorInterval::Monthly => "Monthly",
+    };
+
+    let text = format!(
+        "🎯 <b>Sponsor Settings</b>\n\n\
+        <b>Current Status:</b>\n\
+        • Total Requests: <b>{}</b>\n\
+        • Requests Left: <b>{}</b>\n\
+        • Interval: <b>{}</b>\n\n\
+        <b>How it works:</b>\n\
+        • Users can use <code>/g</code> command\n\
+        • No registration required\n\
+        • Requests reset every interval\n\
+        • Only admins can change settings\n\n\
+        Choose an action below:",
+        total_requests, requests_left, interval_text
+    );
+
+    let kb = InlineKeyboardMarkup::new(vec![
+        vec![InlineKeyboardButton::callback(
+            "📊 Set Request Limit",
+            "sponsor_set_requests",
+        )],
+        vec![InlineKeyboardButton::callback(
+            "⏰ Set Interval",
+            "sponsor_set_interval",
+        )],
+        vec![InlineKeyboardButton::callback(
+            "🚫 Disable Sponsor",
+            "sponsor_disable",
+        )],
+        vec![InlineKeyboardButton::callback(
+            "↩️ Back",
+            "back_to_group_settings",
+        )],
+    ]);
+
+    bot.edit_message_text(chat_id, message_id, text)
+        .parse_mode(teloxide::types::ParseMode::Html)
+        .reply_markup(kb)
+        .await?;
 
     Ok(())
 }
