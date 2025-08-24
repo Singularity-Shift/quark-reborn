@@ -1592,7 +1592,7 @@ pub async fn handle_message(bot: Bot, msg: Message, bot_deps: BotDependencies) -
                 if text_raw.is_empty() || text_raw.starts_with('/') { return Ok(()); }
                 match st.step {
                     crate::filters::dto::PendingFilterStep::AwaitingTrigger => {
-                        // Store the trigger
+                        // Store the trigger(s) as entered
                         st.trigger = Some(text_raw.clone());
                         st.step = crate::filters::dto::PendingFilterStep::AwaitingResponse;
                         if let Err(e) = bot_deps.filters.put_pending_wizard(filter_key, &st) {
@@ -1600,46 +1600,41 @@ pub async fn handle_message(bot: Bot, msg: Message, bot_deps: BotDependencies) -
                             bot.send_message(msg.chat.id, "❌ Failed to save filter progress.").await?;
                             return Ok(());
                         }
-                        bot.send_message(msg.chat.id, "🔍 <b>Add New Filter - Step 2/2</b>\n\nNow send the response message that the bot should reply with when someone types your trigger.\n\n💡 <i>This can be any text, including emojis and multiple lines.</i>")
+                        bot.send_message(msg.chat.id, "🔍 <b>Add New Filter - Step 2/3</b>\n\nNow send the response message that the bot should reply with when someone types your trigger.\n\n💡 <i>This can be any text, including emojis and multiple lines.</i>")
                             .parse_mode(ParseMode::Html)
                             .await?;
                         return Ok(());
                     }
                     crate::filters::dto::PendingFilterStep::AwaitingResponse => {
-                        // Store the response and create the filter
+                        // Store the response and move to confirmation step
                         st.response = Some(text_raw.clone());
-                        
-                        // Create the filter
-                        let filter = crate::filters::dto::FilterDefinition {
-                            trigger: st.trigger.clone().unwrap_or_default(),
-                            response: st.response.clone().unwrap_or_default(),
-                            group_id: st.group_id.to_string(),
-                            created_by: st.creator_user_id,
-                            created_at: chrono::Utc::now().timestamp(),
-                            is_active: true,
-                            match_type: st.match_type.clone(),
-                            response_type: st.response_type.clone(),
-                            id: uuid::Uuid::new_v4().to_string(),
-                        };
-                        
-                        match bot_deps.filters._create_filter(filter) {
-                            Ok(_) => {
-                                // Clean up wizard state
-                                if let Err(e) = bot_deps.filters.remove_pending_wizard(&filter_key) {
-                                    log::error!("Failed to remove filter wizard state: {}", e);
-                                }
-                                bot.send_message(msg.chat.id, format!("✅ <b>Filter Created!</b>\n\n🔹 Trigger: <code>{}</code>\n💬 Response: <code>{}</code>\n\n💡 Try typing the trigger word to test it!", st.trigger.unwrap_or_default(), st.response.unwrap_or_default()))
-                                    .parse_mode(ParseMode::Html)
-                                    .await?;
-                            }
-                            Err(e) => {
-                                log::error!("Failed to create filter: {}", e);
-                                bot.send_message(msg.chat.id, format!("❌ Failed to create filter: {}", e)).await?;
-                            }
+                        st.step = crate::filters::dto::PendingFilterStep::AwaitingConfirm;
+                        if let Err(e) = bot_deps.filters.put_pending_wizard(filter_key, &st) {
+                            log::error!("Failed to save filter wizard state: {}", e);
+                            bot.send_message(msg.chat.id, "❌ Failed to save filter progress.").await?;
+                            return Ok(());
                         }
+                        
+                        // Show confirmation with summary
+                        let summary = crate::filters::wizard::summarize(&st);
+                        let keyboard = teloxide::types::InlineKeyboardMarkup::new(vec![
+                            vec![
+                                teloxide::types::InlineKeyboardButton::callback("✅ Confirm & Create", "filters_confirm"),
+                                teloxide::types::InlineKeyboardButton::callback("❌ Cancel", "filters_cancel"),
+                            ],
+                        ]);
+                        
+                        bot.send_message(msg.chat.id, summary)
+                            .parse_mode(ParseMode::Html)
+                            .reply_markup(keyboard)
+                            .await?;
                         return Ok(());
                     }
-                    _ => {}
+                    crate::filters::dto::PendingFilterStep::AwaitingConfirm => {
+                        // This step is handled by callback queries, not text input
+                        // Just ignore any text input during confirmation
+                        return Ok(());
+                    }
                 }
             }
         }
