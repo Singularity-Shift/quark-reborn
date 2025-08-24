@@ -1809,6 +1809,13 @@ pub async fn handle_message(bot: Bot, msg: Message, bot_deps: BotDependencies) -
                     );
 
                     if profile != "dev" {
+                        // For forwarded messages, use a placeholder user_id since we can't identify the sender
+                        let user_id = if let Some(user) = &msg.from {
+                            user.id.0.to_string()
+                        } else {
+                            "forwarded_message".to_string()
+                        };
+                        
                         let purchase_result = create_purchase_request(
                             0,
                             0,
