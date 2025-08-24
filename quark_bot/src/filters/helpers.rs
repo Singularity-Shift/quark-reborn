@@ -46,11 +46,10 @@ pub fn parse_triggers(input: &str) -> Vec<String> {
         triggers.push(strip_brackets(token).to_string());
     }
 
-    // Normalize: trim, lowercase for matching stored triggers consistently?
-    // We leave case as-is; matching logic lowercases input.
+    // Normalize: trim and convert to lowercase for consistent storage and matching
     triggers
         .into_iter()
-        .map(|t| t.trim().to_string())
+        .map(|t| t.trim().to_lowercase())
         .filter(|t| !t.is_empty())
         .collect()
 }
