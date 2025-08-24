@@ -1693,9 +1693,9 @@ pub async fn handle_message(bot: Bot, msg: Message, bot_deps: BotDependencies) -
                 if is_admin {
                     return Ok(());
                 }
-            } else {
-                return Ok(());
             }
+            // Note: No early return for forwarded/channel messages (msg.from is None)
+            // These will now be moderated to catch scams and spam
 
             let address = group_credentials.resource_account_address;
 
