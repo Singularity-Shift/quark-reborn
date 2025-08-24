@@ -226,6 +226,10 @@ pub async fn answers(
                             "welcome_settings",
                         )],
                         vec![InlineKeyboardButton::callback(
+                            "🔍 Filters",
+                            "filters_main",
+                        )],
+                        vec![InlineKeyboardButton::callback(
                             "🔄 Migrate Group ID",
                             "open_migrate_group_id",
                         )],
@@ -234,7 +238,7 @@ pub async fn answers(
                             "group_settings_close",
                         )],
                     ]);
-                    bot.send_message(msg.chat.id, "⚙️ <b>Group Settings</b>\n\n• Configure payment token, DAO preferences, moderation, sponsor settings, and group migration.\n\n💡 Only group administrators can access these settings.")
+                    bot.send_message(msg.chat.id, "⚙️ <b>Group Settings</b>\n\n• Configure payment token, DAO preferences, moderation, sponsor settings, welcome settings, filters, and group migration.\n\n💡 Only group administrators can access these settings.")
                         .parse_mode(ParseMode::Html)
                         .reply_markup(kb)
                         .await?;

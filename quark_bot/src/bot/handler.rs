@@ -1,6 +1,6 @@
 //! Command handlers for quark_bot Telegram bot.
 use crate::{
-    ai::moderation::dto::{ModerationSettings, ModerationState}, assets::handler::handle_file_upload, bot::hooks::{fund_account_hook, pay_users_hook, withdraw_funds_hook}, credentials::dto::CredentialsPayload, dependencies::BotDependencies, group::dto::GroupCredentials, payment::dto::PaymentPrefs, sponsor::dto::SponsorInterval, utils::{self, create_purchase_request}
+    ai::moderation::dto::{ModerationSettings, ModerationState}, assets::handler::handle_file_upload, bot::hooks::{fund_account_hook, pay_users_hook, withdraw_funds_hook}, credentials::dto::CredentialsPayload, dependencies::BotDependencies, filters::handler::process_message_for_filters, group::dto::GroupCredentials, payment::dto::PaymentPrefs, sponsor::dto::SponsorInterval, utils::{self, create_purchase_request}
 };
 use anyhow::Result as AnyResult;
 use aptos_rust_sdk_types::api_types::view::ViewRequest;
@@ -1577,6 +1577,73 @@ pub async fn handle_message(bot: Bot, msg: Message, bot_deps: BotDependencies) -
             }
         }
 
+        // Filters wizard: capture free text steps
+        if let Some(user) = &msg.from {
+            let filter_key = format!("filter_{}_{}", msg.chat.id.0, user.id.0);
+            if let Some(mut st) = bot_deps.filters.get_pending_wizard(&filter_key) {
+                let text_raw = msg.text().or_else(|| msg.caption()).unwrap_or("").trim().to_string();
+                if text_raw.eq_ignore_ascii_case("/cancel") || text_raw.to_lowercase().starts_with("/cancel@") {
+                    if let Err(e) = bot_deps.filters.remove_pending_wizard(&filter_key) {
+                        log::error!("Failed to remove filter wizard state: {}", e);
+                    }
+                    bot.send_message(msg.chat.id, "✅ Cancelled filter creation.").await?;
+                    return Ok(());
+                }
+                if text_raw.is_empty() || text_raw.starts_with('/') { return Ok(()); }
+                match st.step {
+                    crate::filters::dto::PendingFilterStep::AwaitingTrigger => {
+                        // Store the trigger
+                        st.trigger = Some(text_raw.clone());
+                        st.step = crate::filters::dto::PendingFilterStep::AwaitingResponse;
+                        if let Err(e) = bot_deps.filters.put_pending_wizard(filter_key, &st) {
+                            log::error!("Failed to save filter wizard state: {}", e);
+                            bot.send_message(msg.chat.id, "❌ Failed to save filter progress.").await?;
+                            return Ok(());
+                        }
+                        bot.send_message(msg.chat.id, "🔍 <b>Add New Filter - Step 2/2</b>\n\nNow send the response message that the bot should reply with when someone types your trigger.\n\n💡 <i>This can be any text, including emojis and multiple lines.</i>")
+                            .parse_mode(ParseMode::Html)
+                            .await?;
+                        return Ok(());
+                    }
+                    crate::filters::dto::PendingFilterStep::AwaitingResponse => {
+                        // Store the response and create the filter
+                        st.response = Some(text_raw.clone());
+                        
+                        // Create the filter
+                        let filter = crate::filters::dto::FilterDefinition {
+                            trigger: st.trigger.clone().unwrap_or_default(),
+                            response: st.response.clone().unwrap_or_default(),
+                            group_id: st.group_id.to_string(),
+                            created_by: st.creator_user_id,
+                            created_at: chrono::Utc::now().timestamp(),
+                            is_active: true,
+                            match_type: st.match_type.clone(),
+                            response_type: st.response_type.clone(),
+                            id: uuid::Uuid::new_v4().to_string(),
+                        };
+                        
+                        match bot_deps.filters._create_filter(filter) {
+                            Ok(_) => {
+                                // Clean up wizard state
+                                if let Err(e) = bot_deps.filters.remove_pending_wizard(&filter_key) {
+                                    log::error!("Failed to remove filter wizard state: {}", e);
+                                }
+                                bot.send_message(msg.chat.id, format!("✅ <b>Filter Created!</b>\n\n🔹 Trigger: <code>{}</code>\n💬 Response: <code>{}</code>\n\n💡 Try typing the trigger word to test it!", st.trigger.unwrap_or_default(), st.response.unwrap_or_default()))
+                                    .parse_mode(ParseMode::Html)
+                                    .await?;
+                            }
+                            Err(e) => {
+                                log::error!("Failed to create filter: {}", e);
+                                bot.send_message(msg.chat.id, format!("❌ Failed to create filter: {}", e)).await?;
+                            }
+                        }
+                        return Ok(());
+                    }
+                    _ => {}
+                }
+            }
+        }
+
         // Scheduled payments wizard: capture free text steps
         if let Some(user) = &msg.from {
             let pay_key = (&msg.chat.id.0, &(user.id.0 as i64));
@@ -1664,6 +1731,14 @@ pub async fn handle_message(bot: Bot, msg: Message, bot_deps: BotDependencies) -
                     }
                     _ => {}
                 }
+            }
+        }
+
+        // Process filters for this message
+        if let Ok(filter_triggered) = process_message_for_filters(bot.clone(), msg.clone(), bot_deps.clone()).await {
+            if filter_triggered {
+                // Filter was triggered and response sent, return early
+                return Ok(());
             }
         }
 
