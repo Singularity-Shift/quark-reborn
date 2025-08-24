@@ -1829,8 +1829,9 @@ pub async fn handle_message(bot: Bot, msg: Message, bot_deps: BotDependencies) -
                     }
 
                     if result.verdict == "F" {
-                        // Mute the user
+                        // Handle both regular user messages and forwarded messages
                         if let Some(flagged_user) = &msg.from {
+                            // Regular user message - can mute
                             let restricted_permissions = teloxide::types::ChatPermissions::empty();
 
                             // Check if the user is already muted
@@ -1853,7 +1854,8 @@ pub async fn handle_message(bot: Bot, msg: Message, bot_deps: BotDependencies) -
                                     flagged_user.id
                                 );
                             }
-                            // Add admin buttons
+                            
+                            // Add admin buttons for regular users
                             let keyboard = InlineKeyboardMarkup::new(vec![vec![
                                 InlineKeyboardButton::callback(
                                     "🔇 Unmute",
@@ -1864,6 +1866,7 @@ pub async fn handle_message(bot: Bot, msg: Message, bot_deps: BotDependencies) -
                                     format!("ban:{}:{}", flagged_user.id, msg.id.0),
                                 ),
                             ]]);
+                            
                             // Build a visible user mention (prefer @username, else clickable name)
                             let user_mention = if let Some(username) = &flagged_user.username {
                                 format!("@{}", username)
@@ -1887,14 +1890,45 @@ pub async fn handle_message(bot: Bot, msg: Message, bot_deps: BotDependencies) -
                             .parse_mode(ParseMode::Html)
                             .reply_markup(keyboard)
                             .await?;
-                            // Immediately remove the offending message from the chat
-                            if let Err(e) = bot.delete_message(msg.chat.id, msg.id).await {
-                                log::warn!(
-                                    "Failed to delete offending message {}: {}",
-                                    msg.id.0,
-                                    e
-                                );
-                            }
+                        } else {
+                            // Forwarded message - log details and show info
+                            // Since we can't access forward metadata directly, we'll identify it by the absence of msg.from
+                            log::info!(
+                                "Forwarded message flagged: chat_id={}, msg_id={}, text={}",
+                                msg.chat.id.0, msg.id.0, message_text
+                            );
+                            
+                            let user_mention = "Forwarded message (no sender info)".to_string();
+                            
+                            // For forwarded messages, just show delete option
+                            let keyboard = InlineKeyboardMarkup::new(vec![vec![
+                                InlineKeyboardButton::callback(
+                                    "🗑️ Delete Only",
+                                    format!("delete_only:{}", msg.id.0),
+                                ),
+                            ]]);
+
+                            bot.send_message(
+                                msg.chat.id,
+                                format!(
+                                    "🛡️ <b>Forwarded Content Flagged</b>\n\n📝 Message ID: <code>{}</code>\n\n❌ Status: <b>FLAGGED</b> 🔴\n⚠️ Cannot mute (forwarded message)\n👤 <b>Source:</b> {}\n\n💬 <i>Flagged message:</i>\n<blockquote><span class=\"tg-spoiler\">{}</span></blockquote>",
+                                    msg.id,
+                                    user_mention,
+                                    teloxide::utils::html::escape(message_text)
+                                )
+                            )
+                            .parse_mode(ParseMode::Html)
+                            .reply_markup(keyboard)
+                            .await?;
+                        }
+                        
+                        // Always delete the offending message (both regular and forwarded)
+                        if let Err(e) = bot.delete_message(msg.chat.id, msg.id).await {
+                            log::warn!(
+                                "Failed to delete offending message {}: {}",
+                                msg.id.0,
+                                e
+                            );
                         }
                     }
                 }
