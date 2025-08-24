@@ -141,9 +141,14 @@ async fn main() {
     let yield_ai = YieldAI::new();
     let welcome_service = welcome::welcome_service::WelcomeService::new(db.clone());
 
-    schedule_jobs(panora.clone(), bot.clone(), dao.clone(), welcome_service.clone())
-        .await
-        .expect("Failed to schedule jobs");
+    schedule_jobs(
+        panora.clone(),
+        bot.clone(),
+        dao.clone(),
+        welcome_service.clone(),
+    )
+    .await
+    .expect("Failed to schedule jobs");
 
     // Initialize a dedicated scheduler for user scheduled prompts
     let scheduler = JobScheduler::new()
@@ -201,7 +206,10 @@ async fn main() {
         // Removed selectreasoningmodel (unified under selectmodel)
         // selectmodel and mysettings entries merged under /usersettings
         BotCommand::new("usersettings", "Open user settings menu (DM only)."),
-        BotCommand::new("mod", "Moderate content (reply to message)."),
+        BotCommand::new(
+            "report",
+            "Moderate content (reply to message) and send a report to the admin if content is found to be inappropriate, muting the user in this case.",
+        ),
         BotCommand::new(
             "moderationrules",
             "Display the moderation rules to avoid getting muted.",
@@ -265,8 +273,6 @@ async fn main() {
     if let Err(e) = bootstrap_scheduled_payments(bot.clone(), bot_deps.clone()).await {
         log::error!("Failed to bootstrap scheduled payments: {}", e);
     }
-    
-
 
     Dispatcher::builder(bot.clone(), handler_tree())
         .dependencies(dptree::deps![InMemStorage::<QuarkState>::new(), bot_deps])

@@ -1989,17 +1989,12 @@ pub async fn handle_wallet_address(
 pub async fn handle_mod(bot: Bot, msg: Message, bot_deps: BotDependencies) -> AnyResult<()> {
     // Check if sentinel is on for this chat
     if !msg.chat.is_private() {
-        let sentinel_tree = bot_deps.db.open_tree("sentinel_state").unwrap();
-        let chat_id = msg.chat.id.0.to_be_bytes();
-        let sentinel_on = sentinel_tree
-            .get(chat_id)
-            .unwrap()
-            .map(|v| v == b"on")
-            .unwrap_or(false);
+        let sentinel_on = bot_deps.sentinel.get_sentinel(msg.chat.id.to_string());
+
         if sentinel_on {
             bot.send_message(
                 msg.chat.id,
-                "🛡️ <b>Sentinel Mode Active</b>\n\n/mod is disabled while sentinel is ON. All messages are being automatically moderated."
+                "🛡️ <b>Sentinel Mode Active</b>\n\n/report is disabled while sentinel is ON. All messages are being automatically moderated."
             )
             .parse_mode(ParseMode::Html)
             .await?;
@@ -2212,7 +2207,7 @@ pub async fn handle_mod(bot: Bot, msg: Message, bot_deps: BotDependencies) -> An
         // Not a reply to a message, show usage instructions
         bot.send_message(
             msg.chat.id,
-            "❌ <b>Invalid Usage</b>\n\n📝 The <code>/mod</code> command must be used in reply to a message.\n\n💡 <b>How to use:</b>\n1. Find the message you want to moderate\n2. Reply to that message with <code>/mod</code>\n\n🛡️ This will analyze the content of the replied message for violations."
+            "❌ <b>Invalid Usage</b>\n\n📝 The <code>/report</code> command must be used in reply to a message.\n\n💡 <b>How to use:</b>\n1. Find the message you want to moderate\n2. Reply to that message with <code>/report</code>\n\n🛡️ This will analyze the content of the replied message for violations."
         )
         .parse_mode(ParseMode::Html)
         .await?;

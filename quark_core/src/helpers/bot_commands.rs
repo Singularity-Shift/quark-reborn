@@ -29,8 +29,10 @@ pub enum Command {
     #[command(description = "Open user settings menu (DM only).")]
     Usersettings,
     // Sentinel control moved into Group Settings → Moderation
-    #[command(description = "Moderate content (reply to message).")]
-    Mod,
+    #[command(
+        description = "Moderate content (reply to message) and send a report to the admin if content is found to be inappropriate, muting the user in this case."
+    )]
+    Report,
     #[command(description = "Display the moderation rules to avoid getting muted.")]
     ModerationRules,
     #[command(description = "Get your wallet address.")]

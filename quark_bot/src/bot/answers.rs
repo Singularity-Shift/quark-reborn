@@ -122,7 +122,7 @@ pub async fn answers(
             }
         }
 
-        Command::Mod => {
+        Command::Report => {
             handle_mod(bot, msg, bot_deps.clone()).await?;
         }
         Command::ModerationRules => {
