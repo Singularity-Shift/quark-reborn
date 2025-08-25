@@ -43,12 +43,12 @@ impl Filters {
     }
 
     pub fn create_filter(&self, filter: FilterDefinition) -> Result<(), FilterError> {
-        let validation = self._validate_filter(&filter)?;
+        let validation = self.validate_filter(&filter)?;
         if !validation._is_valid {
             return Err(FilterError::_ValidationFailed(validation));
         }
 
-        if self._filter_exists(&filter.group_id, &filter.trigger)? {
+        if self.filter_exists(&filter.group_id, &filter.trigger)? {
             return Err(FilterError::_DuplicateFilter(format!(
                 "Filter with trigger '{}' already exists",
                 filter.trigger
@@ -63,7 +63,7 @@ impl Filters {
             .insert(&key, filter_bytes)
             .map_err(|e| FilterError::DatabaseError(e.to_string()))?;
 
-        let metadata = self._create_metadata(&filter);
+        let metadata = self.create_metadata(&filter);
         let metadata_key = self.format_key(&filter.group_id, &filter.id);
         let metadata_bytes = serde_json::to_vec(&metadata)
             .map_err(|e| FilterError::InternalError(e.to_string()))?;
@@ -266,7 +266,7 @@ impl Filters {
         }
     }
 
-    fn _validate_filter(&self, filter: &FilterDefinition) -> Result<ValidationResult, FilterError> {
+    fn validate_filter(&self, filter: &FilterDefinition) -> Result<ValidationResult, FilterError> {
         let mut result = ValidationResult::_success();
 
         if filter.trigger.trim().is_empty() {
@@ -303,7 +303,7 @@ impl Filters {
         Ok(result)
     }
 
-    fn _filter_exists(&self, group_id: &str, trigger: &str) -> Result<bool, FilterError> {
+    fn filter_exists(&self, group_id: &str, trigger: &str) -> Result<bool, FilterError> {
         let filters = self.get_group_filters(group_id)?;
         let trigger_lower = trigger.to_lowercase();
 
@@ -316,19 +316,19 @@ impl Filters {
         Ok(false)
     }
 
-    fn _create_metadata(&self, filter: &FilterDefinition) -> FilterMetadata {
+    fn create_metadata(&self, filter: &FilterDefinition) -> FilterMetadata {
         FilterMetadata {
             group_id: filter.group_id.clone(),
-            trigger_hash: self._calculate_trigger_hash(&filter.trigger),
-            display_name: self._truncate_string(&filter.trigger, 30),
-            response_preview: self._truncate_string(&filter.response.replace('\n', " "), 50),
+            trigger_hash: self.calculate_trigger_hash(&filter.trigger),
+            display_name: self.truncate_string(&filter.trigger, 30),
+            response_preview: self.truncate_string(&filter.response.replace('\n', " "), 50),
             last_modified: filter.created_at,
             modified_by: filter.created_by,
             filter_id: filter.id.clone(),
         }
     }
 
-    fn _calculate_trigger_hash(&self, trigger: &str) -> String {
+    fn calculate_trigger_hash(&self, trigger: &str) -> String {
         use std::collections::hash_map::DefaultHasher;
         use std::hash::{Hash, Hasher};
 
@@ -337,7 +337,7 @@ impl Filters {
         format!("{:x}", hasher.finish())
     }
 
-    fn _truncate_string(&self, s: &str, max_len: usize) -> String {
+    fn truncate_string(&self, s: &str, max_len: usize) -> String {
         if s.len() > max_len {
             format!("{}...", &s[..max_len - 3])
         } else {
