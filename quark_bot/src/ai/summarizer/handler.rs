@@ -2,7 +2,9 @@ use crate::ai::summarizer::dto::SummarizerState;
 use crate::ai::summarizer::helpers::{
     build_summarization_prompt, generate_summary, get_conversation_summary_key, should_summarize,
 };
-use open_ai_rust_responses_by_sshift::Client as OAIClient;
+use crate::dependencies::BotDependencies;
+use crate::utils::create_purchase_request;
+use open_ai_rust_responses_by_sshift::{Client as OAIClient, Model};
 use sled::Tree;
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -45,6 +47,9 @@ impl SummarizerService {
         token_limit: u32,
         latest_user_input: &str,
         latest_assistant_reply: &str,
+        bot_deps: BotDependencies,
+        group_id: Option<String>,
+        jwt: &str,
     ) -> Result<Option<String>, anyhow::Error> {
         if !should_summarize(total_tokens, token_limit) {
             return Ok(None);
@@ -55,11 +60,7 @@ impl SummarizerService {
             user_id, total_tokens, token_limit
         );
 
-        let current_state = self.get_state(user_id).unwrap_or_default();
-        let prior_summary = current_state.summary.as_deref();
-
         let prompt = build_summarization_prompt(
-            prior_summary,
             latest_user_input,
             latest_assistant_reply,
         );
@@ -78,6 +79,23 @@ impl SummarizerService {
                 return Err(e);
             }
         };
+
+        // Charge for the summarization call
+        let user_id_str = user_id.to_string();
+        if let Err(e) = create_purchase_request(
+            0, // file_search_calls
+            0, // web_search_calls  
+            0, // image_generation_calls
+            total_tokens, // Use the total tokens from the conversation
+            Model::GPT5Nano, // Summarization model
+            jwt, // Use the actual JWT token
+            group_id.clone(),
+            Some(user_id_str),
+            bot_deps.clone(),
+        ).await {
+            log::error!("Failed to charge for summarization for user {}: {}", user_id, e);
+            // Don't fail the summarization, just log the payment error
+        }
 
         let now = SystemTime::now()
             .duration_since(UNIX_EPOCH)
@@ -106,5 +124,11 @@ impl SummarizerService {
     pub fn get_summary_for_instructions(&self, user_id: i64) -> Option<String> {
         self.get_state(user_id)
             .and_then(|state| state.summary)
+    }
+
+    pub fn clear_summary(&self, user_id: i64) -> sled::Result<()> {
+        let key = get_conversation_summary_key(user_id);
+        self.tree.remove(key.as_bytes())?;
+        Ok(())
     }
 }

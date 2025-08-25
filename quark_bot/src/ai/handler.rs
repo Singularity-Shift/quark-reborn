@@ -108,7 +108,7 @@ impl AI {
             input
         );
 
-        let address = if group_id.is_some() {
+        let (address, jwt) = if group_id.is_some() {
             let group_credentials = bot_deps.group.get_credentials(msg.chat.id);
 
             if group_credentials.is_none() {
@@ -117,7 +117,7 @@ impl AI {
 
             let group_credentials = group_credentials.unwrap();
 
-            group_credentials.resource_account_address
+            (group_credentials.resource_account_address, group_credentials.jwt)
         } else {
             let username = user.username.clone();
 
@@ -135,7 +135,7 @@ impl AI {
 
             let user_credentials = user_credentials.unwrap();
 
-            user_credentials.resource_account_address
+            (user_credentials.resource_account_address, user_credentials.jwt)
         };
 
         let default_payment_prefs = bot_deps.default_payment_prefs.clone();
@@ -583,6 +583,9 @@ impl AI {
                     token_limit,
                     input,
                     &reply,
+                    bot_deps.clone(),
+                    group_id.clone(),
+                    &jwt,
                 )
                 .await?
             {

@@ -1,21 +1,14 @@
 use open_ai_rust_responses_by_sshift::{Client as OAIClient, Model, Request, Verbosity, ReasoningEffort};
 
 pub fn build_summarization_prompt(
-    prior_summary: Option<&str>,
     latest_user_input: &str,
     latest_assistant_reply: &str,
 ) -> String {
-    let mut prompt = String::from(
-        "Summarize the conversation so far for future context. Include key facts, decisions, named entities, constraints, and unresolved items. Keep it concise (< 200 words). Avoid pleasantries and repetitive details.\n\n",
+    let prompt = format!(
+        "Summarize the conversation so far for future context. Include key facts, decisions, named entities, constraints, and unresolved items. Keep it concise (< 200 words). Avoid pleasantries and repetitive details.\n\nLatest user input: {}\n\nLatest assistant reply: {}\n\nNew summary:",
+        latest_user_input,
+        latest_assistant_reply
     );
-
-    if let Some(summary) = prior_summary {
-        prompt.push_str(&format!("Previous summary: {}\n\n", summary));
-    }
-
-    prompt.push_str(&format!("Latest user input: {}\n\n", latest_user_input));
-    prompt.push_str(&format!("Latest assistant reply: {}\n\n", latest_assistant_reply));
-    prompt.push_str("New summary:");
 
     prompt
 }
@@ -62,28 +55,14 @@ mod tests {
     #[test]
     fn test_build_summarization_prompt() {
         let prompt = build_summarization_prompt(
-            Some("Previous summary"),
             "User input",
             "Assistant reply"
         );
         
-        assert!(prompt.contains("Previous summary"));
         assert!(prompt.contains("User input"));
         assert!(prompt.contains("Assistant reply"));
         assert!(prompt.contains("New summary:"));
-    }
-
-    #[test]
-    fn test_build_summarization_prompt_no_prior() {
-        let prompt = build_summarization_prompt(
-            None,
-            "User input",
-            "Assistant reply"
-        );
-        
         assert!(!prompt.contains("Previous summary"));
-        assert!(prompt.contains("User input"));
-        assert!(prompt.contains("Assistant reply"));
     }
 
     #[test]
