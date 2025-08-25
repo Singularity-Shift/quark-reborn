@@ -745,6 +745,10 @@ pub async fn handle_callback_query(
                             "filters_main",
                         )],
                         vec![InlineKeyboardButton::callback(
+                            "⚙️ Command Settings",
+                            "open_command_settings",
+                        )],
+                        vec![InlineKeyboardButton::callback(
                             "🔄 Migrate Group ID",
                             "open_migrate_group_id",
                         )],
@@ -753,7 +757,7 @@ pub async fn handle_callback_query(
                             "group_settings_close",
                         )],
                     ]);
-                    bot.edit_message_text(m.chat.id, m.id, "⚙️ <b>Group Settings</b>\n\n• Configure payment token, DAO preferences, moderation, sponsor settings, and group migration.\n\n💡 Only group administrators can access these settings.")
+                    bot.edit_message_text(m.chat.id, m.id, "⚙️ <b>Group Settings</b>\n\n• Configure payment token, DAO preferences, moderation, sponsor settings, command settings, filters, and group migration.\n\n💡 Only group administrators can access these settings.")
                         .parse_mode(teloxide::types::ParseMode::Html)
                         .reply_markup(kb)
                         .await?;
@@ -820,6 +824,11 @@ pub async fn handle_callback_query(
         {
             // Handle sponsor settings callbacks
             handle_sponsor_settings_callback(bot, query, bot_deps).await?;
+        } else if data == "open_command_settings"
+            || data == "toggle_chat_commands"
+            || data == "command_settings_back"
+        {
+            crate::command_settings::handler::handle_command_settings_callback(bot, query, bot_deps).await?;
         } else if data.starts_with("welcome_verify:") {
             // Handle welcome verification callback
             log::info!("Received welcome verification callback: {}", data);

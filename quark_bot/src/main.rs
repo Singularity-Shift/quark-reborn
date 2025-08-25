@@ -4,6 +4,7 @@ mod aptos;
 mod assets;
 mod bot;
 mod callbacks;
+mod command_settings;
 mod credentials;
 mod dao;
 mod db;
@@ -36,6 +37,7 @@ use crate::{
     aptos::handler::Aptos,
     assets::{command_image_collector, media_aggregator},
     bot::handler_tree::handler_tree,
+    command_settings::CommandSettingsManager,
     credentials::handler::Auth,
     dao::dao::Dao,
     dependencies::BotDependencies,
@@ -152,6 +154,7 @@ async fn main() {
     let welcome_service = welcome::welcome_service::WelcomeService::new(db.clone());
     let summarization_settings = summarization_settings::handler::SummarizationSettings::new(&db)
         .expect("Failed to create SummarizationSettings");
+    let command_settings = CommandSettingsManager::new(db.clone());
 
     schedule_jobs(
         panora.clone(),
@@ -263,6 +266,7 @@ async fn main() {
         group,
         dao,
         filters,
+        command_settings,
         scheduled_storage,
         scheduled_payments,
         media_aggregator,
