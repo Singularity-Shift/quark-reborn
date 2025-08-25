@@ -52,6 +52,8 @@ impl SummarizationSettings {
         // Resolve enabled: user pref -> env (both spellings) -> default true
         let enabled = prefs.summarizer_enabled.unwrap_or_else(|| {
             env::var("SUMMARIZER_ENABLED")
+                .or_else(|_| env::var("SUMMARIZER"))
+                .or_else(|_| env::var("summarizer_enabled"))
                 .or_else(|_| env::var("summerizer"))
                 .unwrap_or_else(|_| "true".to_string())
                 .parse::<bool>()

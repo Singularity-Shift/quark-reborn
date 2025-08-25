@@ -34,12 +34,13 @@ impl CommandSettingsManager {
 
     pub fn get_command_settings(&self, group_id: String) -> CommandSettings {
         let group_id = format!("{}-{}", group_id, self.account_seed);
-        let settings = self.command_settings_tree.get(group_id).unwrap();
-
-        if let Some(settings) = settings {
-            serde_json::from_slice(settings.as_ref()).unwrap_or_default()
-        } else {
-            CommandSettings::default()
+        match self.command_settings_tree.get(group_id) {
+            Ok(Some(bytes)) => serde_json::from_slice(bytes.as_ref()).unwrap_or_default(),
+            Ok(None) => CommandSettings::default(),
+            Err(e) => {
+                log::error!("sled error reading command settings: {}", e);
+                CommandSettings::default()
+            }
         }
     }
 

@@ -65,14 +65,14 @@ impl SummarizerService {
             latest_assistant_reply,
         );
 
-        let new_summary = match generate_summary(&self.openai_client, &prompt).await {
-            Ok(summary) => {
+        let (new_summary, tokens_used) = match generate_summary(&self.openai_client, &prompt).await {
+            Ok(result) => {
                 log::info!(
                     "Successfully generated summary for user {}: {} characters",
                     user_id,
-                    summary.len()
+                    result.summary.len()
                 );
-                summary
+                (result.summary, result.total_tokens)
             }
             Err(e) => {
                 log::error!("Failed to generate summary for user {}: {}", user_id, e);
@@ -86,7 +86,7 @@ impl SummarizerService {
             0, // file_search_calls
             0, // web_search_calls  
             0, // image_generation_calls
-            total_tokens, // Use the total tokens from the conversation
+            tokens_used, // Use actual tokens from the summarization API call
             Model::GPT5Nano, // Summarization model
             jwt, // Use the actual JWT token
             group_id.clone(),

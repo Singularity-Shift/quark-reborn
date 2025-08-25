@@ -1,4 +1,5 @@
 use open_ai_rust_responses_by_sshift::{Client as OAIClient, Model, Request, Verbosity, ReasoningEffort};
+use crate::ai::summarizer::dto::SummarizationResult;
 
 pub fn build_summarization_prompt(
     latest_user_input: &str,
@@ -24,7 +25,7 @@ pub fn should_summarize(total_tokens: u32, token_limit: u32) -> bool {
 pub async fn generate_summary(
     openai_client: &OAIClient,
     prompt: &str,
-) -> Result<String, anyhow::Error> {
+) -> Result<SummarizationResult, anyhow::Error> {
     let full_prompt = format!(
         "You are a conversation summarizer. Generate concise, factual summaries.\n\n{}",
         prompt
@@ -40,12 +41,17 @@ pub async fn generate_summary(
 
     let response = openai_client.responses.create(request).await?;
     let summary = response.output_text().trim().to_string();
+    let total_tokens = response
+        .usage
+        .as_ref()
+        .map(|u| u.total_tokens)
+        .unwrap_or(0);
 
     if summary.is_empty() {
         return Err(anyhow::anyhow!("Generated summary is empty"));
     }
 
-    Ok(summary)
+    Ok(SummarizationResult { summary, total_tokens })
 }
 
 #[cfg(test)]
