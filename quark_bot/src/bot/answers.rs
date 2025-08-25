@@ -158,6 +158,10 @@ pub async fn answers(
                         "open_my_settings",
                     )],
                     vec![InlineKeyboardButton::callback(
+                        "🧾 Summarization Settings",
+                        "open_summarization_settings",
+                    )],
+                    vec![InlineKeyboardButton::callback(
                         "↩️ Close",
                         "user_settings_close",
                     )],

@@ -18,6 +18,7 @@ mod scheduled_payments;
 mod scheduled_prompts;
 mod services;
 mod sponsor;
+mod summarization_settings;
 mod user_conversation;
 mod user_model_preferences;
 mod utils;
@@ -149,6 +150,8 @@ async fn main() {
     let pending_transactions = PendingTransactions::new(&db).unwrap();
     let yield_ai = YieldAI::new();
     let welcome_service = welcome::welcome_service::WelcomeService::new(db.clone());
+    let summarization_settings = summarization_settings::handler::SummarizationSettings::new(&db)
+        .expect("Failed to create SummarizationSettings");
 
     schedule_jobs(
         panora.clone(),
@@ -273,6 +276,7 @@ async fn main() {
         moderation,
         sentinel,
         sponsor,
+        summarization_settings,
         welcome_service,
         summarizer,
     };

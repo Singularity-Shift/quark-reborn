@@ -341,12 +341,19 @@ pub async fn handle_callback_query(
                             .map(super::user_model_preferences::dto::verbosity_to_display_string)
                             .unwrap_or("Medium");
 
+                        // Get effective summarization preferences
+                        let user_id = id.0 as i64;
+                        let sum_prefs = bot_deps.summarization_settings.get_effective_prefs(user_id);
+                        let sum_status = if sum_prefs.enabled { "On" } else { "Off" };
+
                         let text = format!(
-                            "⚙️ <b>Your Settings</b>\n\n🤖 Model: {}\n🧩 Mode: {}\n🗣️ Verbosity: {}\n💳 Token: <code>{}</code>",
+                            "⚙️ <b>Your Settings</b>\n\n🤖 Model: {}\n🧩 Mode: {}\n🗣️ Verbosity: {}\n💳 Token: <code>{}</code>\n🧾 Summarizer: {}\n📏 Threshold: {} tokens",
                             prefs.chat_model.to_display_string(),
                             mode_text,
                             verbosity_text,
-                            token_label
+                            token_label,
+                            sum_status,
+                            sum_prefs.token_limit
                         );
 
                         let keyboard =
@@ -896,6 +903,18 @@ pub async fn handle_callback_query(
         {
             // Handle welcome settings callbacks
             handle_welcome_settings_callback(bot, query, bot_deps).await?;
+        } else if data == "open_summarization_settings"
+            || data.starts_with("toggle_summarizer:")
+            || data.starts_with("set_summarizer_threshold:")
+            || data == "summarization_back_to_usersettings"
+        {
+            // Handle summarization settings callbacks
+            crate::summarization_settings::handler::handle_summarization_settings_callback(
+                bot,
+                query,
+                bot_deps.summarization_settings,
+            )
+            .await?;
         } else if data == "open_moderation_settings" {
             // Open Moderation submenu inside Group Settings
             if let Some(message) = &query.message {

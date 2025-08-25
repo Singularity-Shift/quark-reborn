@@ -20,6 +20,7 @@ use crate::{
     scheduled_prompts::storage::ScheduledStorage,
     services::handler::Services,
     sponsor::sponsor::Sponsor,
+    summarization_settings::handler::SummarizationSettings,
     user_conversation::handler::UserConversations,
     welcome::welcome_service::WelcomeService,
     yield_ai::yield_ai::YieldAI,
@@ -53,6 +54,7 @@ pub struct BotDependencies {
     pub moderation: ModerationService,
     pub sentinel: SentinelService,
     pub sponsor: Sponsor,
+    pub summarization_settings: SummarizationSettings,
     pub welcome_service: WelcomeService,
     pub summarizer: SummarizerService,
 }

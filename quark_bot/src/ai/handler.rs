@@ -590,17 +590,11 @@ impl AI {
             }
         }
 
-        // Check if summarization is needed and enabled
-        let summarizer_enabled = std::env::var("SUMMARIZER_ENABLED")
-            .unwrap_or_else(|_| "true".to_string())
-            .parse::<bool>()
-            .unwrap_or(true);
-
-        if summarizer_enabled {
-            let token_limit = std::env::var("CONVERSATION_TOKEN_LIMIT")
-                .unwrap_or_else(|_| "12000".to_string())
-                .parse::<u32>()
-                .unwrap_or(12000);
+        // Check if summarization is needed and enabled using per-user preferences
+        let effective_prefs = bot_deps.summarization_settings.get_effective_prefs(user_id);
+        
+        if effective_prefs.enabled {
+            let token_limit = effective_prefs.token_limit;
 
             if let Some(_summary) = bot_deps
                 .summarizer
