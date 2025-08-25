@@ -1,11 +1,13 @@
 use anyhow::Result;
 use teloxide::{
     prelude::*,
-    types::{InlineKeyboardButton, InlineKeyboardMarkup, Message, ParseMode},
+    types::{InlineKeyboardButton, InlineKeyboardMarkup, Message, ParseMode, User},
 };
 
 use crate::dependencies::BotDependencies;
-use crate::filters::dto::{MatchType, PendingFilterStep, PendingFilterWizardState, ResponseType, FilterError};
+use crate::filters::dto::{
+    FilterError, MatchType, PendingFilterStep, PendingFilterWizardState, ResponseType,
+};
 use crate::filters::helpers::parse_triggers;
 use crate::utils;
 
@@ -48,7 +50,8 @@ pub async fn handle_filters_callback(
                         show_group_settings_menu(&bot, &query, m.chat.id).await?;
                     }
                     "filters_confirm" => {
-                        confirm_and_create_filter(&bot, &query, &bot_deps, m.chat.id, user_id).await?;
+                        confirm_and_create_filter(&bot, &query, &bot_deps, m.chat.id, user_id)
+                            .await?;
                     }
                     "filters_cancel" => {
                         cancel_filter_wizard(&bot, &query, &bot_deps, m.chat.id, user_id).await?;
@@ -81,19 +84,18 @@ pub async fn process_message_for_filters(
 
     if let Some(text) = msg.text() {
         let group_id = msg.chat.id.to_string();
-        
+
         match bot_deps.filters.find_matching_filters(&group_id, text) {
             Ok(matches) => {
                 if let Some(filter_match) = matches.first() {
                     let response = &filter_match.filter.response;
-                    
+
                     let parse_mode = match filter_match.filter.response_type {
                         ResponseType::Markdown => Some(ParseMode::MarkdownV2),
                         ResponseType::Text => None,
                     };
 
-                    let mut send_message = bot
-                        .send_message(msg.chat.id, response);
+                    let mut send_message = bot.send_message(msg.chat.id, response);
 
                     if let Some(mode) = parse_mode {
                         send_message = send_message.parse_mode(mode);
@@ -101,7 +103,7 @@ pub async fn process_message_for_filters(
 
                     if let Err(e) = send_message.await {
                         log::error!("Failed to send filter response: {}", e);
-                        
+
                         // Fallback to simple message without reply
                         bot.send_message(msg.chat.id, response).await?;
                     }
@@ -133,32 +135,36 @@ async fn start_filter_wizard(
     chat_id: teloxide::types::ChatId,
     user_id: teloxide::types::UserId,
 ) -> Result<()> {
-    let wizard_key = format!("filter_{}-{}:{}", chat_id.0, bot_deps.filters.account_seed, user_id.0);
-    
+    let wizard_key = format!(
+        "filter_{}-{}:{}",
+        chat_id.0, bot_deps.filters.account_seed, user_id.0
+    );
+
     let wizard_state = PendingFilterWizardState {
         group_id: chat_id.0,
         creator_user_id: user_id.0 as i64,
         step: PendingFilterStep::AwaitingTrigger,
         trigger: None,
         response: None,
-        match_type: MatchType::Contains, // Default
+        match_type: MatchType::Contains,   // Default
         response_type: ResponseType::Text, // Default
     };
-    
-            if let Err(e) = bot_deps.filters.put_pending_settings(wizard_key, &wizard_state) {
+
+    if let Err(e) = bot_deps
+        .filters
+        .put_pending_settings(wizard_key, &wizard_state)
+    {
         log::error!("Failed to save wizard state: {}", e);
         bot.answer_callback_query(query.id.clone())
             .text("❌ Failed to start filter wizard")
             .await?;
         return Ok(());
     }
-    
-    let keyboard = InlineKeyboardMarkup::new(vec![
-        vec![InlineKeyboardButton::callback(
-            "❌ Cancel",
-            "filters_main",
-        )],
-    ]);
+
+    let keyboard = InlineKeyboardMarkup::new(vec![vec![InlineKeyboardButton::callback(
+        "❌ Cancel",
+        "filters_main",
+    )]]);
 
     let text = "🔍 <b>Add New Filter - Step 1/3</b>\n\nPlease send the trigger(s) for your filter. You can send multiple triggers separated by \", \".\n\n<b>Syntax:</b>\n• Single-word: <code>hello, bye, gm</code>\n• Multi-word (use brackets): <code>[good morning], [see you later]</code>\n• Mixed: <code>gm, [good morning], morning</code>\n\n<b>Examples:</b>\n• <code>gm, [good morning], morning</code>\n• <code>bye, [see you later], goodbye</code>\n• <code>help, [need help], support</code>\n\n💡 <i>Tip: Triggers are automatically converted to lowercase and match anywhere in a message (case-insensitive).</i>";
 
@@ -220,8 +226,6 @@ async fn show_filters_main_menu(
     Ok(())
 }
 
-
-
 async fn show_view_filters_menu(
     bot: &Bot,
     query: &teloxide::types::CallbackQuery,
@@ -256,9 +260,11 @@ async fn show_view_filters_menu(
         }
     } else {
         let mut keyboard_rows = Vec::new();
-        
+
         for filter in &filters {
-            let stats = bot_deps.filters.get_filter_stats(&group_id, &filter.id)
+            let stats = bot_deps
+                .filters
+                .get_filter_stats(&group_id, &filter.id)
                 .unwrap_or_else(|_| crate::filters::dto::FilterStats {
                     group_id: group_id.clone(),
                     filter_id: filter.id.clone(),
@@ -293,9 +299,11 @@ async fn show_view_filters_menu(
         let keyboard = InlineKeyboardMarkup::new(keyboard_rows);
 
         let mut text = format!("📋 <b>Active Filters ({})</b>\n\n", filters.len());
-        
+
         for filter in &filters {
-            let stats = bot_deps.filters.get_filter_stats(&group_id, &filter.id)
+            let stats = bot_deps
+                .filters
+                .get_filter_stats(&group_id, &filter.id)
                 .unwrap_or_else(|_| crate::filters::dto::FilterStats {
                     group_id: group_id.clone(),
                     filter_id: filter.id.clone(),
@@ -335,12 +343,10 @@ async fn show_reset_confirmation(
     query: &teloxide::types::CallbackQuery,
     _chat_id: teloxide::types::ChatId,
 ) -> Result<()> {
-    let keyboard = InlineKeyboardMarkup::new(vec![
-        vec![
-            InlineKeyboardButton::callback("✅ Yes, Reset All", "filters_reset_execute"),
-            InlineKeyboardButton::callback("❌ Cancel", "filters_main"),
-        ],
-    ]);
+    let keyboard = InlineKeyboardMarkup::new(vec![vec![
+        InlineKeyboardButton::callback("✅ Yes, Reset All", "filters_reset_execute"),
+        InlineKeyboardButton::callback("❌ Cancel", "filters_main"),
+    ]]);
 
     let text = "🗑️ <b>Reset All Filters</b>\n\n⚠️ <b>Warning:</b> This will permanently delete ALL filters in this group.\n\nAre you sure you want to continue?";
 
@@ -362,22 +368,22 @@ async fn execute_reset_filters(
     chat_id: teloxide::types::ChatId,
 ) -> Result<()> {
     let group_id = chat_id.to_string();
-    
+
     match bot_deps.filters.reset_group_filters(&group_id) {
         Ok(count) => {
-            let keyboard = InlineKeyboardMarkup::new(vec![
-                vec![InlineKeyboardButton::callback(
-                    "↩️ Back to Filters",
-                    "filters_main",
-                )],
-            ]);
+            let keyboard = InlineKeyboardMarkup::new(vec![vec![InlineKeyboardButton::callback(
+                "↩️ Back to Filters",
+                "filters_main",
+            )]]);
 
             let text = format!(
                 "✅ <b>Filters Reset Successfully</b>\n\n🗑️ Removed {} filters from this group.\n\n💡 You can now create new filters using the Add Filter option.",
                 count
             );
 
-            if let Some(teloxide::types::MaybeInaccessibleMessage::Regular(message)) = &query.message {
+            if let Some(teloxide::types::MaybeInaccessibleMessage::Regular(message)) =
+                &query.message
+            {
                 bot.edit_message_text(message.chat.id, message.id, text)
                     .parse_mode(ParseMode::Html)
                     .reply_markup(keyboard)
@@ -407,7 +413,7 @@ async fn remove_filter(
     filter_id: &str,
 ) -> Result<()> {
     let group_id = chat_id.to_string();
-    
+
     match bot_deps.filters.remove_filter(&group_id, filter_id) {
         Ok(_) => {
             show_view_filters_menu(bot, query, bot_deps, chat_id).await?;
@@ -452,10 +458,7 @@ async fn show_group_settings_menu(
             "👋 Welcome Settings",
             "welcome_settings",
         )],
-        vec![InlineKeyboardButton::callback(
-            "🔍 Filters",
-            "filters_main",
-        )],
+        vec![InlineKeyboardButton::callback("🔍 Filters", "filters_main")],
         vec![InlineKeyboardButton::callback(
             "🔄 Migrate Group ID",
             "open_migrate_group_id",
@@ -486,9 +489,12 @@ async fn confirm_and_create_filter(
     chat_id: teloxide::types::ChatId,
     user_id: teloxide::types::UserId,
 ) -> Result<()> {
-    let wizard_key = format!("filter_{}-{}:{}", chat_id.0, bot_deps.filters.account_seed, user_id.0);
-    
-            if let Some(wizard_state) = bot_deps.filters.get_pending_settings(&wizard_key) {
+    let wizard_key = format!(
+        "filter_{}-{}:{}",
+        chat_id.0, bot_deps.filters.account_seed, user_id.0
+    );
+
+    if let Some(wizard_state) = bot_deps.filters.get_pending_settings(&wizard_key) {
         if wizard_state.step == PendingFilterStep::AwaitingConfirm {
             let trigger_input = wizard_state.trigger.clone().unwrap_or_default();
             let triggers = parse_triggers(&trigger_input);
@@ -526,11 +532,19 @@ async fn confirm_and_create_filter(
             // Build result message
             let mut msg_parts: Vec<String> = Vec::new();
             if !created.is_empty() {
-                let list = created.iter().map(|t| format!("<code>{}</code>", t)).collect::<Vec<_>>().join(", ");
+                let list = created
+                    .iter()
+                    .map(|t| format!("<code>{}</code>", t))
+                    .collect::<Vec<_>>()
+                    .join(", ");
                 msg_parts.push(format!("✅ <b>Created</b>: {}", list));
             }
             if !duplicates.is_empty() {
-                let list = duplicates.iter().map(|t| format!("<code>{}</code>", t)).collect::<Vec<_>>().join(", ");
+                let list = duplicates
+                    .iter()
+                    .map(|t| format!("<code>{}</code>", t))
+                    .collect::<Vec<_>>()
+                    .join(", ");
                 msg_parts.push(format!("⚠️ <b>Skipped (duplicate)</b>: {}", list));
             }
             if !failures.is_empty() {
@@ -551,11 +565,14 @@ async fn confirm_and_create_filter(
                 response_text
             );
 
-            let keyboard = InlineKeyboardMarkup::new(vec![
-                vec![InlineKeyboardButton::callback("🔍 Back to Filters", "filters_main")],
-            ]);
+            let keyboard = InlineKeyboardMarkup::new(vec![vec![InlineKeyboardButton::callback(
+                "🔍 Back to Filters",
+                "filters_main",
+            )]]);
 
-            if let Some(teloxide::types::MaybeInaccessibleMessage::Regular(message)) = &query.message {
+            if let Some(teloxide::types::MaybeInaccessibleMessage::Regular(message)) =
+                &query.message
+            {
                 bot.edit_message_text(message.chat.id, message.id, success_text)
                     .parse_mode(ParseMode::Html)
                     .reply_markup(keyboard)
@@ -575,7 +592,7 @@ async fn confirm_and_create_filter(
             .text("❌ No active filter wizard found")
             .await?;
     }
-    
+
     Ok(())
 }
 
@@ -586,28 +603,120 @@ async fn cancel_filter_wizard(
     chat_id: teloxide::types::ChatId,
     user_id: teloxide::types::UserId,
 ) -> Result<()> {
-    let wizard_key = format!("filter_{}-{}:{}", chat_id.0, bot_deps.filters.account_seed, user_id.0);
-    
+    let wizard_key = format!(
+        "filter_{}-{}:{}",
+        chat_id.0, bot_deps.filters.account_seed, user_id.0
+    );
+
     // Clean up wizard state
     if let Err(e) = bot_deps.filters.remove_pending_settings(&wizard_key) {
         log::error!("Failed to remove filter wizard state: {}", e);
     }
-    
+
     // Show cancellation message
-    let keyboard = InlineKeyboardMarkup::new(vec![
-        vec![InlineKeyboardButton::callback("🔍 Back to Filters", "filters_main")],
-    ]);
-    
+    let keyboard = InlineKeyboardMarkup::new(vec![vec![InlineKeyboardButton::callback(
+        "🔍 Back to Filters",
+        "filters_main",
+    )]]);
+
     if let Some(teloxide::types::MaybeInaccessibleMessage::Regular(message)) = &query.message {
-        bot.edit_message_text(message.chat.id, message.id, "❌ <b>Filter Creation Cancelled</b>\n\nNo filter was created.")
-            .parse_mode(ParseMode::Html)
-            .reply_markup(keyboard)
-            .await?;
+        bot.edit_message_text(
+            message.chat.id,
+            message.id,
+            "❌ <b>Filter Creation Cancelled</b>\n\nNo filter was created.",
+        )
+        .parse_mode(ParseMode::Html)
+        .reply_markup(keyboard)
+        .await?;
     }
-    
+
     bot.answer_callback_query(query.id.clone())
         .text("✅ Filter creation cancelled")
         .await?;
-    
+
     Ok(())
+}
+
+pub async fn handle_message_filters(
+    bot: &Bot,
+    msg: Message,
+    bot_deps: BotDependencies,
+    user: User,
+) -> Result<bool> {
+    let filter_key = format!(
+        "filter_{}-{}:{}",
+        msg.chat.id.0, bot_deps.filters.account_seed, user.id.0
+    );
+    if let Some(mut st) = bot_deps.filters.get_pending_settings(&filter_key) {
+        let text_raw = msg
+            .text()
+            .or_else(|| msg.caption())
+            .unwrap_or("")
+            .trim()
+            .to_string();
+        if text_raw.eq_ignore_ascii_case("/cancel")
+            || text_raw.to_lowercase().starts_with("/cancel@")
+        {
+            if let Err(e) = bot_deps.filters.remove_pending_settings(&filter_key) {
+                log::error!("Failed to remove filter wizard state: {}", e);
+            }
+            bot.send_message(msg.chat.id, "✅ Cancelled filter creation.")
+                .await?;
+            return Ok(true);
+        }
+        if text_raw.is_empty() || text_raw.starts_with('/') {
+            return Ok(false);
+        }
+        match st.step {
+            crate::filters::dto::PendingFilterStep::AwaitingTrigger => {
+                // Store the trigger(s) as entered
+                st.trigger = Some(text_raw.clone());
+                st.step = crate::filters::dto::PendingFilterStep::AwaitingResponse;
+                if let Err(e) = bot_deps.filters.put_pending_settings(filter_key, &st) {
+                    log::error!("Failed to save filter wizard state: {}", e);
+                    bot.send_message(msg.chat.id, "❌ Failed to save filter progress.")
+                        .await?;
+                    return Ok(true);
+                }
+                bot.send_message(msg.chat.id, "🔍 <b>Add New Filter - Step 2/3</b>\n\nNow send the response message that the bot should reply with when someone types your trigger.\n\n💡 <i>This can be any text, including emojis and multiple lines.</i>")
+                        .parse_mode(ParseMode::Html)
+                        .await?;
+                return Ok(true);
+            }
+            crate::filters::dto::PendingFilterStep::AwaitingResponse => {
+                // Store the response and move to confirmation step
+                st.response = Some(text_raw.clone());
+                st.step = crate::filters::dto::PendingFilterStep::AwaitingConfirm;
+                if let Err(e) = bot_deps.filters.put_pending_settings(filter_key, &st) {
+                    log::error!("Failed to save filter wizard state: {}", e);
+                    bot.send_message(msg.chat.id, "❌ Failed to save filter progress.")
+                        .await?;
+                    return Ok(true);
+                }
+
+                // Show confirmation with summary
+                let summary = crate::filters::helpers::summarize(&st);
+                let keyboard = teloxide::types::InlineKeyboardMarkup::new(vec![vec![
+                    teloxide::types::InlineKeyboardButton::callback(
+                        "✅ Confirm & Create",
+                        "filters_confirm",
+                    ),
+                    teloxide::types::InlineKeyboardButton::callback("❌ Cancel", "filters_cancel"),
+                ]]);
+
+                bot.send_message(msg.chat.id, summary)
+                    .parse_mode(ParseMode::Html)
+                    .reply_markup(keyboard)
+                    .await?;
+                return Ok(true);
+            }
+            crate::filters::dto::PendingFilterStep::AwaitingConfirm => {
+                // This step is handled by callback queries, not text input
+                // Just ignore any text input during confirmation
+                return Ok(true);
+            }
+        }
+    } else {
+        return Ok(false);
+    }
 }
