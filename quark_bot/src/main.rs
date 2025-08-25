@@ -30,7 +30,7 @@ use crate::{
     ai::{
         gcs::GcsImageUploader, handler::AI, moderation::ModerationService,
         schedule_guard::schedule_guard_service::ScheduleGuardService,
-        sentinel::sentinel::SentinelService,
+        sentinel::sentinel::SentinelService, summarizer::handler::SummarizerService,
     },
     aptos::handler::Aptos,
     assets::{command_image_collector, media_aggregator},
@@ -75,6 +75,7 @@ async fn main() {
     let db = db::init_tree();
     let auth_db = db.open_tree("auth").expect("Failed to open auth tree");
     let group_db = db.open_tree("group").expect("Failed to open group tree");
+    let conversation_summaries_db = db.open_tree("conversation_summaries").expect("Failed to open conversation_summaries tree");
 
     let openai_api_key = env::var("OPENAI_API_KEY").expect("OPENAI_API_KEY not set");
     let gcs_creds = env::var("STORAGE_CREDENTIALS").expect("STORAGE_CREDENTIALS not set");
@@ -132,6 +133,10 @@ async fn main() {
     let payment = Payment::new(&db).unwrap();
 
     let ai = AI::new(openai_api_key.clone(), google_cloud);
+    let summarizer = SummarizerService::new(
+        conversation_summaries_db,
+        ai.get_client().clone(),
+    );
     let schedule_guard = ScheduleGuardService::new(openai_api_key.clone())
         .expect("Failed to create ScheduleGuardService");
     let moderation = ModerationService::new(openai_api_key.clone(), db.clone())
@@ -269,6 +274,7 @@ async fn main() {
         sentinel,
         sponsor,
         welcome_service,
+        summarizer,
     };
 
     // Bootstrap user-defined schedules (load and register)

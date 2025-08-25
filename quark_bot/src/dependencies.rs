@@ -4,7 +4,7 @@ use crate::{
     ai::{
         handler::AI, moderation::ModerationService,
         schedule_guard::schedule_guard_service::ScheduleGuardService,
-        sentinel::sentinel::SentinelService,
+        sentinel::sentinel::SentinelService, summarizer::handler::SummarizerService,
     },
     assets::media_aggregator::MediaGroupAggregator,
     credentials::handler::Auth,
@@ -54,4 +54,5 @@ pub struct BotDependencies {
     pub sentinel: SentinelService,
     pub sponsor: Sponsor,
     pub welcome_service: WelcomeService,
+    pub summarizer: SummarizerService,
 }

@@ -1,0 +1,110 @@
+use crate::ai::summarizer::dto::SummarizerState;
+use crate::ai::summarizer::helpers::{
+    build_summarization_prompt, generate_summary, get_conversation_summary_key, should_summarize,
+};
+use open_ai_rust_responses_by_sshift::Client as OAIClient;
+use sled::Tree;
+use std::time::{SystemTime, UNIX_EPOCH};
+
+#[derive(Clone)]
+pub struct SummarizerService {
+    tree: Tree,
+    openai_client: OAIClient,
+}
+
+impl SummarizerService {
+    pub fn new(tree: Tree, openai_client: OAIClient) -> Self {
+        Self {
+            tree,
+            openai_client,
+        }
+    }
+
+    pub fn get_state(&self, user_id: i64) -> Option<SummarizerState> {
+        let key = get_conversation_summary_key(user_id);
+        self.tree
+            .get(key.as_bytes())
+            .ok()
+            .flatten()
+            .and_then(|ivec| {
+                serde_json::from_slice::<SummarizerState>(&ivec).ok()
+            })
+    }
+
+    pub fn save_state(&self, user_id: i64, state: &SummarizerState) -> sled::Result<()> {
+        let key = get_conversation_summary_key(user_id);
+        let json_data = serde_json::to_vec(state).unwrap();
+        self.tree.insert(key.as_bytes(), json_data)?;
+        Ok(())
+    }
+
+    pub async fn check_and_summarize(
+        &self,
+        user_id: i64,
+        total_tokens: u32,
+        token_limit: u32,
+        latest_user_input: &str,
+        latest_assistant_reply: &str,
+    ) -> Result<Option<String>, anyhow::Error> {
+        if !should_summarize(total_tokens, token_limit) {
+            return Ok(None);
+        }
+
+        log::info!(
+            "Token limit exceeded for user {}: {} > {}, triggering summarization",
+            user_id, total_tokens, token_limit
+        );
+
+        let current_state = self.get_state(user_id).unwrap_or_default();
+        let prior_summary = current_state.summary.as_deref();
+
+        let prompt = build_summarization_prompt(
+            prior_summary,
+            latest_user_input,
+            latest_assistant_reply,
+        );
+
+        let new_summary = match generate_summary(&self.openai_client, &prompt).await {
+            Ok(summary) => {
+                log::info!(
+                    "Successfully generated summary for user {}: {} characters",
+                    user_id,
+                    summary.len()
+                );
+                summary
+            }
+            Err(e) => {
+                log::error!("Failed to generate summary for user {}: {}", user_id, e);
+                return Err(e);
+            }
+        };
+
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_secs() as i64;
+
+        let new_state = SummarizerState {
+            summary: Some(new_summary.clone()),
+            last_rollover_unix: now,
+        };
+
+        if let Err(e) = self.save_state(user_id, &new_state) {
+            log::error!("Failed to save summarizer state for user {}: {}", user_id, e);
+            return Err(anyhow::anyhow!("Failed to save summarizer state: {}", e));
+        }
+
+        log::info!(
+            "Successfully saved summarizer state for user {} with {} character summary",
+            user_id,
+            new_summary.len()
+        );
+
+        Ok(Some(new_summary))
+    }
+
+    pub fn get_summary_for_instructions(&self, user_id: i64) -> Option<String> {
+        self.get_state(user_id)
+            .and_then(|state| state.summary)
+    }
+}

@@ -267,9 +267,16 @@ impl AI {
 
         let system_prompt = format!("Entity {}: {}", user, self.system_prompt);
 
+        // Inject conversation summary if it exists
+        let final_system_prompt = if let Some(summary) = bot_deps.summarizer.get_summary_for_instructions(user_id) {
+            format!("{}\n\nSummary so far:\n{}", system_prompt, summary)
+        } else {
+            system_prompt
+        };
+
         let mut request_builder = Request::builder()
             .model(model.clone())
-            .instructions(system_prompt)
+            .instructions(final_system_prompt)
             .tools(tools.clone())
             .tool_choice(ToolChoice::auto())
             .parallel_tool_calls(true) // Enable parallel execution for efficiency
@@ -556,6 +563,40 @@ impl AI {
             response_id
         );
 
+        // Check if summarization is needed and enabled
+        let summarizer_enabled = std::env::var("SUMMARIZER_ENABLED")
+            .unwrap_or_else(|_| "true".to_string())
+            .parse::<bool>()
+            .unwrap_or(true);
+
+        if summarizer_enabled {
+            let token_limit = std::env::var("CONVERSATION_TOKEN_LIMIT")
+                .unwrap_or_else(|_| "12000".to_string())
+                .parse::<u32>()
+                .unwrap_or(12000);
+
+            if let Some(_summary) = bot_deps
+                .summarizer
+                .check_and_summarize(
+                    user_id,
+                    total_tokens_used,
+                    token_limit,
+                    input,
+                    &reply,
+                )
+                .await?
+            {
+                log::info!(
+                    "Conversation summarized for user {}, clearing response_id for fresh thread",
+                    user_id
+                );
+                // Clear response_id to force a fresh thread next turn
+                if let Err(e) = user_convos.clear_response_id(user_id) {
+                    log::error!("Failed to clear response_id after summarization: {}", e);
+                }
+            }
+        }
+
         let mut image_data: Option<Vec<u8>> = None;
         for item in &current_response.output {
             if let ResponseItem::ImageGenerationCall { result, .. } = item {
@@ -730,9 +771,16 @@ impl AI {
         let user_label = format!("schedule-{}", sid_short);
         let system_prompt = format!("Entity {}: {}", user_label, self.system_prompt);
 
+        // Inject conversation summary if it exists (for scheduled prompts, use creator's summary)
+        let final_system_prompt = if let Some(summary) = bot_deps.summarizer.get_summary_for_instructions(creator_user_id) {
+            format!("{}\n\nSummary so far:\n{}", system_prompt, summary)
+        } else {
+            system_prompt
+        };
+
         let mut request_builder = Request::builder()
             .model(model.clone())
-            .instructions(system_prompt)
+            .instructions(final_system_prompt)
             .tools(tools.clone())
             .tool_choice(ToolChoice::auto())
             .parallel_tool_calls(true)
