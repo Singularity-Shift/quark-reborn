@@ -8,7 +8,7 @@ use crate::{
     credentials::dto::CredentialsPayload,
     dao::handler::handle_message_dao,
     dependencies::BotDependencies,
-    filters::handler::handle_message_filters,
+    filters::handler::{handle_message_filters, process_message_for_filters},
     group::dto::GroupCredentials,
     scheduled_payments::handler::handle_message_scheduled_payments,
     scheduled_prompts::handler::handle_message_scheduled_prompts,
@@ -1183,6 +1183,13 @@ pub async fn handle_message(bot: Bot, msg: Message, bot_deps: BotDependencies) -
             handle_message_filters(&bot, msg.clone(), bot_deps.clone(), user.unwrap()).await?;
 
         if filters_executed {
+            return Ok(());
+        }
+
+        // Process message against existing filters
+        let filter_matches_processed = process_message_for_filters(bot.clone(), msg.clone(), bot_deps.clone()).await?;
+
+        if filter_matches_processed {
             return Ok(());
         }
 
