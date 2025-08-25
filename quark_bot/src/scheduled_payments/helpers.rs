@@ -72,10 +72,7 @@ pub fn summarize(state: &PendingPaymentWizardState) -> String {
         .as_deref()
         .map(|u| format!("@{}", u))
         .unwrap_or("(recipient not set)".to_string());
-    let symbol = state
-        .symbol
-        .as_deref()
-        .unwrap_or("(symbol not set)");
+    let symbol = state.symbol.as_deref().unwrap_or("(symbol not set)");
     let amount = state
         .amount_display
         .map(|v| format!("{:.4}", v))
@@ -104,5 +101,3 @@ pub fn summarize(state: &PendingPaymentWizardState) -> String {
         recipient, amount, symbol, date, hour, minute, repeat
     )
 }
-
-

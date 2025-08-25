@@ -1,10 +1,10 @@
 use anyhow::Result;
-use chrono::{Utc, Timelike};
+use chrono::{Timelike, Utc};
 use teloxide::{prelude::*, types::InlineKeyboardMarkup};
 
 use crate::dependencies::BotDependencies;
-use crate::scheduled_payments::dto::{PendingPaymentStep};
-use crate::scheduled_payments::wizard::{build_repeat_keyboard_payments, summarize};
+use crate::scheduled_payments::dto::PendingPaymentStep;
+use crate::scheduled_payments::helpers::{build_repeat_keyboard_payments, summarize};
 use crate::scheduled_prompts::dto::RepeatPolicy;
 
 pub async fn handle_scheduled_payments_callback(
@@ -17,7 +17,9 @@ pub async fn handle_scheduled_payments_callback(
     let message = match &query.message {
         Some(teloxide::types::MaybeInaccessibleMessage::Regular(m)) => m,
         _ => {
-            bot.answer_callback_query(query.id).text("❌ Invalid context").await?;
+            bot.answer_callback_query(query.id)
+                .text("❌ Invalid context")
+                .await?;
             return Ok(());
         }
     };
@@ -25,7 +27,9 @@ pub async fn handle_scheduled_payments_callback(
     // Admin-only actions
     let admins = bot.get_chat_administrators(message.chat.id).await?;
     if !admins.iter().any(|m| m.user.id == user.id) {
-        bot.answer_callback_query(query.id).text("❌ Admins only").await?;
+        bot.answer_callback_query(query.id)
+            .text("❌ Admins only")
+            .await?;
         return Ok(());
     }
 
@@ -39,7 +43,7 @@ pub async fn handle_scheduled_payments_callback(
             bot_deps.scheduled_payments.put_pending(key, &st)?;
             bot.answer_callback_query(query.id).await?;
             bot.edit_message_text(message.chat.id, message.id, "Select minute (UTC)")
-                .reply_markup(crate::scheduled_payments::wizard::build_minutes_keyboard_payments())
+                .reply_markup(crate::scheduled_payments::helpers::build_minutes_keyboard_payments())
                 .await?;
         }
     } else if data.starts_with("schedpay_min:") {
@@ -67,16 +71,16 @@ pub async fn handle_scheduled_payments_callback(
             st.weekly_weeks = weeks;
             bot_deps.scheduled_payments.put_pending(key, &st)?;
             let summary = summarize(&st);
-            let kb = InlineKeyboardMarkup::new(vec![vec![
-                teloxide::types::InlineKeyboardButton::callback(
+            let kb = InlineKeyboardMarkup::new(vec![
+                vec![teloxide::types::InlineKeyboardButton::callback(
                     "✔️ Create schedule".to_string(),
                     "schedpay_confirm".to_string(),
-                ),
-            ], vec![
-                teloxide::types::InlineKeyboardButton::callback(
-                    "↩️ Cancel", "schedpay_cancel".to_string()
-                ),
-            ]]);
+                )],
+                vec![teloxide::types::InlineKeyboardButton::callback(
+                    "↩️ Cancel",
+                    "schedpay_cancel".to_string(),
+                )],
+            ]);
             bot.answer_callback_query(query.id).await?;
             bot.edit_message_text(message.chat.id, message.id, summary)
                 .reply_markup(kb)
@@ -86,73 +90,100 @@ pub async fn handle_scheduled_payments_callback(
         // Only the creator can confirm their own pending payment
         if let Some(st) = bot_deps.scheduled_payments.get_pending(key) {
             if st.creator_user_id != user.id.0 as i64 {
-                bot.answer_callback_query(query.id).text("❌ Only the creator can confirm this payment").await?;
+                bot.answer_callback_query(query.id)
+                    .text("❌ Only the creator can confirm this payment")
+                    .await?;
                 return Ok(());
             }
             bot_deps.scheduled_payments.delete_pending(key)?;
-            super::handler::finalize_and_register_payment(bot.clone(), bot_deps.clone(), st).await?;
+            super::handler::finalize_and_register_payment(bot.clone(), bot_deps.clone(), st)
+                .await?;
             bot.answer_callback_query(query.id).await?;
         } else {
             // No pending payment exists - still respond to prevent UI hang
-            bot.answer_callback_query(query.id).text("ℹ️ No pending payment to confirm").await?;
+            bot.answer_callback_query(query.id)
+                .text("ℹ️ No pending payment to confirm")
+                .await?;
         }
     } else if data == "schedpay_cancel" {
         // Only the creator can cancel their own pending payment
         if let Some(st) = bot_deps.scheduled_payments.get_pending(key) {
             if st.creator_user_id != user.id.0 as i64 {
-                bot.answer_callback_query(query.id).text("❌ Only the creator can cancel this payment").await?;
+                bot.answer_callback_query(query.id)
+                    .text("❌ Only the creator can cancel this payment")
+                    .await?;
                 return Ok(());
             }
             bot_deps.scheduled_payments.delete_pending(key)?;
-            bot.answer_callback_query(query.id).text("✅ Cancelled").await?;
+            bot.answer_callback_query(query.id)
+                .text("✅ Cancelled")
+                .await?;
             if let Some(teloxide::types::MaybeInaccessibleMessage::Regular(m)) = &query.message {
                 let _ = bot.edit_message_reply_markup(m.chat.id, m.id).await;
             }
         } else {
             // No pending payment exists - still respond to prevent UI hang
-            bot.answer_callback_query(query.id).text("ℹ️ No pending payment to cancel").await?;
+            bot.answer_callback_query(query.id)
+                .text("ℹ️ No pending payment to cancel")
+                .await?;
         }
     } else if data.starts_with("schedpay_toggle:") {
         let id = data.split(':').nth(1).unwrap_or("");
         if let Some(mut rec) = bot_deps.scheduled_payments.get_schedule(id) {
             // Only the creator can toggle their own scheduled payment
             if rec.creator_user_id != user.id.0 as i64 {
-                bot.answer_callback_query(query.id).text("❌ Only the creator can toggle this payment").await?;
+                bot.answer_callback_query(query.id)
+                    .text("❌ Only the creator can toggle this payment")
+                    .await?;
                 return Ok(());
             }
             rec.active = !rec.active;
             let _ = bot_deps.scheduled_payments.put_schedule(&rec);
             bot.answer_callback_query(query.id)
-                .text(if rec.active { "▶️ Resumed" } else { "⏸ Paused" })
+                .text(if rec.active {
+                    "▶️ Resumed"
+                } else {
+                    "⏸ Paused"
+                })
                 .await?;
         } else {
             // Schedule not found - still respond to prevent UI hang
-            bot.answer_callback_query(query.id).text("ℹ️ Scheduled payment not found").await?;
+            bot.answer_callback_query(query.id)
+                .text("ℹ️ Scheduled payment not found")
+                .await?;
         }
     } else if data.starts_with("schedpay_delete:") {
         let id = data.split(':').nth(1).unwrap_or("");
         if let Some(mut rec) = bot_deps.scheduled_payments.get_schedule(id) {
             // Only the creator can delete their own scheduled payment
             if rec.creator_user_id != user.id.0 as i64 {
-                bot.answer_callback_query(query.id).text("❌ Only the creator can delete this payment").await?;
+                bot.answer_callback_query(query.id)
+                    .text("❌ Only the creator can delete this payment")
+                    .await?;
                 return Ok(());
             }
             rec.active = false;
             let _ = bot_deps.scheduled_payments.put_schedule(&rec);
-            bot.answer_callback_query(query.id).text("🗑 Deleted").await?;
+            bot.answer_callback_query(query.id)
+                .text("🗑 Deleted")
+                .await?;
             if let Some(teloxide::types::MaybeInaccessibleMessage::Regular(m)) = &query.message {
                 let _ = bot.delete_message(m.chat.id, m.id).await;
             }
         } else {
             // Schedule not found - still respond to prevent UI hang
-            bot.answer_callback_query(query.id).text("ℹ️ Scheduled payment not found").await?;
+            bot.answer_callback_query(query.id)
+                .text("ℹ️ Scheduled payment not found")
+                .await?;
         }
     } else if data.starts_with("schedpay_edit:") {
         // Creator-only edit: present submenu and open scoped wizard
         let id = data.split(':').nth(1).unwrap_or("");
         if let Some(rec) = bot_deps.scheduled_payments.get_schedule(id) {
             if rec.creator_user_id != query.from.id.0 as i64 {
-                bot.answer_callback_query(query.id).text("❌ Only the creator can edit").await?;
+                bot.answer_callback_query(query.id)
+                    .text("❌ Only the creator can edit")
+                    .await?;
                 return Ok(());
             }
             let st = crate::scheduled_payments::dto::PendingPaymentWizardState {
@@ -169,16 +200,17 @@ pub async fn handle_scheduled_payments_callback(
                 amount_display: rec
                     .amount_smallest_units
                     .and_then(|v| rec.decimals.map(|d| v as f64 / 10f64.powi(d as i32))),
-                date: rec
-                    .start_timestamp_utc
-                    .and_then(|ts| chrono::DateTime::<chrono::Utc>::from_timestamp(ts, 0)
-                        .map(|dt| dt.format("%Y-%m-%d").to_string())),
-                hour_utc: rec
-                    .start_timestamp_utc
-                    .and_then(|ts| chrono::DateTime::<chrono::Utc>::from_timestamp(ts, 0).map(|dt| dt.hour() as u8)),
-                minute_utc: rec
-                    .start_timestamp_utc
-                    .and_then(|ts| chrono::DateTime::<chrono::Utc>::from_timestamp(ts, 0).map(|dt| dt.minute() as u8)),
+                date: rec.start_timestamp_utc.and_then(|ts| {
+                    chrono::DateTime::<chrono::Utc>::from_timestamp(ts, 0)
+                        .map(|dt| dt.format("%Y-%m-%d").to_string())
+                }),
+                hour_utc: rec.start_timestamp_utc.and_then(|ts| {
+                    chrono::DateTime::<chrono::Utc>::from_timestamp(ts, 0).map(|dt| dt.hour() as u8)
+                }),
+                minute_utc: rec.start_timestamp_utc.and_then(|ts| {
+                    chrono::DateTime::<chrono::Utc>::from_timestamp(ts, 0)
+                        .map(|dt| dt.minute() as u8)
+                }),
                 repeat: Some(rec.repeat.clone()),
                 weekly_weeks: rec.weekly_weeks,
             };
@@ -197,7 +229,10 @@ pub async fn handle_scheduled_payments_callback(
                         Btn::callback("💰 Amount", format!("schedpay_editamount:{}", id)),
                         Btn::callback("🗓 Date/Time", format!("schedpay_editdate:{}", id)),
                     ],
-                    vec![Btn::callback("🔁 Repeat", format!("schedpay_editrepeat:{}", id))],
+                    vec![Btn::callback(
+                        "🔁 Repeat",
+                        format!("schedpay_editrepeat:{}", id),
+                    )],
                 ]);
                 bot.edit_message_text(m.chat.id, m.id, "✏️ What would you like to edit?")
                     .reply_markup(kb)
@@ -213,7 +248,8 @@ pub async fn handle_scheduled_payments_callback(
                 bot_deps.scheduled_payments.put_pending(key, &st)?;
             }
             if let Some(teloxide::types::MaybeInaccessibleMessage::Regular(m)) = &query.message {
-                bot.edit_message_text(m.chat.id, m.id, "👤 Send the new @recipient username").await?;
+                bot.edit_message_text(m.chat.id, m.id, "👤 Send the new @recipient username")
+                    .await?;
             }
             bot.answer_callback_query(query.id).await?;
         }
@@ -226,7 +262,8 @@ pub async fn handle_scheduled_payments_callback(
                 bot_deps.scheduled_payments.put_pending(key, &st)?;
             }
             if let Some(teloxide::types::MaybeInaccessibleMessage::Regular(m)) = &query.message {
-                bot.edit_message_text(m.chat.id, m.id, "💳 Send token symbol (e.g., APT, USDC)").await?;
+                bot.edit_message_text(m.chat.id, m.id, "💳 Send token symbol (e.g., APT, USDC)")
+                    .await?;
             }
             bot.answer_callback_query(query.id).await?;
         }
@@ -239,7 +276,8 @@ pub async fn handle_scheduled_payments_callback(
                 bot_deps.scheduled_payments.put_pending(key, &st)?;
             }
             if let Some(teloxide::types::MaybeInaccessibleMessage::Regular(m)) = &query.message {
-                bot.edit_message_text(m.chat.id, m.id, "💰 Send new amount").await?;
+                bot.edit_message_text(m.chat.id, m.id, "💰 Send new amount")
+                    .await?;
             }
             bot.answer_callback_query(query.id).await?;
         }
@@ -252,7 +290,8 @@ pub async fn handle_scheduled_payments_callback(
                 bot_deps.scheduled_payments.put_pending(key, &st)?;
             }
             if let Some(teloxide::types::MaybeInaccessibleMessage::Regular(m)) = &query.message {
-                bot.edit_message_text(m.chat.id, m.id, "📅 Send new date YYYY-MM-DD (UTC)").await?;
+                bot.edit_message_text(m.chat.id, m.id, "📅 Send new date YYYY-MM-DD (UTC)")
+                    .await?;
             }
             bot.answer_callback_query(query.id).await?;
         }
@@ -276,16 +315,22 @@ pub async fn handle_scheduled_payments_callback(
         if let Some(mut rec) = bot_deps.scheduled_payments.get_schedule(id) {
             // Only the creator can run their own scheduled payment immediately
             if rec.creator_user_id != user.id.0 as i64 {
-                bot.answer_callback_query(query.id).text("❌ Only the creator can run this payment").await?;
+                bot.answer_callback_query(query.id)
+                    .text("❌ Only the creator can run this payment")
+                    .await?;
                 return Ok(());
             }
             // Set due now and let runner pick it up on next tick
             rec.next_run_at = Some(Utc::now().timestamp());
             let _ = bot_deps.scheduled_payments.put_schedule(&rec);
-            bot.answer_callback_query(query.id).text("⚡ Queued to run").await?;
+            bot.answer_callback_query(query.id)
+                .text("⚡ Queued to run")
+                .await?;
         } else {
             // Schedule not found - still respond to prevent UI hang
-            bot.answer_callback_query(query.id).text("ℹ️ Scheduled payment not found").await?;
+            bot.answer_callback_query(query.id)
+                .text("ℹ️ Scheduled payment not found")
+                .await?;
         }
     } else if data.starts_with("schedpay_close:") {
         let id = data.split(':').nth(1).unwrap_or("");
@@ -294,16 +339,21 @@ pub async fn handle_scheduled_payments_callback(
             if let Some(rec) = bot_deps.scheduled_payments.get_schedule(id) {
                 // Only the creator can close their own scheduled payment display
                 if rec.creator_user_id != user.id.0 as i64 {
-                    bot.answer_callback_query(query.id).text("❌ Only the creator can close this display").await?;
+                    bot.answer_callback_query(query.id)
+                        .text("❌ Only the creator can close this display")
+                        .await?;
                     return Ok(());
                 }
                 bot.answer_callback_query(query.id).text("Closed").await?;
-                if let Some(teloxide::types::MaybeInaccessibleMessage::Regular(m)) = &query.message {
+                if let Some(teloxide::types::MaybeInaccessibleMessage::Regular(m)) = &query.message
+                {
                     let _ = bot.edit_message_reply_markup(m.chat.id, m.id).await;
                 }
             } else {
                 // Schedule not found - still respond to prevent UI hang
-                bot.answer_callback_query(query.id).text("ℹ️ Scheduled payment not found").await?;
+                bot.answer_callback_query(query.id)
+                    .text("ℹ️ Scheduled payment not found")
+                    .await?;
             }
         } else {
             // No ID provided - just close the current message markup (for backward compatibility)
@@ -316,5 +366,3 @@ pub async fn handle_scheduled_payments_callback(
 
     Ok(())
 }
-
-

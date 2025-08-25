@@ -1,10 +1,11 @@
+use std::env;
+
 use anyhow::Result;
 use sled::Tree;
 use teloxide::{
     prelude::*,
-    types::{ChatId, ChatPermissions, UserId, InlineKeyboardButton, InlineKeyboardMarkup},
+    types::{ChatId, ChatPermissions, InlineKeyboardButton, InlineKeyboardMarkup, UserId},
 };
-
 
 use crate::welcome::{
     dto::{PendingVerification, WelcomeSettings, WelcomeStats},
@@ -16,37 +17,48 @@ pub struct WelcomeService {
     settings_db: Tree,
     verifications_db: Tree,
     stats_db: Tree,
+    account_seed: String,
 }
 
 impl WelcomeService {
     pub fn new(db: sled::Db) -> Self {
-        let settings_db = db.open_tree("welcome_settings").expect("Failed to open welcome settings tree");
-        let verifications_db = db.open_tree("welcome_verifications").expect("Failed to open welcome verifications tree");
-        let stats_db = db.open_tree("welcome_stats").expect("Failed to open welcome stats tree");
-        
+        let settings_db = db
+            .open_tree("welcome_settings")
+            .expect("Failed to open welcome settings tree");
+        let verifications_db = db
+            .open_tree("welcome_verifications")
+            .expect("Failed to open welcome verifications tree");
+        let stats_db = db
+            .open_tree("welcome_stats")
+            .expect("Failed to open welcome stats tree");
+
+        let account_seed: String =
+            env::var("ACCOUNT_SEED").expect("ACCOUNT_SEED environment variable not found");
+
         Self {
             settings_db,
             verifications_db,
             stats_db,
+            account_seed,
         }
     }
 
     pub fn get_settings(&self, chat_id: ChatId) -> WelcomeSettings {
-        let key = chat_id.0.to_string();
-        
+        let key = format!("{}-{}", chat_id.to_string(), self.account_seed);
+
         if let Ok(Some(bytes)) = self.settings_db.get(key.as_bytes()) {
             if let Ok(settings) = serde_json::from_slice(&bytes) {
                 return settings;
             }
         }
-        
+
         WelcomeSettings::default()
     }
 
     pub fn save_settings(&self, chat_id: ChatId, settings: WelcomeSettings) -> Result<()> {
-        let key = chat_id.0.to_string();
+        let key = format!("{}-{}", chat_id.to_string(), self.account_seed);
         let bytes = serde_json::to_vec(&settings)?;
-        
+
         self.settings_db.insert(key.as_bytes(), bytes)?;
         Ok(())
     }
@@ -68,36 +80,49 @@ impl WelcomeService {
         }
 
         // Check if this user is already being processed to prevent duplicates
-        let key = format!("{}:{}", chat_id.0, user_id.0);
+        let key = format!(
+            "{}-{}:{}",
+            chat_id.to_string(),
+            self.account_seed,
+            user_id.to_string()
+        );
         if let Ok(Some(_)) = self.verifications_db.get(key.as_bytes()) {
-            log::info!("User {} in chat {} is already being processed, skipping duplicate", user_id.0, chat_id.0);
+            log::info!(
+                "User {} in chat {} is already being processed, skipping duplicate",
+                user_id.to_string(),
+                chat_id.to_string()
+            );
             return Ok(());
         }
 
         let settings = self.get_settings(chat_id);
-        
+
         // Mute the new member immediately
         let restricted_permissions = ChatPermissions::empty();
-        bot.restrict_chat_member(chat_id, user_id, restricted_permissions).await?;
-        
+        bot.restrict_chat_member(chat_id, user_id, restricted_permissions)
+            .await?;
+
         // Get chat title for welcome message
         let chat = bot.get_chat(chat_id).await?;
         let group_name = chat.title().unwrap_or("this group").to_string();
-        
+
         // Create verification button
-        let keyboard = InlineKeyboardMarkup::new(vec![vec![
-            InlineKeyboardButton::callback(
-                "✅ Prove You're Human",
-                format!("welcome_verify:{}:{}", chat_id.0, user_id.0),
+        let keyboard = InlineKeyboardMarkup::new(vec![vec![InlineKeyboardButton::callback(
+            "✅ Prove You're Human",
+            format!(
+                "welcome_verify:{}:{}",
+                chat_id.to_string(),
+                user_id.to_string()
             ),
-        ]]);
-        
+        )]]);
+
         // Send welcome message with verification button
         let welcome_text = get_custom_welcome_message(&settings, &first_name, &group_name);
-        let message = bot.send_message(chat_id, welcome_text)
+        let message = bot
+            .send_message(chat_id, welcome_text)
             .reply_markup(keyboard)
             .await?;
-        
+
         // Store pending verification
         let verification = PendingVerification {
             user_id,
@@ -108,11 +133,11 @@ impl WelcomeService {
             expires_at: get_verification_expiry_time(settings.verification_timeout),
             verification_message_id: message.id.0,
         };
-        
+
         let key = format!("{}:{}", chat_id.0, user_id.0);
         let bytes = serde_json::to_vec(&verification)?;
         self.verifications_db.insert(key.as_bytes(), bytes)?;
-        
+
         Ok(())
     }
 
@@ -123,98 +148,183 @@ impl WelcomeService {
         user_id: UserId,
         requester_id: UserId, // Add the ID of the user who clicked the button
     ) -> Result<()> {
-        log::info!("Starting verification for user {} in chat {} (requested by user {})", user_id.0, chat_id.0, requester_id.0);
-        
         // Verify that the user clicking the button is the same user who joined
         if requester_id != user_id {
-            log::warn!("User {} attempted to verify user {} in chat {}", requester_id.0, user_id.0, chat_id.0);
+            log::warn!(
+                "User {} attempted to verify user {} in chat {}",
+                requester_id.to_string(),
+                user_id.to_string(),
+                chat_id.to_string()
+            );
             return Err(anyhow::anyhow!("You can only verify yourself"));
         }
-        
-        let key = format!("{}:{}", chat_id.0, user_id.0);
-        
+
+        let key = format!(
+            "{}-{}:{}",
+            chat_id.to_string(),
+            self.account_seed,
+            user_id.to_string()
+        );
+
         // Get verification record
         let verification = if let Ok(Some(bytes)) = self.verifications_db.get(key.as_bytes()) {
             if let Ok(verification) = serde_json::from_slice::<PendingVerification>(&bytes) {
-                log::info!("Found verification record for user {}: expires at {}", user_id.0, verification.expires_at);
+                log::info!(
+                    "Found verification record for user {}: expires at {}",
+                    user_id.0,
+                    verification.expires_at
+                );
                 verification
             } else {
-                log::error!("Failed to deserialize verification data for user {}", user_id.0);
+                log::error!(
+                    "Failed to deserialize verification data for user {}",
+                    user_id.0
+                );
                 return Err(anyhow::anyhow!("Invalid verification data"));
             }
         } else {
-            log::error!("No verification record found for user {} in chat {}", user_id.0, chat_id.0);
+            log::error!(
+                "No verification record found for user {} in chat {}",
+                user_id.0,
+                chat_id.0
+            );
             return Err(anyhow::anyhow!("Verification not found"));
         };
-        
+
         // Check if verification is expired
         if is_verification_expired(verification.expires_at) {
-            log::warn!("Verification expired for user {} in chat {}", user_id.0, chat_id.0);
+            log::warn!(
+                "Verification expired for user {} in chat {}",
+                user_id.to_string(),
+                chat_id.to_string()
+            );
             return Err(anyhow::anyhow!("Verification expired"));
         }
-        
-        log::info!("Attempting to unmute user {} in chat {}", user_id.0, chat_id.0);
-        
+
+        log::info!(
+            "Attempting to unmute user {} in chat {}",
+            user_id.to_string(),
+            chat_id.to_string()
+        );
+
         // Check if bot has admin permissions (only once)
         let bot_info = bot.get_me().await?;
         let chat_member = bot.get_chat_member(chat_id, bot_info.id).await?;
-        
+
         if !chat_member.is_privileged() {
-            log::error!("Bot is not an admin in chat {}, cannot perform verification actions", chat_id.0);
+            log::error!(
+                "Bot is not an admin in chat {}, cannot perform verification actions",
+                chat_id.to_string()
+            );
             return Err(anyhow::anyhow!("Bot is not an admin in this chat"));
         }
-        
+
         // Unmute the user
         let full_permissions = ChatPermissions::all();
-        match bot.restrict_chat_member(chat_id, user_id, full_permissions).await {
-            Ok(_) => log::info!("Successfully unmuted user {} in chat {}", user_id.0, chat_id.0),
+        match bot
+            .restrict_chat_member(chat_id, user_id, full_permissions)
+            .await
+        {
+            Ok(_) => log::info!(
+                "Successfully unmuted user {} in chat {}",
+                user_id.to_string(),
+                chat_id.to_string()
+            ),
             Err(e) => {
-                log::error!("Failed to unmute user {} in chat {}: {}", user_id.0, chat_id.0, e);
+                log::error!(
+                    "Failed to unmute user {} in chat {}: {}",
+                    user_id.to_string(),
+                    chat_id.to_string(),
+                    e
+                );
                 return Err(anyhow::anyhow!("Failed to unmute user: {}", e));
             }
         }
-        
-        log::info!("Updating verification message for user {} in chat {}", user_id.0, chat_id.0);
-        
+
+        log::info!(
+            "Updating verification message for user {} in chat {}",
+            user_id.to_string(),
+            chat_id.to_string()
+        );
+
         // Update verification message
         let success_text = format!(
             "✅ Welcome to the group, {}! You've been verified and can now participate.",
             verification.first_name
         );
-        
-        match bot.edit_message_text(chat_id, teloxide::types::MessageId(verification.verification_message_id), success_text).await {
-            Ok(_) => log::info!("Successfully updated verification message for user {} in chat {}", user_id.0, chat_id.0),
+
+        match bot
+            .edit_message_text(
+                chat_id,
+                teloxide::types::MessageId(verification.verification_message_id),
+                success_text,
+            )
+            .await
+        {
+            Ok(_) => log::info!(
+                "Successfully updated verification message for user {} in chat {}",
+                user_id.to_string(),
+                chat_id.to_string()
+            ),
             Err(e) => {
-                log::error!("Failed to update verification message for user {} in chat {}: {}", user_id.0, chat_id.0, e);
+                log::error!(
+                    "Failed to update verification message for user {} in chat {}: {}",
+                    user_id.to_string(),
+                    chat_id.to_string(),
+                    e
+                );
                 return Err(anyhow::anyhow!("Failed to update message: {}", e));
             }
         }
-        
-        log::info!("Removing verification record for user {} in chat {}", user_id.0, chat_id.0);
-        
+
+        log::info!(
+            "Removing verification record for user {} in chat {}",
+            user_id.to_string(),
+            chat_id.to_string()
+        );
+
         // Remove verification record
         if let Err(e) = self.verifications_db.remove(key.as_bytes()) {
-            log::error!("Failed to remove verification record for user {} in chat {}: {}", user_id.0, chat_id.0, e);
-            return Err(anyhow::anyhow!("Failed to remove verification record: {}", e));
+            log::error!(
+                "Failed to remove verification record for user {} in chat {}: {}",
+                user_id.to_string(),
+                chat_id.to_string(),
+                e
+            );
+            return Err(anyhow::anyhow!(
+                "Failed to remove verification record: {}",
+                e
+            ));
         }
-        
-        log::info!("Updating statistics for user {} in chat {}", user_id.0, chat_id.0);
-        
+
+        log::info!(
+            "Updating statistics for user {} in chat {}",
+            user_id.to_string(),
+            chat_id.to_string()
+        );
+
         // Update statistics
         if let Err(e) = self.update_stats(chat_id, true) {
-            log::error!("Failed to update stats for user {} in chat {}: {}", user_id.0, chat_id.0, e);
+            log::error!(
+                "Failed to update stats for user {} in chat {}: {}",
+                user_id.to_string(),
+                chat_id.to_string(),
+                e
+            );
             return Err(anyhow::anyhow!("Failed to update stats: {}", e));
         }
-        
-        log::info!("Verification completed successfully for user {} in chat {}", user_id.0, chat_id.0);
+
+        log::info!(
+            "Verification completed successfully for user {} in chat {}",
+            user_id.to_string(),
+            chat_id.to_string()
+        );
         Ok(())
     }
 
-
-
     fn update_stats(&self, chat_id: ChatId, success: bool) -> Result<()> {
-        let key = format!("{}_stats", chat_id.0);
-        
+        let key = format!("{}-{}", chat_id.to_string(), self.account_seed);
+
         let mut stats = if let Ok(Some(bytes)) = self.stats_db.get(key.as_bytes()) {
             if let Ok(stats) = serde_json::from_slice::<WelcomeStats>(&bytes) {
                 stats
@@ -224,38 +334,39 @@ impl WelcomeService {
         } else {
             WelcomeStats::default()
         };
-        
+
         stats.total_verifications += 1;
         if success {
             stats.successful_verifications += 1;
         } else {
             stats.failed_verifications += 1;
         }
-        
-        stats.success_rate = (stats.successful_verifications as f64 / stats.total_verifications as f64) * 100.0;
+
+        stats.success_rate =
+            (stats.successful_verifications as f64 / stats.total_verifications as f64) * 100.0;
         stats.last_verification = Some(chrono::Utc::now().timestamp());
-        
+
         let bytes = serde_json::to_vec(&stats)?;
         self.stats_db.insert(key.as_bytes(), bytes)?;
-        
+
         Ok(())
     }
 
     pub fn get_stats(&self, chat_id: ChatId) -> WelcomeStats {
-        let key = format!("{}_stats", chat_id.0);
-        
+        let key = format!("{}-{}", chat_id.to_string(), self.account_seed);
+
         if let Ok(Some(bytes)) = self.stats_db.get(key.as_bytes()) {
             if let Ok(stats) = serde_json::from_slice::<WelcomeStats>(&bytes) {
                 return stats;
             }
         }
-        
+
         WelcomeStats::default()
     }
 
     pub async fn cleanup_all_expired_verifications(&self, bot: &Bot) -> Result<()> {
         let mut expired_verifications = Vec::new();
-        
+
         // Collect all expired verifications
         for result in self.verifications_db.iter() {
             if let Ok((key, value)) = result {
@@ -266,43 +377,67 @@ impl WelcomeService {
                 }
             }
         }
-        
+
         let count = expired_verifications.len();
-        
+
         // Process each expired verification
         for (key, verification) in expired_verifications {
-            log::info!("Cleaning up expired verification for user {} in chat {}", verification.user_id.0, verification.chat_id.0);
-            
+            log::info!(
+                "Cleaning up expired verification for user {} in chat {}",
+                verification.user_id.to_string(),
+                verification.chat_id.to_string()
+            );
+
             // Remove user from group
-            if let Err(e) = bot.ban_chat_member(verification.chat_id, verification.user_id).await {
-                log::error!("Failed to ban expired verification user {} in chat {}: {}", verification.user_id.0, verification.chat_id.0, e);
+            if let Err(e) = bot
+                .ban_chat_member(verification.chat_id, verification.user_id)
+                .await
+            {
+                log::error!(
+                    "Failed to ban expired verification user {} in chat {}: {}",
+                    verification.user_id.to_string(),
+                    verification.chat_id.to_string(),
+                    e
+                );
             }
-            
+
             // Update verification message
             let expired_text = format!(
                 "⏰ Verification expired for {}. User has been removed from the group.",
                 verification.first_name
             );
-            
-            if let Err(e) = bot.edit_message_text(verification.chat_id, teloxide::types::MessageId(verification.verification_message_id), expired_text).await {
-                log::error!("Failed to update expired verification message for user {} in chat {}: {}", verification.user_id.0, verification.chat_id.0, e);
+
+            if let Err(e) = bot
+                .edit_message_text(
+                    verification.chat_id,
+                    teloxide::types::MessageId(verification.verification_message_id),
+                    expired_text,
+                )
+                .await
+            {
+                log::error!(
+                    "Failed to update expired verification message for user {} in chat {}: {}",
+                    verification.user_id.to_string(),
+                    verification.chat_id.to_string(),
+                    e
+                );
             }
-            
+
             // Remove verification record
             if let Err(e) = self.verifications_db.remove(&key) {
                 log::error!("Failed to remove expired verification record: {}", e);
             }
-            
+
             // Update statistics
             if let Err(e) = self.update_stats(verification.chat_id, false) {
                 log::error!("Failed to update stats for expired verification: {}", e);
             }
         }
-        
+
         if count > 0 {
             log::info!("Cleaned up {} expired verifications", count);
         }
-        
+
         Ok(())
     }
 
@@ -323,7 +458,12 @@ impl WelcomeService {
         Ok(())
     }
 
-    pub fn get_input_state(&self, key: &str) -> Option<serde_json::Value> {
+    pub fn get_input_state(&self, chat_id: ChatId) -> Option<serde_json::Value> {
+        let key = format!(
+            "welcome_custom_msg_input:{}-{}",
+            chat_id.to_string(),
+            self.account_seed,
+        );
         if let Ok(Some(bytes)) = self.settings_db.get(key.as_bytes()) {
             if let Ok(value) = serde_json::from_slice(&bytes) {
                 return Some(value);
@@ -332,7 +472,12 @@ impl WelcomeService {
         None
     }
 
-    pub fn clear_input_state(&self, key: &str) -> Result<()> {
+    pub fn clear_input_state(&self, chat_id: ChatId) -> Result<()> {
+        let key = format!(
+            "welcome_custom_msg_input:{}-{}",
+            chat_id.to_string(),
+            self.account_seed
+        );
         self.settings_db.remove(key.as_bytes())?;
         Ok(())
     }
@@ -340,7 +485,7 @@ impl WelcomeService {
     pub fn cleanup_expired_input_states(&self) -> Result<()> {
         let mut expired_keys = Vec::new();
         let now = chrono::Utc::now().timestamp();
-        
+
         for result in self.settings_db.iter() {
             if let Ok((key, value)) = result {
                 let key_str = String::from_utf8_lossy(&key);
@@ -356,11 +501,11 @@ impl WelcomeService {
                 }
             }
         }
-        
+
         for key in expired_keys {
             self.settings_db.remove(&key)?;
         }
-        
+
         Ok(())
     }
 }

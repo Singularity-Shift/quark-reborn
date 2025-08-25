@@ -1,22 +1,29 @@
 //! Command handlers for quark_bot Telegram bot.
 use crate::{
-    ai::moderation::dto::{ModerationSettings, ModerationState}, assets::handler::handle_file_upload, bot::hooks::{fund_account_hook, pay_users_hook, withdraw_funds_hook}, credentials::dto::CredentialsPayload, dependencies::BotDependencies, group::dto::GroupCredentials, payment::dto::PaymentPrefs, sponsor::dto::SponsorInterval, utils::{self, create_purchase_request}
+    ai::{
+        moderation::handler::handle_message_moderation, sentinel::handler::handle_message_sentinel,
+    },
+    assets::handler::handle_file_upload,
+    bot::hooks::{fund_account_hook, pay_users_hook, withdraw_funds_hook},
+    credentials::dto::CredentialsPayload,
+    dao::handler::handle_message_dao,
+    dependencies::BotDependencies,
+    group::dto::GroupCredentials,
+    scheduled_payments::handler::handle_message_scheduled_payments,
+    scheduled_prompts::handler::handle_message_scheduled_prompts,
+    sponsor::handler::handle_sponsor_message,
+    utils::{self, create_purchase_request},
+    welcome::handler::handle_welcome_message,
 };
 use anyhow::Result as AnyResult;
 use aptos_rust_sdk_types::api_types::view::ViewRequest;
 use serde_json::value;
 
 use crate::{
-    ai::{
-        moderation::ModerationOverrides,
-        vector_store::list_user_files_with_names,
-    },
+    ai::{moderation::ModerationOverrides, vector_store::list_user_files_with_names},
     user_model_preferences::handler::initialize_user_preferences,
 };
 
-use crate::scheduled_prompts::dto::PendingStep;
-use crate::scheduled_prompts::helpers::build_hours_keyboard;
-use chrono;
 use open_ai_rust_responses_by_sshift::Model;
 use quark_core::helpers::{bot_commands::Command, dto::CreateGroupRequest};
 use regex;
@@ -849,7 +856,7 @@ pub async fn handle_chat(
                     ai_response.model,
                     &jwt,
                     group_id,
-                    user_id,
+                    Some(user_id),
                     bot_deps.clone(),
                 )
                 .await;
@@ -965,9 +972,12 @@ pub async fn handle_chat(
             }
         }
         Err(e) => {
-            bot.send_message(msg.chat.id, format!("An error occurred while processing your request: {}", e))
-                .parse_mode(ParseMode::Html)
-                .await?;
+            bot.send_message(
+                msg.chat.id,
+                format!("An error occurred while processing your request: {}", e),
+            )
+            .parse_mode(ParseMode::Html)
+            .await?;
         }
     }
 
@@ -1055,10 +1065,8 @@ pub async fn handle_web_app_data(
 
 pub async fn handle_message(bot: Bot, msg: Message, bot_deps: BotDependencies) -> AnyResult<()> {
     // Sentinel: moderate every message in group if sentinel is on
-    let mut group_id: Option<String> = None;
     if !msg.chat.is_private() {
-        group_id = Some(msg.chat.id.to_string());
-        let profile = std::env::var("PROFILE").unwrap_or("prod".to_string());
+        let group_id = msg.chat.id.to_string();
         let chat_id = msg.chat.id;
         let user = msg.from.clone();
 
@@ -1068,7 +1076,14 @@ pub async fn handle_message(bot: Bot, msg: Message, bot_deps: BotDependencies) -
 
         let user_id = user.as_ref().unwrap().id.to_string();
 
+        let username = user.as_ref().unwrap().username.clone();
+
         let group_credentials = bot_deps.group.get_credentials(msg.chat.id);
+
+        if username.is_none() {
+            log::error!("Username not found");
+            return Ok(());
+        }
 
         if group_credentials.is_none() {
             log::error!("Group credentials not found");
@@ -1080,828 +1095,94 @@ pub async fn handle_message(bot: Bot, msg: Message, bot_deps: BotDependencies) -
 
         let group_credentials = group_credentials.unwrap();
 
-        if user.is_some() {
-            let user = user.unwrap();
+        let username = username.unwrap();
 
-            let username = user.username;
-
-            if username.is_some() {
-                let username = username.unwrap();
-
-                if !group_credentials.users.contains(&username) {
-                    bot_deps
-                        .group
-                        .add_user_to_group(msg.chat.id, username)
-                        .await?;
-                }
-            }
-        }
-
-        // Check for pending DAO token input
-        if let Some(user) = &msg.from {
-            let user_id = user.id.0.to_string();
-            let current_group_id = msg.chat.id.to_string();
-
-            // Try to find the pending token input with the formatted group ID
-            let formatted_group_id =
-                format!("{}-{}", current_group_id, bot_deps.group.account_seed);
-            let key = format!("{}_{}", user_id, formatted_group_id);
-
-            if let Ok(_) = bot_deps.dao.get_pending_tokens(key.clone()) {
-                // User is in token input mode
-                if let Some(text) = msg.text() {
-                    let text = text.trim();
-                    if !text.is_empty() {
-                        // Process the token: convert to uppercase except for emojis
-                        let processed_token = if text.chars().any(|c| c.is_ascii_alphabetic()) {
-                            // Contains letters, convert to uppercase
-                            text.to_uppercase()
-                        } else {
-                            // Likely an emoji or special characters, keep as-is
-                            text.to_string()
-                        };
-
-                        // Update DAO token preference using the formatted group ID
-                        if let Ok(mut prefs) = bot_deps
-                            .dao
-                            .get_dao_admin_preferences(formatted_group_id.clone())
-                        {
-                            prefs.default_dao_token = Some(processed_token.clone());
-                            if let Ok(_) = bot_deps
-                                .dao
-                                .set_dao_admin_preferences(formatted_group_id.clone(), prefs)
-                            {
-                                // Clear the pending state
-                                bot_deps.dao.remove_pending_tokens(key).unwrap();
-
-                                bot.send_message(
-                                    msg.chat.id,
-                                    format!("✅ <b>DAO token updated to {}</b>", processed_token),
-                                )
-                                .parse_mode(teloxide::types::ParseMode::Html)
-                                .await?;
-                                return Ok(());
-                            }
-                        }
-
-                        // If we get here, there was an error
-                        bot_deps.dao.remove_pending_tokens(key).unwrap();
-                        bot.send_message(msg.chat.id, "❌ Error updating DAO token preference")
-                            .await?;
-                        return Ok(());
-                    }
-                }
-
-                // Invalid input, ask again
-                bot.send_message(
-                    msg.chat.id,
-                    "❌ Please send a valid token ticker or emojicoin. Example: APT, USDC, or 📒",
-                )
+        if !group_credentials.users.contains(&username) {
+            bot_deps
+                .group
+                .add_user_to_group(msg.chat.id, username)
                 .await?;
-                return Ok(());
-            }
         }
 
-        // Welcome custom message input mode: capture replies
-        if let Some(user) = &msg.from {
-            let current_group_id = msg.chat.id.to_string();
-            let key = format!("welcome_custom_msg_input:{}", current_group_id);
-            
-            log::info!("Checking welcome input state for key: {}", key);
-            
-            // Check if there's an active welcome custom message input mode for this group
-            if let Some(_input_state) = bot_deps.welcome_service.get_input_state(&key) {
-                log::info!("Found welcome input state for group: {}", current_group_id);
-                // Only process if the user is an admin
-                let is_admin = utils::is_admin(&bot, msg.chat.id, user.id).await;
-                if !is_admin {
-                    // Non-admin users typing during welcome setup - ignore silently
-                    return Ok(());
-                }
+        // Try to find the pending token input with the formatted group ID
+        let formatted_group_id = format!("{}-{}", group_id, bot_deps.group.account_seed);
 
-                if let Some(text) = msg.text() {
-                    let text = text.trim();
-                    if !text.is_empty() {
-                        if text == "/cancel" {
-                            // Cancel the custom message input
-                            bot_deps.welcome_service.clear_input_state(&key)?;
-                            bot.send_message(
-                                msg.chat.id,
-                                "❌ Custom message input cancelled."
-                            ).await?;
-                            return Ok(());
-                        }
+        let dao_executed = handle_message_dao(
+            bot.clone(),
+            msg.clone(),
+            bot_deps.clone(),
+            user_id.clone(),
+            formatted_group_id,
+        )
+        .await?;
 
-                        // Update the welcome settings with custom message
-                        let mut settings = bot_deps.welcome_service.get_settings(msg.chat.id);
-                        settings.custom_message = Some(text.to_string());
-                        settings.last_updated = chrono::Utc::now().timestamp();
-
-                        if let Err(e) = bot_deps.welcome_service.save_settings(msg.chat.id, settings) {
-                            bot.send_message(
-                                msg.chat.id,
-                                format!("❌ Failed to save custom message: {}", e)
-                            ).await?;
-                            return Ok(());
-                        }
-
-                        // Clear the input state
-                        bot_deps.welcome_service.clear_input_state(&key)?;
-
-                        // Send success message
-                        bot.send_message(
-                            msg.chat.id,
-                            "✅ <b>Custom welcome message updated successfully!</b>\n\n\
-                            New members will now see your custom message with placeholders replaced."
-                        ).parse_mode(teloxide::types::ParseMode::Html).await?;
-
-                        return Ok(());
-                    } else {
-                        // Empty text, ask for valid input
-                        bot.send_message(
-                            msg.chat.id,
-                            "❌ Please enter a valid welcome message. Use /cancel to cancel."
-                        ).await?;
-                        return Ok(());
-                    }
-                }
-            }
+        if dao_executed {
+            return Ok(());
         }
 
-        // Sponsor settings input mode: capture replies
-        if let Some(user) = &msg.from {
-            let current_group_id = msg.chat.id.to_string();
-            
-            // Check if there's an active sponsor input mode for this group
-            if let Some(sponsor_state) = bot_deps.sponsor.get_sponsor_state(current_group_id.clone()) {
-                // Only process if the user is an admin
-                let is_admin = utils::is_admin(&bot, msg.chat.id, user.id).await;
-                if !is_admin {
-                    // Non-admin users typing during sponsor setup - ignore silently
-                    return Ok(());
-                }
+        let welcome_executed = handle_welcome_message(
+            bot.clone(),
+            bot_deps.clone(),
+            &msg,
+            user_id.clone(),
+            group_id.clone(),
+        )
+        .await?;
 
-                // Check if this admin is the one who started the action
-                if let Some(admin_user_id) = sponsor_state.admin_user_id {
-                    if admin_user_id != user.id.0 {
-                        // Other admin users typing during sponsor setup - ignore silently
-                        return Ok(());
-                    }
-                }
-
-                if let Some(text) = msg.text() {
-                    let text = text.trim();
-                    if !text.is_empty() {
-                        match sponsor_state.step {
-                            crate::sponsor::dto::SponsorStep::AwaitingRequestLimit => {
-                                // Parse the request limit number
-                                match text.parse::<u64>() {
-                                    Ok(limit) => {
-                                        // Validate the limit
-                                        if limit == 0 {
-                                            bot.send_message(
-                                                msg.chat.id,
-                                                "❌ Request limit cannot be 0. Please enter a number greater than 0."
-                                            )
-                                            .await?;
-                                            return Ok(());
-                                        }
-
-                                        // Update the sponsor settings
-                                        let mut settings = bot_deps.sponsor.get_sponsor_settings(current_group_id.clone());
-                                        settings.requests = limit;
-
-                                        if let Err(e) = bot_deps
-                                            .sponsor
-                                            .set_or_update_sponsor_settings(current_group_id.clone(), settings.clone())
-                                        {
-                                            bot.send_message(
-                                                msg.chat.id,
-                                                format!("❌ Failed to update request limit: {}", e)
-                                            )
-                                            .await?;
-                                            return Ok(());
-                                        }
-
-                                        // Reset requests to new limit when limit changes
-                                        let new_requests = crate::sponsor::dto::SponsorRequest {
-                                            requests_left: limit,
-                                            last_request: chrono::Utc::now().timestamp() as u64,
-                                        };
-
-                                        if let Err(e) = bot_deps
-                                            .sponsor
-                                            .set_or_update_sponsor_requests(current_group_id.clone(), new_requests)
-                                        {
-                                            log::warn!("Failed to reset requests after limit change: {}", e);
-                                        }
-
-                                        // Clear the sponsor state
-                                        if let Err(e) = bot_deps.sponsor.remove_sponsor_state(current_group_id.clone()) {
-                                            log::warn!("Failed to remove sponsor state: {}", e);
-                                        }
-
-                                        // Send success message
-                                        bot.send_message(
-                                            msg.chat.id,
-                                            format!("✅ <b>Request limit updated to {} per interval</b>", limit)
-                                        )
-                                        .parse_mode(teloxide::types::ParseMode::Html)
-                                        .await?;
-
-                                        let settings = bot_deps.sponsor.get_sponsor_settings(current_group_id.to_string());
-                                        let (requests_left, total_requests) = bot_deps
-                                            .sponsor
-                                            .get_request_status(current_group_id.to_string())
-                                            .unwrap_or((0, 0));
-
-                                        let interval_text = match settings.interval {
-                                            SponsorInterval::Hourly => "Hourly",
-                                            SponsorInterval::Daily => "Daily",
-                                            SponsorInterval::Weekly => "Weekly",
-                                            SponsorInterval::Monthly => "Monthly",
-                                        };
-
-                                        let text = format!(
-                                            "🎯 <b>Sponsor Settings</b>\n\n\
-                                            <b>Current Status:</b>\n\
-                                            • Total Requests: <b>{}</b>\n\
-                                            • Requests Left: <b>{}</b>\n\
-                                            • Interval: <b>{}</b>\n\n\
-                                            <b>How it works:</b>\n\
-                                            • Users can use <code>/g</code> command\n\
-                                            • No registration required\n\
-                                            • Requests reset every interval\n\
-                                            • Only admins can change settings\n\n\
-                                            Choose an action below:",
-                                            total_requests, requests_left, interval_text
-                                        );
-
-                                        let kb = InlineKeyboardMarkup::new(vec![
-                                            vec![InlineKeyboardButton::callback(
-                                                "📊 Set Request Limit",
-                                                "sponsor_set_requests",
-                                            )],
-                                            vec![InlineKeyboardButton::callback(
-                                                "⏰ Set Interval",
-                                                "sponsor_set_interval",
-                                            )],
-                                            vec![InlineKeyboardButton::callback(
-                                                "🚫 Disable Sponsor",
-                                                "sponsor_disable",
-                                            )],
-                                            vec![InlineKeyboardButton::callback(
-                                                "↩️ Back",
-                                                "back_to_group_settings",
-                                            )],
-                                        ]);
-
-                                        bot.send_message(chat_id, text)
-                                            .parse_mode(teloxide::types::ParseMode::Html)
-                                            .reply_markup(kb)
-                                            .await?;
-
-                                        return Ok(());
-                                    }
-                                    Err(_) => {
-                                        bot.send_message(
-                                            msg.chat.id,
-                                            "❌ Invalid input. Please enter a valid number (e.g., 5, 10, 25, 100)."
-                                        )
-                                        .await?;
-                                        return Ok(());
-                                    }
-                                }
-                            }
-                            _ => {
-                                // Unknown step, clear sponsor state
-                                if let Err(e) = bot_deps.sponsor.remove_sponsor_state(current_group_id.clone()) {
-                                    log::warn!("Failed to remove sponsor state: {}", e);
-                                }
-                                bot.send_message(msg.chat.id, "❌ Unknown input step. Please try again.")
-                                    .await?;
-                                return Ok(());
-                            }
-                        }
-                    } else {
-                        // Empty text, ask for valid input
-                        bot.send_message(
-                            msg.chat.id,
-                            "❌ Please enter a valid number for the request limit."
-                        )
-                        .await?;
-                        return Ok(());
-                    }
-                } else {
-                    // No text, ask for valid input
-                    bot.send_message(
-                        msg.chat.id,
-                        "❌ Please send a text message with the number for the request limit."
-                    )
-                    .await?;
-                    return Ok(());
-                }
-            }
+        if welcome_executed {
+            return Ok(());
         }
 
-        // Moderation settings wizard: capture replies
-        if let Some(user) = &msg.from {
-            // Only process moderation wizard if user is actually in wizard state
-            if let Ok(mut moderation_state) = bot_deps.moderation.get_moderation_state(chat_id.to_string()) {
-                let text = msg
-                    .text()
-                    .or_else(|| msg.caption())
-                    .unwrap_or("")
-                    .trim()
-                    .to_string();
-                if !text.is_empty() {
-                    let parse_items = |s: &str| -> Vec<String> {
-                    s.split(';')
-                        .map(|x| x.trim())
-                        .filter(|x| !x.is_empty())
-                        .take(50)
-                        .map(|x| x.to_string())
-                        .collect::<Vec<_>>()
-                    };
-                    if moderation_state.step == "AwaitingAllowed" {
-                        let is_skip = text.eq_ignore_ascii_case("na");
-                        let items = if is_skip {
-                            Vec::new()
-                        } else {
-                            parse_items(&text)
-                        };
-                        moderation_state.allowed_items = Some(items);
-                        moderation_state.step = "AwaitingDisallowed".to_string();
-                        // Remove previous prompt (Step 1) if present
-                        if let Some(mid) = moderation_state.message_id {
-                            let _ = bot
-                                .delete_message(msg.chat.id, teloxide::types::MessageId(mid as i32))
-                                .await;
-                        }
-                        let sent = bot
-                            .send_message(
-                                msg.chat.id,
-                                "🛡️ <b>Moderation Settings — Step 2/2</b>\n\n<b>Now send DISALLOWED items</b> for this group.\n\n<b>Be specific</b>: include concrete phrases, patterns, and examples you want flagged.\n\n<b>Cancel anytime</b>: Tap <b>Back</b> or <b>Close</b> in the Moderation menu — this prompt will be removed.\n\n<b>Format</b>:\n- Send them in a <b>single message</b>\n- Separate each item with <code>;</code>\n- To skip this section, send <code>na</code>\n\n<b>Examples (community standards)</b>:\n<code>harassment, insults, or personal attacks; hate speech or slurs (racism, homophobia, etc.); doxxing or sharing private information; NSFW/explicit content; graphic violence/gore; off-topic spam or mass mentions; repeated flooding/emoji spam; political or religious debates (off-topic); promotion of unrelated/non-affiliated projects; misinformation/FUD targeting members</code>\n\n<i>Notes:</i> \n- Avoid duplicating default scam rules (phishing links, wallet approvals, DM requests, giveaways) — those are already enforced by Default Rules.\n- <b>Group Disallowed</b> > <b>Group Allowed</b> > <b>Default Rules</b> (strict priority).\n- If any Group Disallowed item matches, the message will be flagged.",
-                            )
-                            .parse_mode(ParseMode::Html)
-                            .await?;
-                        // Track Step 2 prompt for cleanup
-                        moderation_state.message_id = Some(sent.id.0 as i64);
-                        bot_deps.moderation.set_moderation_state(chat_id.to_string(), moderation_state).unwrap();
-                        return Ok(());
-                    } else if moderation_state.step == "AwaitingDisallowed" {
-                        let is_skip = text.eq_ignore_ascii_case("na");
-                        let disallowed = if is_skip {
-                            Vec::new()
-                        } else {
-                            parse_items(&text)
-                        };
-                        let allowed = moderation_state.allowed_items.unwrap_or_default();
-                        // Save to moderation_settings tree
-                        let settings = ModerationSettings::from((allowed.clone(), disallowed.clone(), user.id.0 as i64, chrono::Utc::now().timestamp_millis()));
-                        bot_deps.moderation.set_or_update_moderation_settings(chat_id.to_string(), settings).unwrap();
-                        // Clear wizard and remove last prompt if present
-                        if let Some(mid) = moderation_state.message_id {
-                            let _ = bot
-                                .delete_message(msg.chat.id, teloxide::types::MessageId(mid as i32))
-                                .await;
-                        }
-                        bot_deps.moderation.remove_moderation_state(chat_id.to_string()).unwrap();
-                        let allowed_list = if allowed.is_empty() {
-                            "<i>(none)</i>".to_string()
-                        } else {
-                            allowed
-                                .iter()
-                                .map(|x| format!("• {}", teloxide::utils::html::escape(x)))
-                                .collect::<Vec<_>>()
-                                .join("\n")
-                        };
-                        let disallowed_list = if disallowed.is_empty() {
-                            "<i>(none)</i>".to_string()
-                        } else {
-                            disallowed
-                                .iter()
-                                .map(|x| format!("• {}", teloxide::utils::html::escape(x)))
-                                .collect::<Vec<_>>()
-                                .join("\n")
-                        };
-                        let mut summary = format!(
-                            "✅ <b>Custom moderation rules saved.</b>\n\n<b>Allowed ({})</b>:\n{}\n\n<b>Disallowed ({})</b>:\n{}",
-                            allowed.len(),
-                            allowed_list,
-                            disallowed.len(),
-                            disallowed_list,
-                        );
-                        if allowed.is_empty() && disallowed.is_empty() {
-                            summary.push_str("\n\n<i>No custom rules recorded. Default moderation rules remain fully in effect.</i>");
-                        }
-                        bot.send_message(msg.chat.id, summary)
-                            .parse_mode(ParseMode::Html)
-                            .await?;
-                        return Ok(());
-                    }
-                }
-            }
+        let sponsor_executed = handle_sponsor_message(
+            &bot,
+            &msg,
+            &bot_deps,
+            group_id.clone(),
+            user.clone().unwrap().id,
+            msg.chat.id,
+        )
+        .await?;
+
+        if sponsor_executed {
+            return Ok(());
         }
 
-        // Scheduled prompts wizard: capture prompt text either as a reply or as a follow-up message
-        if let Some(user) = &msg.from {
-            let key = (&msg.chat.id.0, &(user.id.0 as i64));
-            if let Some(mut st) = bot_deps.scheduled_storage.get_pending(key) {
-                if st.step == PendingStep::AwaitingPrompt {
-                    // Accept prompt if message is a reply OR a regular follow-up (non-command) from the same user
-                    let is_reply = msg.reply_to_message().is_some();
-                    let text_raw = msg.text().or_else(|| msg.caption()).unwrap_or("");
-                    let is_command = text_raw.trim_start().starts_with('/');
-                    if is_reply || (!is_command && !text_raw.trim().is_empty()) {
-                        let text = text_raw.to_string();
-                        // Guard scheduled prompt against forbidden tools
-                        {
-                            let guard = &bot_deps.schedule_guard;
-                            match guard.check_prompt(&text).await {
-                                Ok(res) => {
-                                        // Bill the group for the guard check like moderation
-                                        if let Some(group_credentials) = bot_deps.group.get_credentials(msg.chat.id) {
-                                            if let Err(e) = create_purchase_request(
-                                                0, // file_search
-                                                0, // web_search
-                                                0, // image_gen
-                                                res.total_tokens,
-                                                Model::GPT5Nano,
-                                                &group_credentials.jwt,
-                                                Some(msg.chat.id.0.to_string()),
-                                                (user.id.0 as i64).to_string(),
-                                                bot_deps.clone(),
-                                            )
-                                            .await
-                                            {
-                                                log::warn!("schedule guard purchase request failed: {}", e);
-                                            }
-                                        }
-                                        if res.verdict == "F" {
-                                            let reason = res
-                                                .reason
-                                                .unwrap_or_else(|| "Prompt requests a forbidden action for scheduled runs".to_string());
-                                            let warn = format!(
-                                                "❌ This prompt can't be scheduled. PLEASE TRY AGAIN\n\n<b>Reason:</b> {}\n\n<b>Allowed for schedules</b>: informational queries, analytics, web/file search, time, market snapshots, and image generation.\n\n<b>Blocked</b>: payments/transfers, withdrawals/funding, DAO/proposal creation, or any on-chain/interactive actions.\n\nPlease send a new prompt (you can just send it here without replying).",
-                                                teloxide::utils::html::escape(&reason)
-                                            );
-                                            bot.send_message(msg.chat.id, warn)
-                                                .parse_mode(ParseMode::Html)
-                                                .await?;
-                                            // Do not advance wizard; let user try again by sending a new prompt
-                                            return Ok(());
-                                        }
-                                }
-                                Err(e) => {
-                                    log::warn!("schedule_guard check failed: {}", e);
-                                }
-                            }
-                        }
+        let moderation_executed =
+            handle_message_moderation(&bot, &msg, &bot_deps, chat_id.to_string()).await?;
 
-                        st.prompt = Some(text);
-                        st.step = PendingStep::AwaitingHour;
-                        if let Err(e) = bot_deps.scheduled_storage.put_pending(key, &st) {
-                            log::error!("Failed to persist scheduled wizard state: {}", e);
-                            bot.send_message(msg.chat.id, "❌ Error saving schedule state. Please try /scheduleprompt again.")
-                                    .await?;
-                            return Ok(());
-                        }
-                        let kb = build_hours_keyboard();
-                        bot.send_message(msg.chat.id, "Select start hour (UTC)")
-                            .reply_markup(kb)
-                            .await?;
-                        return Ok(());
-                    }
-                }
-            }
+        if moderation_executed {
+            return Ok(());
         }
 
-        // Scheduled payments wizard: capture free text steps
-        if let Some(user) = &msg.from {
-            let pay_key = (&msg.chat.id.0, &(user.id.0 as i64));
-            if let Some(mut st) = bot_deps.scheduled_payments.get_pending(pay_key) {
-                let text_raw = msg.text().or_else(|| msg.caption()).unwrap_or("").trim().to_string();
-                if text_raw.eq_ignore_ascii_case("/cancel") || text_raw.to_lowercase().starts_with("/cancel@") {
-                    bot_deps.scheduled_payments.delete_pending(pay_key)?;
-                    bot.send_message(msg.chat.id, "✅ Cancelled scheduled payment setup.").await?;
-                    return Ok(());
-                }
-                if text_raw.is_empty() || text_raw.starts_with('/') { return Ok(()); }
-                match st.step {
-                    crate::scheduled_payments::dto::PendingPaymentStep::AwaitingRecipient => {
-                        // Expect @username
-                        let uname = text_raw.trim_start_matches('@').to_string();
-                        if let Some(creds) = bot_deps.auth.get_credentials(&uname) {
-                            st.recipient_username = Some(uname);
-                            st.recipient_address = Some(creds.resource_account_address);
-                            st.step = crate::scheduled_payments::dto::PendingPaymentStep::AwaitingToken;
-                            bot_deps.scheduled_payments.put_pending(pay_key, &st)?;
-                            bot.send_message(msg.chat.id, "💳 Send token symbol (e.g., APT, USDC, or emoji)").await?;
-                        } else {
-                            bot.send_message(msg.chat.id, "❌ Unknown user. Please send a valid @username.").await?;
-                        }
-                        return Ok(());
-                    }
-                    crate::scheduled_payments::dto::PendingPaymentStep::AwaitingToken => {
-                        let symbol_input = if text_raw.chars().any(|c| c.is_ascii_alphabetic()) { text_raw.to_uppercase() } else { text_raw.clone() };
-                        let (token_type, decimals, symbol) = if symbol_input.eq_ignore_ascii_case("APT") || symbol_input.eq_ignore_ascii_case("APTOS") {
-                            ("0x1::aptos_coin::AptosCoin".to_string(), 8u8, "APT".to_string())
-                        } else {
-                            match bot_deps.panora.get_token_by_symbol(&symbol_input).await {
-                                Ok(token) => {
-                                    let t = if token.token_address.is_some() { token.token_address.unwrap() } else { token.fa_address };
-                                    (t, token.decimals, token.symbol)
-                                }
-                                Err(_) => {
-                                    bot.send_message(msg.chat.id, "❌ Token not found. Try again (e.g., APT, USDC)").await?;
-                                    return Ok(());
-                                }
-                            }
-                        };
-                        st.symbol = Some(symbol);
-                        st.token_type = Some(token_type);
-                        st.decimals = Some(decimals);
-                        st.step = crate::scheduled_payments::dto::PendingPaymentStep::AwaitingAmount;
-                        bot_deps.scheduled_payments.put_pending(pay_key, &st)?;
-                        bot.send_message(msg.chat.id, "💰 Send amount (decimal)").await?;
-                        return Ok(());
-                    }
-                    crate::scheduled_payments::dto::PendingPaymentStep::AwaitingAmount => {
-                        let parsed = text_raw.replace('_', "").replace(',', "");
-                        match parsed.parse::<f64>() {
-                            Ok(v) if v > 0.0 => {
-                                st.amount_display = Some(v);
-                                st.step = crate::scheduled_payments::dto::PendingPaymentStep::AwaitingDate;
-                                bot_deps.scheduled_payments.put_pending(pay_key, &st)?;
-                                bot.send_message(msg.chat.id, "📅 Send start date in YYYY-MM-DD (UTC)").await?;
-                            }
-                            _ => {
-                                bot.send_message(msg.chat.id, "❌ Invalid amount. Please send a positive number.").await?;
-                            }
-                        }
-                        return Ok(());
-                    }
-                    crate::scheduled_payments::dto::PendingPaymentStep::AwaitingDate => {
-                        if chrono::NaiveDate::parse_from_str(&text_raw, "%Y-%m-%d").is_ok() {
-                            st.date = Some(text_raw);
-                            st.step = crate::scheduled_payments::dto::PendingPaymentStep::AwaitingHour;
-                            bot_deps.scheduled_payments.put_pending(pay_key, &st)?;
-                            let kb = crate::scheduled_payments::wizard::build_hours_keyboard_payments();
-                            bot.send_message(msg.chat.id, "⏰ Select hour (UTC)").reply_markup(kb).await?;
-                        } else {
-                            bot.send_message(msg.chat.id, "❌ Invalid date. Use YYYY-MM-DD.").await?;
-                        }
-                        return Ok(());
-                    }
-                    crate::scheduled_payments::dto::PendingPaymentStep::AwaitingConfirm => {
-                        // Support 'skip' to keep existing values during edit flow
-                        if text_raw.eq_ignore_ascii_case("skip") {
-                            // do nothing, keep values
-                            bot.send_message(msg.chat.id, "✔️ Keeping existing values. Use buttons to confirm.").await?;
-                            return Ok(());
-                        }
-                    }
-                    _ => {}
-                }
-            }
+        let scheduled_payments_executed = handle_message_scheduled_payments(
+            bot.clone(),
+            msg.clone(),
+            bot_deps.clone(),
+            user.clone().unwrap(),
+        )
+        .await?;
+
+        if scheduled_payments_executed {
+            return Ok(());
         }
 
-        // Check if sentinel is on for this group
-        let sentinel_on = bot_deps.sentinel.get_sentinel(chat_id.to_string());
-        if sentinel_on {
-            // Skip moderation if this user is in moderation settings wizard
-            if let Some(_) = &msg.from {
-                let moderation_state = bot_deps.moderation.get_moderation_state(chat_id.to_string()).unwrap_or(ModerationState {
-                    step: "AwaitingAllowed".to_string(),
-                    allowed_items: None,
-                    message_id: None,
-                });
-                if moderation_state.step == "AwaitingAllowed" {
-                    return Ok(());
-                }
-            }
-            // Don't moderate admin or bot messages
-            if let Some(user) = &msg.from {
-                if user.is_bot {
-                    return Ok(());
-                }
+        let scheduled_prompts_executed = handle_message_scheduled_prompts(
+            bot.clone(),
+            msg.clone(),
+            bot_deps.clone(),
+            user.unwrap(),
+        )
+        .await?;
 
-                // Check admin status
-                let admins = bot.get_chat_administrators(msg.chat.id).await?;
-                let is_admin = admins.iter().any(|member| member.user.id == user.id);
-                if is_admin {
-                    return Ok(());
-                }
-            } else {
-                return Ok(());
-            }
+        if scheduled_prompts_executed {
+            return Ok(());
+        }
 
-            let address = group_credentials.resource_account_address;
-
-            let default_payment_prefs = bot_deps.default_payment_prefs.clone();
-
-            let coin = bot_deps.payment.get_payment_token(msg.chat.id.to_string()).unwrap_or(PaymentPrefs::from((default_payment_prefs.label, default_payment_prefs.currency, default_payment_prefs.version)));
-
-            let group_balance = bot_deps
-            .panora
-            .aptos
-            .get_account_balance(&address, &coin.currency)
+        let sentinel_executed =
+            handle_message_sentinel(bot.clone(), msg.clone(), bot_deps.clone(), group_id.clone())
                 .await?;
 
-            let token = bot_deps.panora.get_token_by_symbol(&coin.label).await;
-
-            if token.is_err() {
-                bot.send_message(msg.chat.id, "❌ Token not found, please contact support")
-                    .await?;
-                return Ok(());
-            }
-
-            let token = token.unwrap();
-
-            let token_price = token.usd_price;
-
-            if token_price.is_none() {
-                bot.send_message(
-                    msg.chat.id,
-                    "❌ Token price not found, please contact support",
-                )
-                .await?;
-                return Ok(());
-            }
-
-            let token_price = token_price.unwrap();
-
-            let token_price = token_price.parse::<f64>();
-
-            if token_price.is_err() {
-                bot.send_message(
-                    msg.chat.id,
-                    "❌ Token price not found, please contact support",
-                )
-                .await?;
-                return Ok(());
-            }
-
-            let token_price = token_price.unwrap();
-
-            let token_decimals = token.decimals;
-
-            let min_deposit = (bot_deps.panora.min_deposit / 10_f64) / token_price;
-
-            let min_deposit = (min_deposit as f64 * 10_f64.powi(token_decimals as i32)) as u64;
-
-            if group_balance < min_deposit as i64 {
-                let min_deposit_formatted = format!(
-                    "{:.2}",
-                    min_deposit as f64 / 10_f64.powi(token_decimals as i32)
-                );
-
-                let group_balance_formatted = format!(
-                    "{:.2}",
-                    group_balance as f64 / 10_f64.powi(token_decimals as i32)
-                );
-
-                bot.send_message(
-                    msg.chat.id,
-                    format!(
-                        "User balance is less than the minimum deposit. Please fund your account transfering {} to <code>{}</code> address. Minimum deposit: {} {} (Your balance: {} {})",
-                        token.symbol, 
-                        address,
-                        min_deposit_formatted,
-                        token.symbol,
-                        group_balance_formatted,
-                        token.symbol
-                    )
-                )
-                .parse_mode(ParseMode::Html)
-                .await?;
-                return Ok(());
-            }
-
-            // Use the same moderation logic as /mod, via injected dependency
-            let moderation_service = bot_deps.moderation.clone();
-            // Load overrides
-            let overrides = bot_deps.moderation.get_moderation_settings(chat_id.to_string());
-
-            let overrides = match overrides {
-                Ok(overrides) => Some(ModerationOverrides {
-                    allowed_items: overrides.allowed_items,
-                    disallowed_items: overrides.disallowed_items,
-                }),
-                Err(e) => {
-                    log::error!("Failed to get moderation settings: {}", e);
-                    None
-                }
-            };
-
-            let message_text = msg.text().or_else(|| msg.caption()).unwrap_or("");
-            match moderation_service
-                .moderate_message(message_text, &bot, &msg, &msg, overrides)
-                .await
-            {
-                Ok(result) => {
-                    log::info!(
-                        "Sentinel moderation result: {} for message: {} (tokens: {})",
-                        result.verdict,
-                        message_text,
-                        result.total_tokens
-                    );
-
-                    if profile != "dev" {
-                        let purchase_result = create_purchase_request(
-                            0,
-                            0,
-                            0,
-                            result.total_tokens,
-                            Model::GPT5Nano,
-                            &group_credentials.jwt,
-                            Some(msg.chat.id.0.to_string()),
-                            user_id,
-                            bot_deps,
-                        )
-                        .await;
-
-                        if let Err(e) = purchase_result {
-                            log::error!("Failed to purchase ai for flagged content: {}", e);
-                            return Ok(());
-                        }
-                    }
-
-                    if result.verdict == "F" {
-                        // Mute the user
-                        if let Some(flagged_user) = &msg.from {
-                            let restricted_permissions = teloxide::types::ChatPermissions::empty();
-
-                            // Check if the user is already muted
-                            if let Err(mute_error) = bot
-                                .restrict_chat_member(
-                                    msg.chat.id,
-                                    flagged_user.id,
-                                    restricted_permissions,
-                                )
-                                .await
-                            {
-                                log::error!(
-                                    "Failed to mute user {}: {}",
-                                    flagged_user.id,
-                                    mute_error
-                                );
-                            } else {
-                                log::info!(
-                                    "Successfully muted user {} for flagged content (sentinel)",
-                                    flagged_user.id
-                                );
-                            }
-                            // Add admin buttons
-                            let keyboard = InlineKeyboardMarkup::new(vec![vec![
-                                InlineKeyboardButton::callback(
-                                    "🔇 Unmute",
-                                    format!("unmute:{}", flagged_user.id),
-                                ),
-                                InlineKeyboardButton::callback(
-                                    "🚫 Ban",
-                                    format!("ban:{}:{}", flagged_user.id, msg.id.0),
-                                ),
-                            ]]);
-                            // Build a visible user mention (prefer @username, else clickable name)
-                            let user_mention = if let Some(username) = &flagged_user.username {
-                                format!("@{}", username)
-                            } else {
-                                let name = teloxide::utils::html::escape(&flagged_user.first_name);
-                                format!(
-                                    "<a href=\"tg://user?id={}\">{}</a>",
-                                    flagged_user.id.0, name
-                                )
-                            };
-
-                            bot.send_message(
-                                msg.chat.id,
-                                format!(
-                                    "🛡️ <b>Content Flagged & User Muted</b>\n\n📝 Message ID: <code>{}</code>\n\n❌ Status: <b>FLAGGED</b> 🔴\n🔇 User has been muted\n👤 <b>User:</b> {}\n\n💬 <i>Flagged message:</i>\n<blockquote><span class=\"tg-spoiler\">{}</span></blockquote>",
-                                    msg.id,
-                                    user_mention,
-                                    teloxide::utils::html::escape(message_text)
-                                )
-                            )
-                            .parse_mode(ParseMode::Html)
-                            .reply_markup(keyboard)
-                            .await?;
-                            // Immediately remove the offending message from the chat
-                            if let Err(e) = bot.delete_message(msg.chat.id, msg.id).await {
-                                log::warn!(
-                                    "Failed to delete offending message {}: {}",
-                                    msg.id.0,
-                                    e
-                                );
-                            }
-                        }
-                    }
-                }
-                Err(e) => {
-                    log::error!("Sentinel moderation failed: {}", e);
-                }
-            }
+        if sentinel_executed {
             return Ok(());
         }
     }
@@ -1916,7 +1197,7 @@ pub async fn handle_message(bot: Bot, msg: Message, bot_deps: BotDependencies) -
     if msg.text().is_none() && msg.caption().is_none() && msg.photo().is_some() {
         let cmd_collector = bot_deps.cmd_collector.clone();
         cmd_collector
-            .try_attach_photo(msg, bot_deps.clone(), group_id)
+            .try_attach_photo(msg, bot_deps.clone(), None)
             .await;
         return Ok(());
     }
@@ -2018,10 +1299,6 @@ pub async fn handle_mod(bot: Bot, msg: Message, bot_deps: BotDependencies) -> An
             return Ok(());
         }
 
-        let user = user.unwrap();
-
-        let user_id = user.id.to_string();
-
         // Extract text from the replied message
         let message_text = reply_to_msg
             .text()
@@ -2084,7 +1361,7 @@ pub async fn handle_mod(bot: Bot, msg: Message, bot_deps: BotDependencies) -> An
                     Model::GPT5Nano,
                     &group_credentials.unwrap().jwt,
                     Some(msg.chat.id.0.to_string()),
-                    user_id,
+                    None,
                     bot_deps,
                 )
                 .await;

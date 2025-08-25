@@ -369,3 +369,203 @@ async fn show_sponsor_settings(
 
     Ok(())
 }
+
+pub async fn handle_sponsor_message(
+    bot: &Bot,
+    msg: &Message,
+    bot_deps: &BotDependencies,
+    current_group_id: String,
+    user_id: UserId,
+    group_id: ChatId,
+) -> Result<bool> {
+    // Check if there's an active sponsor input mode for this group
+    if let Some(sponsor_state) = bot_deps.sponsor.get_sponsor_state(current_group_id.clone()) {
+        // Only process if the user is an admin
+        let is_admin = utils::is_admin(&bot, group_id, user_id).await;
+        if !is_admin {
+            // Non-admin users typing during sponsor setup - ignore silently
+            return Ok(false);
+        }
+
+        // Check if this admin is the one who started the action
+        if let Some(admin_user_id) = sponsor_state.admin_user_id {
+            if admin_user_id != user_id.0 {
+                // Other admin users typing during sponsor setup - ignore silently
+                return Err(anyhow::anyhow!(
+                    "User is not the admin who started the action"
+                ));
+            }
+        }
+
+        if let Some(text) = msg.text() {
+            let text = text.trim();
+            if !text.is_empty() {
+                match sponsor_state.step {
+                    crate::sponsor::dto::SponsorStep::AwaitingRequestLimit => {
+                        // Parse the request limit number
+                        match text.parse::<u64>() {
+                            Ok(limit) => {
+                                // Validate the limit
+                                if limit == 0 {
+                                    bot.send_message(
+                                                msg.chat.id,
+                                                "❌ Request limit cannot be 0. Please enter a number greater than 0."
+                                            )
+                                            .await?;
+                                    return Ok(true);
+                                }
+
+                                // Update the sponsor settings
+                                let mut settings = bot_deps
+                                    .sponsor
+                                    .get_sponsor_settings(current_group_id.clone());
+                                settings.requests = limit;
+
+                                if let Err(e) = bot_deps.sponsor.set_or_update_sponsor_settings(
+                                    current_group_id.clone(),
+                                    settings.clone(),
+                                ) {
+                                    bot.send_message(
+                                        msg.chat.id,
+                                        format!("❌ Failed to update request limit: {}", e),
+                                    )
+                                    .await?;
+                                    return Ok(true);
+                                }
+
+                                // Reset requests to new limit when limit changes
+                                let new_requests = crate::sponsor::dto::SponsorRequest {
+                                    requests_left: limit,
+                                    last_request: chrono::Utc::now().timestamp() as u64,
+                                };
+
+                                if let Err(e) = bot_deps.sponsor.set_or_update_sponsor_requests(
+                                    current_group_id.clone(),
+                                    new_requests,
+                                ) {
+                                    log::warn!(
+                                        "Failed to reset requests after limit change: {}",
+                                        e
+                                    );
+                                }
+
+                                // Clear the sponsor state
+                                if let Err(e) = bot_deps
+                                    .sponsor
+                                    .remove_sponsor_state(current_group_id.clone())
+                                {
+                                    log::warn!("Failed to remove sponsor state: {}", e);
+                                }
+
+                                // Send success message
+                                bot.send_message(
+                                    msg.chat.id,
+                                    format!(
+                                        "✅ <b>Request limit updated to {} per interval</b>",
+                                        limit
+                                    ),
+                                )
+                                .parse_mode(teloxide::types::ParseMode::Html)
+                                .await?;
+
+                                let settings = bot_deps
+                                    .sponsor
+                                    .get_sponsor_settings(current_group_id.to_string());
+                                let (requests_left, total_requests) = bot_deps
+                                    .sponsor
+                                    .get_request_status(current_group_id.to_string())
+                                    .unwrap_or((0, 0));
+
+                                let interval_text = match settings.interval {
+                                    SponsorInterval::Hourly => "Hourly",
+                                    SponsorInterval::Daily => "Daily",
+                                    SponsorInterval::Weekly => "Weekly",
+                                    SponsorInterval::Monthly => "Monthly",
+                                };
+
+                                let text = format!(
+                                    "🎯 <b>Sponsor Settings</b>\n\n\
+                                            <b>Current Status:</b>\n\
+                                            • Total Requests: <b>{}</b>\n\
+                                            • Requests Left: <b>{}</b>\n\
+                                            • Interval: <b>{}</b>\n\n\
+                                            <b>How it works:</b>\n\
+                                            • Users can use <code>/g</code> command\n\
+                                            • No registration required\n\
+                                            • Requests reset every interval\n\
+                                            • Only admins can change settings\n\n\
+                                            Choose an action below:",
+                                    total_requests, requests_left, interval_text
+                                );
+
+                                let kb = InlineKeyboardMarkup::new(vec![
+                                    vec![InlineKeyboardButton::callback(
+                                        "📊 Set Request Limit",
+                                        "sponsor_set_requests",
+                                    )],
+                                    vec![InlineKeyboardButton::callback(
+                                        "⏰ Set Interval",
+                                        "sponsor_set_interval",
+                                    )],
+                                    vec![InlineKeyboardButton::callback(
+                                        "🚫 Disable Sponsor",
+                                        "sponsor_disable",
+                                    )],
+                                    vec![InlineKeyboardButton::callback(
+                                        "↩️ Back",
+                                        "back_to_group_settings",
+                                    )],
+                                ]);
+
+                                bot.send_message(group_id, text)
+                                    .parse_mode(teloxide::types::ParseMode::Html)
+                                    .reply_markup(kb)
+                                    .await?;
+
+                                return Ok(true);
+                            }
+                            Err(_) => {
+                                bot.send_message(
+                                            msg.chat.id,
+                                            "❌ Invalid input. Please enter a valid number (e.g., 5, 10, 25, 100)."
+                                        )
+                                        .await?;
+                                return Ok(true);
+                            }
+                        }
+                    }
+                    _ => {
+                        // Unknown step, clear sponsor state
+                        if let Err(e) = bot_deps
+                            .sponsor
+                            .remove_sponsor_state(current_group_id.clone())
+                        {
+                            log::warn!("Failed to remove sponsor state: {}", e);
+                        }
+                        bot.send_message(msg.chat.id, "❌ Unknown input step. Please try again.")
+                            .await?;
+                        return Ok(true);
+                    }
+                }
+            } else {
+                // Empty text, ask for valid input
+                bot.send_message(
+                    msg.chat.id,
+                    "❌ Please enter a valid number for the request limit.",
+                )
+                .await?;
+                return Ok(true);
+            }
+        } else {
+            // No text, ask for valid input
+            bot.send_message(
+                msg.chat.id,
+                "❌ Please send a text message with the number for the request limit.",
+            )
+            .await?;
+            return Ok(true);
+        }
+    } else {
+        return Ok(false);
+    }
+}
