@@ -133,7 +133,7 @@ async fn start_filter_wizard(
     chat_id: teloxide::types::ChatId,
     user_id: teloxide::types::UserId,
 ) -> Result<()> {
-    let wizard_key = format!("filter_{}_{}", chat_id.0, user_id.0);
+    let wizard_key = format!("filter_{}-{}:{}", chat_id.0, bot_deps.filters.account_seed, user_id.0);
     
     let wizard_state = PendingFilterWizardState {
         group_id: chat_id.0,
@@ -486,7 +486,7 @@ async fn confirm_and_create_filter(
     chat_id: teloxide::types::ChatId,
     user_id: teloxide::types::UserId,
 ) -> Result<()> {
-    let wizard_key = format!("filter_{}_{}", chat_id.0, user_id.0);
+    let wizard_key = format!("filter_{}-{}:{}", chat_id.0, bot_deps.filters.account_seed, user_id.0);
     
             if let Some(wizard_state) = bot_deps.filters.get_pending_settings(&wizard_key) {
         if wizard_state.step == PendingFilterStep::AwaitingConfirm {
@@ -513,7 +513,7 @@ async fn confirm_and_create_filter(
 
                 match bot_deps.filters.create_filter(filter) {
                     Ok(_) => created.push(t),
-                    Err(FilterError::_DuplicateFilter(_)) => duplicates.push(t),
+                    Err(FilterError::DuplicateFilter(_)) => duplicates.push(t),
                     Err(err) => failures.push((t, format!("{}", err))),
                 }
             }
@@ -586,7 +586,7 @@ async fn cancel_filter_wizard(
     chat_id: teloxide::types::ChatId,
     user_id: teloxide::types::UserId,
 ) -> Result<()> {
-    let wizard_key = format!("filter_{}_{}", chat_id.0, user_id.0);
+    let wizard_key = format!("filter_{}-{}:{}", chat_id.0, bot_deps.filters.account_seed, user_id.0);
     
     // Clean up wizard state
     if let Err(e) = bot_deps.filters.remove_pending_settings(&wizard_key) {

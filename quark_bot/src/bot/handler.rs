@@ -1579,7 +1579,7 @@ pub async fn handle_message(bot: Bot, msg: Message, bot_deps: BotDependencies) -
 
         // Filters wizard: capture free text steps
         if let Some(user) = &msg.from {
-            let filter_key = format!("filter_{}_{}", msg.chat.id.0, user.id.0);
+            let filter_key = format!("filter_{}-{}:{}", msg.chat.id.0, bot_deps.filters.account_seed, user.id.0);
             if let Some(mut st) = bot_deps.filters.get_pending_settings(&filter_key) {
                 let text_raw = msg.text().or_else(|| msg.caption()).unwrap_or("").trim().to_string();
                 if text_raw.eq_ignore_ascii_case("/cancel") || text_raw.to_lowercase().starts_with("/cancel@") {

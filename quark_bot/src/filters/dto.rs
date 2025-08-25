@@ -48,10 +48,11 @@ pub struct FilterStats {
 }
 
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 pub struct FilterMatch {
     pub filter: FilterDefinition,
-    pub _matched_text: String,
-    pub _match_position: usize,
+    pub matched_text: String,
+    pub match_position: usize,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -69,10 +70,11 @@ pub struct FilterListResponse {
 }
 
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 pub struct ValidationResult {
-    pub _is_valid: bool,
+    pub is_valid: bool,
     pub errors: Vec<String>,
-    pub _warnings: Vec<String>,
+    pub warnings: Vec<String>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
@@ -94,12 +96,13 @@ pub struct PendingFilterWizardState {
 }
 
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 pub enum FilterError {
     NotFound(String),
-    _ValidationFailed(ValidationResult),
+    ValidationFailed(ValidationResult),
     DatabaseError(String),
-    _PermissionDenied(String),
-    _DuplicateFilter(String),
+    PermissionDenied(String),
+    DuplicateFilter(String),
     InternalError(String),
 }
 
@@ -107,12 +110,12 @@ impl std::fmt::Display for FilterError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             FilterError::NotFound(msg) => write!(f, "Filter not found: {}", msg),
-            FilterError::_ValidationFailed(result) => {
+            FilterError::ValidationFailed(result) => {
                 write!(f, "Validation failed: {}", result.errors.join(", "))
             }
             FilterError::DatabaseError(msg) => write!(f, "Database error: {}", msg),
-            FilterError::_PermissionDenied(msg) => write!(f, "Permission denied: {}", msg),
-            FilterError::_DuplicateFilter(msg) => write!(f, "Duplicate filter: {}", msg),
+            FilterError::PermissionDenied(msg) => write!(f, "Permission denied: {}", msg),
+            FilterError::DuplicateFilter(msg) => write!(f, "Duplicate filter: {}", msg),
             FilterError::InternalError(msg) => write!(f, "Internal error: {}", msg),
         }
     }
@@ -141,19 +144,20 @@ impl From<(String, String, String, i64, MatchType, ResponseType)> for FilterDefi
 }
 
 impl ValidationResult {
-    pub fn _success() -> Self {
+    pub fn success() -> Self {
         Self {
-            _is_valid: true,
+            is_valid: true,
             errors: Vec::new(),
-            _warnings: Vec::new(),
+            warnings: Vec::new(),
         }
     }
 
-    pub fn _failure(errors: Vec<String>) -> Self {
+    #[allow(dead_code)]
+    pub fn failure(errors: Vec<String>) -> Self {
         Self {
-            _is_valid: false,
+            is_valid: false,
             errors,
-            _warnings: Vec::new(),
+            warnings: Vec::new(),
         }
     }
 }

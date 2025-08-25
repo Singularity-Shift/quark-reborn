@@ -44,12 +44,12 @@ impl Filters {
 
     pub fn create_filter(&self, filter: FilterDefinition) -> Result<(), FilterError> {
         let validation = self.validate_filter(&filter)?;
-        if !validation._is_valid {
-            return Err(FilterError::_ValidationFailed(validation));
+        if !validation.is_valid {
+            return Err(FilterError::ValidationFailed(validation));
         }
 
         if self.filter_exists(&filter.group_id, &filter.trigger)? {
-            return Err(FilterError::_DuplicateFilter(format!(
+            return Err(FilterError::DuplicateFilter(format!(
                 "Filter with trigger '{}' already exists",
                 filter.trigger
             )));
@@ -267,26 +267,26 @@ impl Filters {
     }
 
     fn validate_filter(&self, filter: &FilterDefinition) -> Result<ValidationResult, FilterError> {
-        let mut result = ValidationResult::_success();
+        let mut result = ValidationResult::success();
 
         if filter.trigger.trim().is_empty() {
             result.errors.push("Trigger cannot be empty".to_string());
-            result._is_valid = false;
+            result.is_valid = false;
         }
 
         if filter.trigger.len() > 100 {
             result.errors.push("Trigger too long (max 100 characters)".to_string());
-            result._is_valid = false;
+            result.is_valid = false;
         }
 
         if filter.response.trim().is_empty() {
             result.errors.push("Response cannot be empty".to_string());
-            result._is_valid = false;
+            result.is_valid = false;
         }
 
         if filter.response.len() > 2000 {
             result.errors.push("Response too long (max 2000 characters)".to_string());
-            result._is_valid = false;
+            result.is_valid = false;
         }
 
         let forbidden_patterns = vec!["admin", "bot", "/"];
@@ -296,7 +296,7 @@ impl Filters {
                     "Trigger cannot contain forbidden pattern: {}",
                     pattern
                 ));
-                result._is_valid = false;
+                result.is_valid = false;
             }
         }
 
@@ -355,8 +355,8 @@ impl Filters {
                     if word.trim_matches(|c: char| !c.is_alphanumeric()) == trigger_lower {
                         return Some(FilterMatch {
                             filter: filter.clone(),
-                            _matched_text: word.to_string(),
-                            _match_position: i,
+                            matched_text: word.to_string(),
+                            match_position: i,
                         });
                     }
                 }
@@ -388,8 +388,8 @@ impl Filters {
         if matched {
             Some(FilterMatch {
                 filter: filter.clone(),
-                _matched_text: trigger_lower,
-                _match_position: position,
+                matched_text: trigger_lower,
+                match_position: position,
             })
         } else {
             None
