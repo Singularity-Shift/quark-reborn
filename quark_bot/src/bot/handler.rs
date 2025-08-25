@@ -1187,7 +1187,8 @@ pub async fn handle_message(bot: Bot, msg: Message, bot_deps: BotDependencies) -
         }
 
         // Process message against existing filters
-        let filter_matches_processed = process_message_for_filters(bot.clone(), msg.clone(), bot_deps.clone()).await?;
+        let filter_matches_processed =
+            process_message_for_filters(bot.clone(), msg.clone(), bot_deps.clone()).await?;
 
         if filter_matches_processed {
             return Ok(());

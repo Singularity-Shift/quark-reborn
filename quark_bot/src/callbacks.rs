@@ -643,10 +643,7 @@ pub async fn handle_callback_query(
                                     "👋 Welcome Settings",
                                     "welcome_settings",
                                 )],
-                                vec![InlineKeyboardButton::callback(
-                                    "🔍 Filters",
-                                    "filters_main",
-                                )],
+                                vec![InlineKeyboardButton::callback("🔍 Filters", "filters_main")],
                                 vec![InlineKeyboardButton::callback(
                                     "🔄 Migrate Group ID",
                                     "open_migrate_group_id",
@@ -733,10 +730,7 @@ pub async fn handle_callback_query(
                             "👋 Welcome Settings",
                             "welcome_settings",
                         )],
-                        vec![InlineKeyboardButton::callback(
-                            "🔍 Filters",
-                            "filters_main",
-                        )],
+                        vec![InlineKeyboardButton::callback("🔍 Filters", "filters_main")],
                         vec![InlineKeyboardButton::callback(
                             "🔄 Migrate Group ID",
                             "open_migrate_group_id",
@@ -1061,9 +1055,6 @@ pub async fn handle_callback_query(
 
                     let mut state =
                         ModerationState::from(("AwaitingAllowed".to_string(), None, None));
-                    bot_deps
-                        .moderation
-                        .set_moderation_state(m.chat.id.to_string(), state.clone())?;
                     // Prompt Step 1/2 in chat
                     let sent = bot.send_message(
                         m.chat.id,

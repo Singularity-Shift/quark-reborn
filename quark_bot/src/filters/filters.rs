@@ -17,14 +17,22 @@ pub struct Filters {
 
 impl Filters {
     pub fn new(db: &Db) -> Self {
-        let filters_db = db.open_tree("filters").expect("Failed to open filters tree");
-        let metadata_db = db.open_tree("filter_metadata").expect("Failed to open filter metadata tree");
-        let stats_db = db.open_tree("filter_stats").expect("Failed to open filter stats tree");
-        let settings_db = db.open_tree("filter_settings").expect("Failed to open filter settings tree");
-        
-        let account_seed = std::env::var("ACCOUNT_SEED")
-            .expect("ACCOUNT_SEED environment variable not found");
-        
+        let filters_db = db
+            .open_tree("filters")
+            .expect("Failed to open filters tree");
+        let metadata_db = db
+            .open_tree("filter_metadata")
+            .expect("Failed to open filter metadata tree");
+        let stats_db = db
+            .open_tree("filter_stats")
+            .expect("Failed to open filter stats tree");
+        let settings_db = db
+            .open_tree("filter_settings")
+            .expect("Failed to open filter settings tree");
+
+        let account_seed =
+            std::env::var("ACCOUNT_SEED").expect("ACCOUNT_SEED environment variable not found");
+
         Self {
             filters_db,
             metadata_db,
@@ -56,8 +64,8 @@ impl Filters {
         }
 
         let key = self.format_key(&filter.group_id, &filter.id);
-        let filter_bytes = serde_json::to_vec(&filter)
-            .map_err(|e| FilterError::InternalError(e.to_string()))?;
+        let filter_bytes =
+            serde_json::to_vec(&filter).map_err(|e| FilterError::InternalError(e.to_string()))?;
 
         self.filters_db
             .insert(&key, filter_bytes)
@@ -65,8 +73,8 @@ impl Filters {
 
         let metadata = self.create_metadata(&filter);
         let metadata_key = self.format_key(&filter.group_id, &filter.id);
-        let metadata_bytes = serde_json::to_vec(&metadata)
-            .map_err(|e| FilterError::InternalError(e.to_string()))?;
+        let metadata_bytes =
+            serde_json::to_vec(&metadata).map_err(|e| FilterError::InternalError(e.to_string()))?;
 
         self.metadata_db
             .insert(&metadata_key, metadata_bytes)
@@ -80,8 +88,8 @@ impl Filters {
             last_triggered_by: None,
         };
         let stats_key = self.format_key(&filter.group_id, &filter.id);
-        let stats_bytes = serde_json::to_vec(&stats)
-            .map_err(|e| FilterError::InternalError(e.to_string()))?;
+        let stats_bytes =
+            serde_json::to_vec(&stats).map_err(|e| FilterError::InternalError(e.to_string()))?;
 
         self.stats_db
             .insert(&stats_key, stats_bytes)
@@ -110,7 +118,9 @@ impl Filters {
     pub fn remove_filter(&self, group_id: &str, filter_id: &str) -> Result<(), FilterError> {
         let key = self.format_key(group_id, filter_id);
 
-        if !self.filters_db.contains_key(&key)
+        if !self
+            .filters_db
+            .contains_key(&key)
             .map_err(|e| FilterError::DatabaseError(e.to_string()))?
         {
             return Err(FilterError::NotFound(format!(
@@ -182,14 +192,18 @@ impl Filters {
         Ok(matches)
     }
 
-    pub fn put_pending_settings(&self, key: String, state: &PendingFilterWizardState) -> Result<(), FilterError> {
-        let state_bytes = serde_json::to_vec(state)
-            .map_err(|e| FilterError::InternalError(e.to_string()))?;
-        
+    pub fn put_pending_settings(
+        &self,
+        key: String,
+        state: &PendingFilterWizardState,
+    ) -> Result<(), FilterError> {
+        let state_bytes =
+            serde_json::to_vec(state).map_err(|e| FilterError::InternalError(e.to_string()))?;
+
         self.settings_db
             .insert(&key, state_bytes)
             .map_err(|e| FilterError::DatabaseError(e.to_string()))?;
-        
+
         Ok(())
     }
 
@@ -237,8 +251,8 @@ impl Filters {
         stats.last_triggered = Some(chrono::Utc::now().timestamp());
         stats.last_triggered_by = Some(user_id);
 
-        let stats_bytes = serde_json::to_vec(&stats)
-            .map_err(|e| FilterError::InternalError(e.to_string()))?;
+        let stats_bytes =
+            serde_json::to_vec(&stats).map_err(|e| FilterError::InternalError(e.to_string()))?;
 
         self.stats_db
             .insert(&key, stats_bytes)
@@ -247,7 +261,11 @@ impl Filters {
         Ok(())
     }
 
-    pub fn get_filter_stats(&self, group_id: &str, filter_id: &str) -> Result<FilterStats, FilterError> {
+    pub fn get_filter_stats(
+        &self,
+        group_id: &str,
+        filter_id: &str,
+    ) -> Result<FilterStats, FilterError> {
         let key = self.format_key(group_id, filter_id);
         let stats_data = self
             .stats_db
@@ -275,7 +293,9 @@ impl Filters {
         }
 
         if filter.trigger.len() > 100 {
-            result.errors.push("Trigger too long (max 100 characters)".to_string());
+            result
+                .errors
+                .push("Trigger too long (max 100 characters)".to_string());
             result.is_valid = false;
         }
 
@@ -285,7 +305,9 @@ impl Filters {
         }
 
         if filter.response.len() > 2000 {
-            result.errors.push("Response too long (max 2000 characters)".to_string());
+            result
+                .errors
+                .push("Response too long (max 2000 characters)".to_string());
             result.is_valid = false;
         }
 
@@ -396,4 +418,3 @@ impl Filters {
         }
     }
 }
-

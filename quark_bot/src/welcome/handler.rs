@@ -398,12 +398,7 @@ async fn start_custom_message_input(
     }
 
     // Store the state that we're waiting for custom message input
-    let key = format!("welcome_custom_msg_input:{}", msg.chat.id.0);
-    log::info!("Storing welcome input state for key: {}", key);
-    match welcome_service
-        .store_input_state(key.clone(), msg.chat.id)
-        .await
-    {
+    match welcome_service.store_input_state(msg.chat.id).await {
         Ok(_) => log::info!("Successfully stored welcome input state"),
         Err(e) => log::error!("Failed to store welcome input state: {}", e),
     }

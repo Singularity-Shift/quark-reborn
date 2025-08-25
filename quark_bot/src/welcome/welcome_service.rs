@@ -447,7 +447,12 @@ impl WelcomeService {
         Ok(())
     }
 
-    pub async fn store_input_state(&self, key: String, chat_id: ChatId) -> Result<()> {
+    pub async fn store_input_state(&self, chat_id: ChatId) -> Result<()> {
+        let key = format!(
+            "welcome_custom_msg_input:{}-{}",
+            chat_id.to_string(),
+            self.account_seed
+        );
         let input_state = serde_json::json!({
             "chat_id": chat_id.0,
             "timestamp": chrono::Utc::now().timestamp(),
