@@ -1,5 +1,5 @@
 use anyhow::Result;
-use sled::Tree;
+use sled::{Db, Tree};
 
 use crate::filters::dto::{
     FilterDefinition, FilterError, FilterMatch, FilterMetadata, FilterStats, MatchType,
@@ -11,20 +11,38 @@ pub struct Filters {
     pub filters_db: Tree,
     pub metadata_db: Tree,
     pub stats_db: Tree,
-    pub wizard_db: Tree,
+    pub settings_db: Tree,
+    pub account_seed: String,
 }
 
 impl Filters {
-    pub fn new(filters_db: Tree, metadata_db: Tree, stats_db: Tree, wizard_db: Tree) -> Self {
+    pub fn new(db: &Db) -> Self {
+        let filters_db = db.open_tree("filters").expect("Failed to open filters tree");
+        let metadata_db = db.open_tree("filter_metadata").expect("Failed to open filter metadata tree");
+        let stats_db = db.open_tree("filter_stats").expect("Failed to open filter stats tree");
+        let settings_db = db.open_tree("filter_settings").expect("Failed to open filter settings tree");
+        
+        let account_seed = std::env::var("ACCOUNT_SEED")
+            .expect("ACCOUNT_SEED environment variable not found");
+        
         Self {
             filters_db,
             metadata_db,
             stats_db,
-            wizard_db,
+            settings_db,
+            account_seed,
         }
     }
 
-    pub fn _create_filter(&self, filter: FilterDefinition) -> Result<(), FilterError> {
+    fn format_key(&self, group_id: &str, suffix: &str) -> String {
+        format!("{}-{}:{}", group_id, self.account_seed, suffix)
+    }
+
+    fn format_prefix(&self, group_id: &str) -> String {
+        format!("{}-{}:", group_id, self.account_seed)
+    }
+
+    pub fn create_filter(&self, filter: FilterDefinition) -> Result<(), FilterError> {
         let validation = self._validate_filter(&filter)?;
         if !validation._is_valid {
             return Err(FilterError::_ValidationFailed(validation));
@@ -37,7 +55,7 @@ impl Filters {
             )));
         }
 
-        let key = format!("{}:{}", filter.group_id, filter.id);
+        let key = self.format_key(&filter.group_id, &filter.id);
         let filter_bytes = serde_json::to_vec(&filter)
             .map_err(|e| FilterError::InternalError(e.to_string()))?;
 
@@ -46,7 +64,7 @@ impl Filters {
             .map_err(|e| FilterError::DatabaseError(e.to_string()))?;
 
         let metadata = self._create_metadata(&filter);
-        let metadata_key = format!("{}:{}", filter.group_id, filter.id);
+        let metadata_key = self.format_key(&filter.group_id, &filter.id);
         let metadata_bytes = serde_json::to_vec(&metadata)
             .map_err(|e| FilterError::InternalError(e.to_string()))?;
 
@@ -61,7 +79,7 @@ impl Filters {
             last_triggered: None,
             last_triggered_by: None,
         };
-        let stats_key = format!("{}:{}", filter.group_id, filter.id);
+        let stats_key = self.format_key(&filter.group_id, &filter.id);
         let stats_bytes = serde_json::to_vec(&stats)
             .map_err(|e| FilterError::InternalError(e.to_string()))?;
 
@@ -74,7 +92,7 @@ impl Filters {
 
     pub fn get_group_filters(&self, group_id: &str) -> Result<Vec<FilterDefinition>, FilterError> {
         let mut filters = Vec::new();
-        let prefix = format!("{}:", group_id);
+        let prefix = self.format_prefix(group_id);
 
         for result in self.filters_db.scan_prefix(&prefix) {
             let (_, value) = result.map_err(|e| FilterError::DatabaseError(e.to_string()))?;
@@ -90,7 +108,7 @@ impl Filters {
     }
 
     pub fn remove_filter(&self, group_id: &str, filter_id: &str) -> Result<(), FilterError> {
-        let key = format!("{}:{}", group_id, filter_id);
+        let key = self.format_key(group_id, filter_id);
 
         if !self.filters_db.contains_key(&key)
             .map_err(|e| FilterError::DatabaseError(e.to_string()))?
@@ -117,7 +135,7 @@ impl Filters {
     }
 
     pub fn reset_group_filters(&self, group_id: &str) -> Result<u32, FilterError> {
-        let prefix = format!("{}:", group_id);
+        let prefix = self.format_prefix(group_id);
         let mut removed_count = 0;
 
         let keys_to_remove: Vec<_> = self
@@ -164,27 +182,27 @@ impl Filters {
         Ok(matches)
     }
 
-    pub fn put_pending_wizard(&self, key: String, state: &PendingFilterWizardState) -> Result<(), FilterError> {
+    pub fn put_pending_settings(&self, key: String, state: &PendingFilterWizardState) -> Result<(), FilterError> {
         let state_bytes = serde_json::to_vec(state)
             .map_err(|e| FilterError::InternalError(e.to_string()))?;
         
-        self.wizard_db
+        self.settings_db
             .insert(&key, state_bytes)
             .map_err(|e| FilterError::DatabaseError(e.to_string()))?;
         
         Ok(())
     }
 
-    pub fn get_pending_wizard(&self, key: &str) -> Option<PendingFilterWizardState> {
-        self.wizard_db
+    pub fn get_pending_settings(&self, key: &str) -> Option<PendingFilterWizardState> {
+        self.settings_db
             .get(key)
             .ok()
             .flatten()
             .and_then(|data| serde_json::from_slice(&data).ok())
     }
 
-    pub fn remove_pending_wizard(&self, key: &str) -> Result<(), FilterError> {
-        self.wizard_db
+    pub fn remove_pending_settings(&self, key: &str) -> Result<(), FilterError> {
+        self.settings_db
             .remove(key)
             .map_err(|e| FilterError::DatabaseError(e.to_string()))?;
         Ok(())
@@ -196,7 +214,7 @@ impl Filters {
         filter_id: &str,
         user_id: i64,
     ) -> Result<(), FilterError> {
-        let key = format!("{}:{}", group_id, filter_id);
+        let key = self.format_key(group_id, filter_id);
         let stats_data = self
             .stats_db
             .get(&key)
@@ -230,7 +248,7 @@ impl Filters {
     }
 
     pub fn get_filter_stats(&self, group_id: &str, filter_id: &str) -> Result<FilterStats, FilterError> {
-        let key = format!("{}:{}", group_id, filter_id);
+        let key = self.format_key(group_id, filter_id);
         let stats_data = self
             .stats_db
             .get(&key)
@@ -378,3 +396,4 @@ impl Filters {
         }
     }
 }
+

@@ -1580,10 +1580,10 @@ pub async fn handle_message(bot: Bot, msg: Message, bot_deps: BotDependencies) -
         // Filters wizard: capture free text steps
         if let Some(user) = &msg.from {
             let filter_key = format!("filter_{}_{}", msg.chat.id.0, user.id.0);
-            if let Some(mut st) = bot_deps.filters.get_pending_wizard(&filter_key) {
+            if let Some(mut st) = bot_deps.filters.get_pending_settings(&filter_key) {
                 let text_raw = msg.text().or_else(|| msg.caption()).unwrap_or("").trim().to_string();
                 if text_raw.eq_ignore_ascii_case("/cancel") || text_raw.to_lowercase().starts_with("/cancel@") {
-                    if let Err(e) = bot_deps.filters.remove_pending_wizard(&filter_key) {
+                    if let Err(e) = bot_deps.filters.remove_pending_settings(&filter_key) {
                         log::error!("Failed to remove filter wizard state: {}", e);
                     }
                     bot.send_message(msg.chat.id, "✅ Cancelled filter creation.").await?;
@@ -1595,7 +1595,7 @@ pub async fn handle_message(bot: Bot, msg: Message, bot_deps: BotDependencies) -
                         // Store the trigger(s) as entered
                         st.trigger = Some(text_raw.clone());
                         st.step = crate::filters::dto::PendingFilterStep::AwaitingResponse;
-                        if let Err(e) = bot_deps.filters.put_pending_wizard(filter_key, &st) {
+                        if let Err(e) = bot_deps.filters.put_pending_settings(filter_key, &st) {
                             log::error!("Failed to save filter wizard state: {}", e);
                             bot.send_message(msg.chat.id, "❌ Failed to save filter progress.").await?;
                             return Ok(());
@@ -1609,14 +1609,14 @@ pub async fn handle_message(bot: Bot, msg: Message, bot_deps: BotDependencies) -
                         // Store the response and move to confirmation step
                         st.response = Some(text_raw.clone());
                         st.step = crate::filters::dto::PendingFilterStep::AwaitingConfirm;
-                        if let Err(e) = bot_deps.filters.put_pending_wizard(filter_key, &st) {
+                        if let Err(e) = bot_deps.filters.put_pending_settings(filter_key, &st) {
                             log::error!("Failed to save filter wizard state: {}", e);
                             bot.send_message(msg.chat.id, "❌ Failed to save filter progress.").await?;
                             return Ok(());
                         }
                         
                         // Show confirmation with summary
-                        let summary = crate::filters::wizard::summarize(&st);
+                        let summary = crate::filters::helpers::summarize(&st);
                         let keyboard = teloxide::types::InlineKeyboardMarkup::new(vec![
                             vec![
                                 teloxide::types::InlineKeyboardButton::callback("✅ Confirm & Create", "filters_confirm"),

@@ -75,10 +75,7 @@ async fn main() {
     let db = db::init_tree();
     let auth_db = db.open_tree("auth").expect("Failed to open auth tree");
     let group_db = db.open_tree("group").expect("Failed to open group tree");
-    let filters_db = db.open_tree("filters").expect("Failed to open filters tree");
-    let filter_metadata_db = db.open_tree("filter_metadata").expect("Failed to open filter metadata tree");
-    let filter_stats_db = db.open_tree("filter_stats").expect("Failed to open filter stats tree");
-    let filter_wizard_db = db.open_tree("filter_wizard").expect("Failed to open filter wizard tree");
+
     let openai_api_key = env::var("OPENAI_API_KEY").expect("OPENAI_API_KEY not set");
     let gcs_creds = env::var("STORAGE_CREDENTIALS").expect("STORAGE_CREDENTIALS not set");
     let bucket_name = env::var("GCS_BUCKET_NAME").expect("GCS_BUCKET_NAME not set");
@@ -105,7 +102,7 @@ async fn main() {
 
     let auth = Auth::new(auth_db);
     let group = Group::new(group_db);
-    let filters = Filters::new(filters_db, filter_metadata_db, filter_stats_db, filter_wizard_db);
+    let filters = Filters::new(&db);
 
     // Execute token list updates immediately on startup
     let panora_startup = panora.clone();

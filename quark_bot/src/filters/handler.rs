@@ -145,7 +145,7 @@ async fn start_filter_wizard(
         response_type: ResponseType::Text, // Default
     };
     
-    if let Err(e) = bot_deps.filters.put_pending_wizard(wizard_key, &wizard_state) {
+            if let Err(e) = bot_deps.filters.put_pending_settings(wizard_key, &wizard_state) {
         log::error!("Failed to save wizard state: {}", e);
         bot.answer_callback_query(query.id.clone())
             .text("❌ Failed to start filter wizard")
@@ -488,7 +488,7 @@ async fn confirm_and_create_filter(
 ) -> Result<()> {
     let wizard_key = format!("filter_{}_{}", chat_id.0, user_id.0);
     
-    if let Some(wizard_state) = bot_deps.filters.get_pending_wizard(&wizard_key) {
+            if let Some(wizard_state) = bot_deps.filters.get_pending_settings(&wizard_key) {
         if wizard_state.step == PendingFilterStep::AwaitingConfirm {
             let trigger_input = wizard_state.trigger.clone().unwrap_or_default();
             let triggers = parse_triggers(&trigger_input);
@@ -511,7 +511,7 @@ async fn confirm_and_create_filter(
                     id: uuid::Uuid::new_v4().to_string(),
                 };
 
-                match bot_deps.filters._create_filter(filter) {
+                match bot_deps.filters.create_filter(filter) {
                     Ok(_) => created.push(t),
                     Err(FilterError::_DuplicateFilter(_)) => duplicates.push(t),
                     Err(err) => failures.push((t, format!("{}", err))),
@@ -519,7 +519,7 @@ async fn confirm_and_create_filter(
             }
 
             // Clean up wizard state regardless
-            if let Err(e) = bot_deps.filters.remove_pending_wizard(&wizard_key) {
+            if let Err(e) = bot_deps.filters.remove_pending_settings(&wizard_key) {
                 log::error!("Failed to remove filter wizard state: {}", e);
             }
 
@@ -589,7 +589,7 @@ async fn cancel_filter_wizard(
     let wizard_key = format!("filter_{}_{}", chat_id.0, user_id.0);
     
     // Clean up wizard state
-    if let Err(e) = bot_deps.filters.remove_pending_wizard(&wizard_key) {
+    if let Err(e) = bot_deps.filters.remove_pending_settings(&wizard_key) {
         log::error!("Failed to remove filter wizard state: {}", e);
     }
     
