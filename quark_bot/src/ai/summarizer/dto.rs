@@ -4,4 +4,5 @@ use serde::{Deserialize, Serialize};
 pub struct SummarizerState {
     pub summary: Option<String>,
     pub last_rollover_unix: i64,
+    pub pending_thread_clear: bool,
 }

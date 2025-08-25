@@ -225,6 +225,21 @@ impl AI {
         }
 
         let user_convos = UserConversations::new(&bot_deps.db)?;
+        
+        // Check if we need to clear the thread from a previous summarization
+        // But do this AFTER we get the current response, so AI can see its previous response
+        let should_clear_thread = if let Ok(should_clear) = bot_deps.summarizer.check_and_clear_pending_thread(user_id) {
+            if should_clear {
+                log::info!(
+                    "Thread will be cleared for user {} after this response (delayed from previous summarization)",
+                    user_id
+                );
+            }
+            should_clear
+        } else {
+            false
+        };
+        
         let previous_response_id = user_convos.get_response_id(user_id);
         let mut tool_called: Vec<FunctionCallInfo> = Vec::new();
 
@@ -563,6 +578,18 @@ impl AI {
             response_id
         );
 
+        // Now clear the thread if it was pending from previous summarization
+        // This ensures the AI had access to its previous response for this turn
+        if should_clear_thread {
+            log::info!(
+                "Clearing conversation thread for user {} (delayed from previous summarization)",
+                user_id
+            );
+            if let Err(e) = user_convos.clear_response_id(user_id) {
+                log::error!("Failed to clear response_id for user {}: {}", user_id, e);
+            }
+        }
+
         // Check if summarization is needed and enabled
         let summarizer_enabled = std::env::var("SUMMARIZER_ENABLED")
             .unwrap_or_else(|_| "true".to_string())
@@ -590,13 +617,11 @@ impl AI {
                 .await?
             {
                 log::info!(
-                    "Conversation summarized for user {}, clearing response_id for fresh thread",
+                    "Conversation summarized for user {}, thread will be cleared on next request",
                     user_id
                 );
-                // Clear response_id to force a fresh thread next turn
-                if let Err(e) = user_convos.clear_response_id(user_id) {
-                    log::error!("Failed to clear response_id after summarization: {}", e);
-                }
+                // Don't clear response_id immediately - let the response stay visible
+                // The thread will be cleared on the next request
             }
         }
 

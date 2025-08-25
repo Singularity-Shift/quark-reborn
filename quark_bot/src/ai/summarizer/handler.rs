@@ -105,6 +105,7 @@ impl SummarizerService {
         let new_state = SummarizerState {
             summary: Some(new_summary.clone()),
             last_rollover_unix: now,
+            pending_thread_clear: true,
         };
 
         if let Err(e) = self.save_state(user_id, &new_state) {
@@ -130,5 +131,20 @@ impl SummarizerService {
         let key = get_conversation_summary_key(user_id);
         self.tree.remove(key.as_bytes())?;
         Ok(())
+    }
+
+    pub fn check_and_clear_pending_thread(&self, user_id: i64) -> Result<bool, anyhow::Error> {
+        if let Some(mut state) = self.get_state(user_id) {
+            if state.pending_thread_clear {
+                // Reset the flag since we're handling it now
+                state.pending_thread_clear = false;
+                if let Err(e) = self.save_state(user_id, &state) {
+                    log::error!("Failed to update summarizer state for user {}: {}", user_id, e);
+                    return Err(anyhow::anyhow!("Failed to update summarizer state: {}", e));
+                }
+                return Ok(true);
+            }
+        }
+        Ok(false)
     }
 }
