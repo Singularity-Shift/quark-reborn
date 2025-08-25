@@ -21,11 +21,16 @@ pub async fn register_all_schedules(bot: Bot, bot_deps: BotDependencies) -> anyh
                 bincode::config::standard(),
             ) {
                 if rec.active {
-                    if let Err(e) = register_schedule(bot.clone(), bot_deps.clone(), &mut rec).await {
+                    if let Err(e) = register_schedule(bot.clone(), bot_deps.clone(), &mut rec).await
+                    {
                         log::error!("Failed to register payment schedule {}: {}", rec.id, e);
                     }
                     if let Err(e) = storage.put_schedule(&rec) {
-                        log::warn!("Failed to persist payment schedule {} after register: {}", rec.id, e);
+                        log::warn!(
+                            "Failed to persist payment schedule {} after register: {}",
+                            rec.id,
+                            e
+                        );
                     }
                 }
             }
@@ -58,12 +63,22 @@ pub async fn register_schedule(
                 Some(r) => r,
                 None => return,
             };
-            if !rec.active { return; }
+            if !rec.active {
+                return;
+            }
 
             let now_ts = Utc::now().timestamp();
-            if let Some(lock) = rec.locked_until { if now_ts < lock { return; } }
+            if let Some(lock) = rec.locked_until {
+                if now_ts < lock {
+                    return;
+                }
+            }
 
-            if let Some(next_at) = rec.next_run_at { if now_ts < next_at { return; } }
+            if let Some(next_at) = rec.next_run_at {
+                if now_ts < next_at {
+                    return;
+                }
+            }
 
             // Lock
             rec.locked_until = Some(now_ts + 120);
@@ -75,7 +90,7 @@ pub async fn register_schedule(
                     Some(c) => c,
                     None => return Err(anyhow::anyhow!("Group credentials not found")),
                 };
-                
+
                 // Validate critical payment data before proceeding
                 let amount = match rec.amount_smallest_units {
                     Some(amt) => {
@@ -84,22 +99,32 @@ pub async fn register_schedule(
                         } else {
                             return Err(anyhow::anyhow!("Scheduled payment amount cannot be zero"));
                         }
-                    },
+                    }
                     None => return Err(anyhow::anyhow!("Scheduled payment amount is missing")),
                 };
-                
+
                 let coin_type = match &rec.token_type {
                     Some(token) if !token.is_empty() => token.clone(),
-                    Some(_) => return Err(anyhow::anyhow!("Scheduled payment token type is empty")),
+                    Some(_) => {
+                        return Err(anyhow::anyhow!("Scheduled payment token type is empty"));
+                    }
                     None => return Err(anyhow::anyhow!("Scheduled payment token type is missing")),
                 };
-                
+
                 let recipient_address = match &rec.recipient_address {
                     Some(addr) if !addr.is_empty() => addr.clone(),
-                    Some(_) => return Err(anyhow::anyhow!("Scheduled payment recipient address is empty")),
-                    None => return Err(anyhow::anyhow!("Scheduled payment recipient address is missing")),
+                    Some(_) => {
+                        return Err(anyhow::anyhow!(
+                            "Scheduled payment recipient address is empty"
+                        ));
+                    }
+                    None => {
+                        return Err(anyhow::anyhow!(
+                            "Scheduled payment recipient address is missing"
+                        ));
+                    }
                 };
-                
+
                 let token = group_credentials.jwt;
                 let version = if coin_type.contains("::") {
                     quark_core::helpers::dto::CoinVersion::V1
@@ -107,9 +132,15 @@ pub async fn register_schedule(
                     quark_core::helpers::dto::CoinVersion::V2
                 };
                 let users = vec![recipient_address];
-                let payload = quark_core::helpers::dto::PayUsersRequest { amount, users, coin_type, version };
+                let payload = quark_core::helpers::dto::PayUsersRequest {
+                    amount,
+                    users,
+                    coin_type,
+                    version,
+                };
                 bot_deps.service.pay_members(token, payload).await
-            })().await;
+            })()
+            .await;
 
             match result {
                 Ok(resp) => {
@@ -127,25 +158,31 @@ pub async fn register_schedule(
                     rec.locked_until = None;
                     let _ = storage.put_schedule(&rec);
                     if rec.notify_on_success {
-                        let network = std::env::var("APTOS_NETWORK").unwrap_or_else(|_| "mainnet".to_string()).to_lowercase();
+                        let network = std::env::var("APTOS_NETWORK")
+                            .unwrap_or_else(|_| "mainnet".to_string())
+                            .to_lowercase();
                         let hash = resp.hash;
                         let amount_smallest = rec.amount_smallest_units.unwrap_or(0);
                         let decimals = rec.decimals.unwrap_or(8) as i32;
                         let human_amount = (amount_smallest as f64) / 10f64.powi(decimals);
                         let symbol = rec.symbol.as_deref().unwrap_or("Unknown");
-                        let recipient_username = rec.recipient_username.as_deref().unwrap_or("Unknown");
+                        let recipient_username =
+                            rec.recipient_username.as_deref().unwrap_or("Unknown");
                         let text = format!(
                             "✅ Payment sent\nAmount: {:.4} {}\nTo: @{}\nSchedule: {}\n🔗 Explorer: https://explorer.aptoslabs.com/txn/{}?network={}",
-                            human_amount,
-                            symbol,
-                            recipient_username,
-                            rec.id,
-                            hash,
-                            network
+                            human_amount, symbol, recipient_username, rec.id, hash, network
                         );
-                        if let Err(e) = bot.send_message(ChatId(rec.creator_user_id), text.clone()).await {
+                        if let Err(e) = bot
+                            .send_message(ChatId(rec.creator_user_id), text.clone())
+                            .await
+                        {
                             // DM failed -> optional group fallback
-                            let _ = bot.send_message(group_chat_id, format!("{}\n(tag: @{})", text, rec.creator_username)).await;
+                            let _ = bot
+                                .send_message(
+                                    group_chat_id,
+                                    format!("{}\n(tag: @{})", text, rec.creator_username),
+                                )
+                                .await;
                             log::warn!("Failed to DM creator: {}", e);
                         }
                     }
@@ -159,8 +196,14 @@ pub async fn register_schedule(
                         use teloxide::types::InlineKeyboardButton as Btn;
                         use teloxide::types::InlineKeyboardMarkup as Kb;
                         let kb = Kb::new(vec![
-                            vec![Btn::callback("🔁 Retry now", format!("schedpay_runnow:{}", rec.id))],
-                            vec![Btn::callback("⏸ Pause", format!("schedpay_toggle:{}", rec.id))],
+                            vec![Btn::callback(
+                                "🔁 Retry now",
+                                format!("schedpay_runnow:{}", rec.id),
+                            )],
+                            vec![Btn::callback(
+                                "⏸ Pause",
+                                format!("schedpay_toggle:{}", rec.id),
+                            )],
                         ]);
                         if let Err(err) = bot
                             .send_message(
@@ -185,5 +228,3 @@ pub async fn register_schedule(
     record.scheduler_job_id = Some(id.to_string());
     Ok(())
 }
-
-

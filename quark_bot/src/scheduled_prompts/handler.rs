@@ -1,18 +1,20 @@
 use anyhow::Result;
 use chrono::Utc;
+use open_ai_rust_responses_by_sshift::Model;
 use teloxide::{
     prelude::*,
-    types::{InlineKeyboardMarkup, Message, ParseMode},
+    types::{InlineKeyboardMarkup, Message, ParseMode, User},
 };
 use uuid::Uuid;
 
 use crate::{
     dependencies::BotDependencies,
-    scheduled_prompts::dto::{
-        PendingStep, PendingWizardState, RepeatPolicy, ScheduledPromptRecord,
+    scheduled_prompts::{
+        dto::{PendingStep, PendingWizardState, RepeatPolicy, ScheduledPromptRecord},
+        helpers::{build_hours_keyboard, summarize},
+        runner::{register_all_schedules, register_schedule},
     },
-    scheduled_prompts::helpers::summarize,
-    scheduled_prompts::runner::{register_all_schedules, register_schedule},
+    utils::create_purchase_request,
 };
 
 pub async fn bootstrap_scheduled_prompts(bot: Bot, bot_deps: BotDependencies) -> Result<()> {
@@ -212,4 +214,89 @@ pub async fn finalize_and_register(
     .await?;
 
     Ok(())
+}
+
+pub async fn handle_message_scheduled_prompts(
+    bot: Bot,
+    msg: Message,
+    bot_deps: BotDependencies,
+    user: User,
+) -> Result<bool> {
+    let key = (&msg.chat.id.0, &(user.id.0 as i64));
+    if let Some(mut st) = bot_deps.scheduled_storage.get_pending(key) {
+        if st.step == PendingStep::AwaitingPrompt {
+            // Accept prompt if message is a reply OR a regular follow-up (non-command) from the same user
+            let is_reply = msg.reply_to_message().is_some();
+            let text_raw = msg.text().or_else(|| msg.caption()).unwrap_or("");
+            let is_command = text_raw.trim_start().starts_with('/');
+            if is_reply || (!is_command && !text_raw.trim().is_empty()) {
+                let text = text_raw.to_string();
+                // Guard scheduled prompt against forbidden tools
+                {
+                    let guard = &bot_deps.schedule_guard;
+                    match guard.check_prompt(&text).await {
+                        Ok(res) => {
+                            // Bill the group for the guard check like moderation
+                            if let Some(group_credentials) =
+                                bot_deps.group.get_credentials(msg.chat.id)
+                            {
+                                if let Err(e) = create_purchase_request(
+                                    0, // file_search
+                                    0, // web_search
+                                    0, // image_gen
+                                    res.total_tokens,
+                                    Model::GPT5Nano,
+                                    &group_credentials.jwt,
+                                    Some(msg.chat.id.0.to_string()),
+                                    None,
+                                    bot_deps.clone(),
+                                )
+                                .await
+                                {
+                                    log::warn!("schedule guard purchase request failed: {}", e);
+                                }
+                            }
+                            if res.verdict == "F" {
+                                let reason = res.reason.unwrap_or_else(|| {
+                                    "Prompt requests a forbidden action for scheduled runs"
+                                        .to_string()
+                                });
+                                let warn = format!(
+                                    "❌ This prompt can't be scheduled. PLEASE TRY AGAIN\n\n<b>Reason:</b> {}\n\n<b>Allowed for schedules</b>: informational queries, analytics, web/file search, time, market snapshots, and image generation.\n\n<b>Blocked</b>: payments/transfers, withdrawals/funding, DAO/proposal creation, or any on-chain/interactive actions.\n\nPlease send a new prompt (you can just send it here without replying).",
+                                    teloxide::utils::html::escape(&reason)
+                                );
+                                bot.send_message(msg.chat.id, warn)
+                                    .parse_mode(ParseMode::Html)
+                                    .await?;
+                                // Do not advance wizard; let user try again by sending a new prompt
+                                return Ok(true);
+                            }
+                        }
+                        Err(e) => {
+                            log::warn!("schedule_guard check failed: {}", e);
+                        }
+                    }
+                }
+
+                st.prompt = Some(text);
+                st.step = PendingStep::AwaitingHour;
+                if let Err(e) = bot_deps.scheduled_storage.put_pending(key, &st) {
+                    log::error!("Failed to persist scheduled wizard state: {}", e);
+                    bot.send_message(
+                        msg.chat.id,
+                        "❌ Error saving schedule state. Please try /scheduleprompt again.",
+                    )
+                    .await?;
+                    return Ok(true);
+                }
+                let kb = build_hours_keyboard();
+                bot.send_message(msg.chat.id, "Select start hour (UTC)")
+                    .reply_markup(kb)
+                    .await?;
+                return Ok(true);
+            }
+        }
+    }
+
+    Ok(false)
 }

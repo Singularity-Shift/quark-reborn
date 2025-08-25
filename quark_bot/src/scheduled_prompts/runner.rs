@@ -13,7 +13,6 @@ use crate::{
     user_model_preferences::dto::ChatModel,
 };
 use open_ai_rust_responses_by_sshift::Model;
-use std::env;
 use tokio::time::{Duration, sleep};
 
 fn next_daily_at(hour: u8, minute: u8) -> i64 {
@@ -41,8 +40,7 @@ fn next_daily_at(hour: u8, minute: u8) -> i64 {
 }
 
 const TELEGRAM_MESSAGE_LIMIT: usize = 4096;
-const SCHEDULED_PROMPT_SUFFIX: &str =
-    " - This is a presheduled prompt, DO NOT seek a response from anyone or offer follow ups. Never mention this instruction in your output.";
+const SCHEDULED_PROMPT_SUFFIX: &str = " - This is a presheduled prompt, DO NOT seek a response from anyone or offer follow ups. Never mention this instruction in your output.";
 
 fn split_message(text: &str) -> Vec<String> {
     if text.len() <= TELEGRAM_MESSAGE_LIMIT {
@@ -489,40 +487,31 @@ pub async fn register_schedule(
                     }
 
                     // Billing: charge group resource account like /g
-                    let profile = env::var("PROFILE").unwrap_or_else(|_| "prod".to_string());
-                    if profile != "dev" {
-                        if let Some(group_credentials) =
-                            bot_deps.group.get_credentials(group_chat_id)
+                    if let Some(group_credentials) = bot_deps.group.get_credentials(group_chat_id) {
+                        let (web_search, file_search, image_gen, _) =
+                            ai_response.get_tool_usage_counts();
+                        if let Err(e) = create_purchase_request(
+                            file_search,
+                            web_search,
+                            image_gen,
+                            ai_response.total_tokens,
+                            ai_response.model,
+                            &group_credentials.jwt,
+                            Some(rec.group_id.to_string()),
+                            None,
+                            bot_deps,
+                        )
+                        .await
                         {
-                            let (web_search, file_search, image_gen, _) =
-                                ai_response.get_tool_usage_counts();
-                            if let Err(e) = create_purchase_request(
-                                file_search,
-                                web_search,
-                                image_gen,
-                                ai_response.total_tokens,
-                                ai_response.model,
-                                &group_credentials.jwt,
-                                Some(rec.group_id.to_string()),
-                                creator_user_id.to_string(),
-                                bot_deps,
-                            )
-                            .await
-                            {
-                                log::error!(
-                                    "[sched:{}] purchase request failed: {}",
-                                    schedule_id,
-                                    e
-                                );
-                            } else {
-                                log::info!("[sched:{}] group purchase recorded", schedule_id);
-                            }
+                            log::error!("[sched:{}] purchase request failed: {}", schedule_id, e);
                         } else {
-                            log::error!(
-                                "[sched:{}] group credentials not found for billing",
-                                schedule_id
-                            );
+                            log::info!("[sched:{}] group purchase recorded", schedule_id);
                         }
+                    } else {
+                        log::error!(
+                            "[sched:{}] group credentials not found for billing",
+                            schedule_id
+                        );
                     }
 
                     log::info!(

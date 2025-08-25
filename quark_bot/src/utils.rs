@@ -94,12 +94,13 @@ pub fn markdown_to_html(input: &str) -> String {
     // First, convert Markdown links [text](url) to HTML <a href="url">text</a>
     let re_markdown_link = Regex::new(r"\[([^\]]+)\]\(([^)]+)\)").unwrap();
     let html_with_links = re_markdown_link.replace_all(input, r#"<a href="$2">$1</a>"#);
-    
+
     // Clean up redundant URL listings in parentheses that often appear after web search results
     // Pattern: (url1, url2, url3) or (url1; url2) - remove these since we have proper HTML links
-    let re_redundant_urls = Regex::new(r#"\s*\([^)]*(?:https?://[^\s,;)]+[,\s;]*)+[^)]*\)"#).unwrap();
+    let re_redundant_urls =
+        Regex::new(r#"\s*\([^)]*(?:https?://[^\s,;)]+[,\s;]*)+[^)]*\)"#).unwrap();
     let cleaned_html = re_redundant_urls.replace_all(&html_with_links, "");
-    
+
     // Handle fenced code blocks ```lang\n...\n```
     let mut html = String::new();
     let mut lines = cleaned_html.lines();
@@ -149,7 +150,7 @@ pub async fn create_purchase_request(
     model: Model,
     token: &str,
     mut group_id: Option<String>,
-    user_id: String,
+    user_id: Option<String>,
     bot_deps: BotDependencies,
 ) -> Result<(), anyhow::Error> {
     // Resolve currency/version from user or group prefs; fallback to on-chain default
@@ -167,7 +168,7 @@ pub async fn create_purchase_request(
             )
         }
     } else {
-        let key = user_id;
+        let key = user_id.unwrap();
         let prefs: Option<crate::payment::dto::PaymentPrefs> =
             bot_deps.payment.get_payment_token(key);
         if prefs.is_some() {

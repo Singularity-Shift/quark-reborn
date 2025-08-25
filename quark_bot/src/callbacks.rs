@@ -6,6 +6,7 @@ use crate::ai::vector_store::{
 };
 use crate::dao::handler::{handle_dao_preference_callback, handle_disable_notifications_callback};
 use crate::dependencies::BotDependencies;
+use crate::filters::handler::handle_filters_callback;
 use crate::scheduled_payments::callbacks::handle_scheduled_payments_callback;
 use crate::scheduled_prompts::callbacks::handle_scheduled_prompts_callback;
 use crate::sponsor::handler::handle_sponsor_settings_callback;
@@ -643,6 +644,10 @@ pub async fn handle_callback_query(
                                     "welcome_settings",
                                 )],
                                 vec![InlineKeyboardButton::callback(
+                                    "🔍 Filters",
+                                    "filters_main",
+                                )],
+                                vec![InlineKeyboardButton::callback(
                                     "🔄 Migrate Group ID",
                                     "open_migrate_group_id",
                                 )],
@@ -655,7 +660,7 @@ pub async fn handle_callback_query(
                             bot.edit_message_text(
                                 m.chat.id,
                                 m.id,
-                                "⚙️ <b>Group Settings</b>\n\n• Configure payment token, DAO preferences, moderation, sponsor settings, and group migration.\n\n💡 Only group administrators can access these settings."
+                                "⚙️ <b>Group Settings</b>\n\n• Configure payment token, DAO preferences, moderation, sponsor settings, welcome settings, filters, and group migration.\n\n💡 Only group administrators can access these settings."
                             )
                             .parse_mode(teloxide::types::ParseMode::Html)
                             .reply_markup(kb)
@@ -727,6 +732,10 @@ pub async fn handle_callback_query(
                         vec![InlineKeyboardButton::callback(
                             "👋 Welcome Settings",
                             "welcome_settings",
+                        )],
+                        vec![InlineKeyboardButton::callback(
+                            "🔍 Filters",
+                            "filters_main",
                         )],
                         vec![InlineKeyboardButton::callback(
                             "🔄 Migrate Group ID",
@@ -1202,6 +1211,9 @@ If you have questions, ask an admin before posting.
         } else if data.starts_with("schedpay_") {
             // Handle scheduled payments wizard and management callbacks
             handle_scheduled_payments_callback(bot, query, bot_deps).await?;
+        } else if data.starts_with("filters_") {
+            // Handle filters callbacks
+            handle_filters_callback(bot, query, bot_deps).await?;
         } else if data == "open_payment_settings"
             || data == "open_group_payment_settings"
             || data == "payment_selected"
