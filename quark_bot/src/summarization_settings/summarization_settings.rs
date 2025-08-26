@@ -25,7 +25,16 @@ impl SummarizationSettings {
 
     pub fn set(&self, user_id: i64, prefs: &SummarizationPrefs) -> sled::Result<()> {
         let key = user_id.to_string();
-        let bytes = serde_json::to_vec(prefs).unwrap();
+        let bytes = match serde_json::to_vec(prefs) {
+            Ok(data) => data,
+            Err(e) => {
+                log::error!("Failed to serialize SummarizationPrefs for user {}: {}", user_id, e);
+                return Err(sled::Error::Io(std::io::Error::new(
+                    std::io::ErrorKind::InvalidData,
+                    format!("JSON serialization failed for user {}: {}", user_id, e)
+                )));
+            }
+        };
         self.tree.insert(key, bytes)?;
         Ok(())
     }
