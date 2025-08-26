@@ -596,7 +596,8 @@ impl AI {
         if effective_prefs.enabled {
             let token_limit = effective_prefs.token_limit;
 
-            if let Some(_summary) = bot_deps
+            // Try to summarize, but don't fail the AI response if summarization fails
+            match bot_deps
                 .summarizer
                 .check_and_summarize(
                     user_id,
@@ -608,14 +609,23 @@ impl AI {
                     group_id.clone(),
                     &jwt,
                 )
-                .await?
+                .await
             {
-                log::info!(
-                    "Conversation summarized for user {}, thread will be cleared on next request",
-                    user_id
-                );
-                // Don't clear response_id immediately - let the response stay visible
-                // The thread will be cleared on the next request
+                Ok(Some(_summary)) => {
+                    log::info!(
+                        "Conversation summarized for user {}, thread will be cleared on next request",
+                        user_id
+                    );
+                    // Don't clear response_id immediately - let the response stay visible
+                    // The thread will be cleared on the next request
+                }
+                Ok(None) => {
+                    // No summarization needed
+                }
+                Err(e) => {
+                    log::error!("Summarization failed for user {}: {}, but continuing with AI response", user_id, e);
+                    // Continue with the response even if summarization fails
+                }
             }
         }
 
