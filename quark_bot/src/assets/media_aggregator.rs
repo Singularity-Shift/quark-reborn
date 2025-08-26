@@ -209,7 +209,7 @@ impl MediaGroupAggregator {
                     None,
                     uploaded_urls,
                     model,
-                    1500,
+                    4000,
                     temperature,
                     reasoning_params,
                     bot_deps.clone(),
