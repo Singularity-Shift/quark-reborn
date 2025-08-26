@@ -50,7 +50,7 @@ impl SummarizationSettings {
             env::var("SUMMARIZER_ENABLED")
                 .or_else(|_| env::var("SUMMARIZER"))
                 .or_else(|_| env::var("summarizer_enabled"))
-                .or_else(|_| env::var("summerizer"))
+                .or_else(|_| env::var("summarizer"))
                 .unwrap_or_else(|_| "true".to_string())
                 .parse::<bool>()
                 .unwrap_or(true)
