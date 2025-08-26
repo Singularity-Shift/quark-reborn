@@ -822,7 +822,7 @@ pub async fn handle_chat(
             image_url_from_reply,
             all_image_urls,
             chat_model,
-            8192,
+            1500,
             temperature,
             None,
             bot_deps.clone(),

@@ -400,7 +400,7 @@ pub async fn register_schedule(
                 .generate_response_for_schedule(
                     &prompt_for_api,
                     chat_model,
-                    8192,
+                    1500,
                     temperature,
                     None,
                     bot_deps.clone(),
