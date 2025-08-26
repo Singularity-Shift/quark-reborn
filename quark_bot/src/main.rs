@@ -78,7 +78,7 @@ async fn main() {
     let db = db::init_tree();
     let auth_db = db.open_tree("auth").expect("Failed to open auth tree");
     let group_db = db.open_tree("group").expect("Failed to open group tree");
-    let conversation_summaries_db = db.open_tree("conversation_summaries").expect("Failed to open conversation_summaries tree");
+
 
     let openai_api_key = env::var("OPENAI_API_KEY").expect("OPENAI_API_KEY not set");
     let gcs_creds = env::var("STORAGE_CREDENTIALS").expect("STORAGE_CREDENTIALS not set");
@@ -137,7 +137,7 @@ async fn main() {
 
     let ai = AI::new(openai_api_key.clone(), google_cloud);
     let summarizer = SummarizerService::new(
-        conversation_summaries_db,
+        db.clone(),
         ai.get_client().clone(),
     );
     let schedule_guard = ScheduleGuardService::new(openai_api_key.clone())
@@ -152,7 +152,7 @@ async fn main() {
     let pending_transactions = PendingTransactions::new(&db).unwrap();
     let yield_ai = YieldAI::new();
     let welcome_service = welcome::welcome_service::WelcomeService::new(db.clone());
-    let summarization_settings = summarization_settings::handler::SummarizationSettings::new(&db)
+    let summarization_settings = summarization_settings::SummarizationSettings::new(&db)
         .expect("Failed to create SummarizationSettings");
     let command_settings = CommandSettingsManager::new(db.clone());
 

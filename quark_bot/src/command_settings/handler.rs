@@ -1,62 +1,11 @@
-use std::env;
-
 use anyhow::Result;
-use sled::{Db, Tree};
 use teloxide::{
     prelude::*,
     types::{InlineKeyboardButton, InlineKeyboardMarkup, ParseMode},
 };
 
-use crate::command_settings::dto::CommandSettings;
 use crate::dependencies::BotDependencies;
 use crate::utils;
-
-#[derive(Clone)]
-pub struct CommandSettingsManager {
-    pub command_settings_tree: Tree,
-    pub account_seed: String,
-}
-
-impl CommandSettingsManager {
-    pub fn new(db: Db) -> Self {
-        let account_seed: String =
-            env::var("ACCOUNT_SEED").expect("ACCOUNT_SEED environment variable not found");
-
-        let command_settings_tree = db
-            .open_tree("command_settings")
-            .expect("Failed to open command settings tree");
-
-        Self {
-            command_settings_tree,
-            account_seed,
-        }
-    }
-
-    pub fn get_command_settings(&self, group_id: String) -> CommandSettings {
-        let group_id = format!("{}-{}", group_id, self.account_seed);
-        match self.command_settings_tree.get(group_id) {
-            Ok(Some(bytes)) => serde_json::from_slice(bytes.as_ref()).unwrap_or_default(),
-            Ok(None) => CommandSettings::default(),
-            Err(e) => {
-                log::error!("sled error reading command settings: {}", e);
-                CommandSettings::default()
-            }
-        }
-    }
-
-    pub fn set_command_settings(&self, group_id: String, settings: CommandSettings) -> Result<()> {
-        let group_id = format!("{}-{}", group_id, self.account_seed);
-        self.command_settings_tree
-            .fetch_and_update(group_id, |_| Some(serde_json::to_vec(&settings).unwrap()))
-            .map_err(|e| anyhow::anyhow!(e))?;
-        Ok(())
-    }
-
-    pub fn is_chat_commands_enabled(&self, group_id: String) -> bool {
-        let settings = self.get_command_settings(group_id);
-        settings.chat_commands_enabled
-    }
-}
 
 pub async fn handle_command_settings_callback(
     bot: Bot,

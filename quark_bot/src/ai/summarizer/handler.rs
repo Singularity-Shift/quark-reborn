@@ -5,17 +5,21 @@ use crate::ai::summarizer::helpers::{
 use crate::dependencies::BotDependencies;
 use crate::utils::create_purchase_request;
 use open_ai_rust_responses_by_sshift::{Client as OAIClient, Model};
-use sled::Tree;
+use sled::Db;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 #[derive(Clone)]
 pub struct SummarizerService {
-    tree: Tree,
+    tree: sled::Tree,
     openai_client: OAIClient,
 }
 
 impl SummarizerService {
-    pub fn new(tree: Tree, openai_client: OAIClient) -> Self {
+    pub fn new(db: Db, openai_client: OAIClient) -> Self {
+        let tree = db
+            .open_tree("conversation_summaries")
+            .expect("Failed to open conversation_summaries tree");
+        
         Self {
             tree,
             openai_client,
@@ -29,13 +33,28 @@ impl SummarizerService {
             .ok()
             .flatten()
             .and_then(|ivec| {
-                serde_json::from_slice::<SummarizerState>(&ivec).ok()
+                match serde_json::from_slice::<SummarizerState>(&ivec) {
+                    Ok(state) => Some(state),
+                    Err(e) => {
+                        log::error!("Failed to deserialize SummarizerState for user {}: {}", user_id, e);
+                        None
+                    }
+                }
             })
     }
 
     pub fn save_state(&self, user_id: i64, state: &SummarizerState) -> sled::Result<()> {
         let key = get_conversation_summary_key(user_id);
-        let json_data = serde_json::to_vec(state).unwrap();
+        let json_data = match serde_json::to_vec(state) {
+            Ok(data) => data,
+            Err(e) => {
+                log::error!("Failed to serialize SummarizerState for user {}: {}", user_id, e);
+                return Err(sled::Error::Io(std::io::Error::new(
+                    std::io::ErrorKind::InvalidData,
+                    format!("JSON serialization failed for user {}: {}", user_id, e)
+                )));
+            }
+        };
         self.tree.insert(key.as_bytes(), json_data)?;
         Ok(())
     }
