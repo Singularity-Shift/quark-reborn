@@ -12,6 +12,8 @@ use crate::welcome::{
     helpers::{get_custom_welcome_message, get_verification_expiry_time, is_verification_expired},
 };
 
+use rand::{SeedableRng, prelude::*, rngs::StdRng};
+
 #[derive(Clone)]
 pub struct WelcomeService {
     settings_db: Tree,
@@ -134,7 +136,7 @@ impl WelcomeService {
             verification_message_id: message.id.0,
         };
 
-        let key = format!("{}:{}", chat_id.0, user_id.0);
+        let key = format!("{}-{}:{}", chat_id.0, self.account_seed, user_id.0);
         let bytes = serde_json::to_vec(&verification)?;
         self.verifications_db.insert(key.as_bytes(), bytes)?;
 
@@ -382,29 +384,47 @@ impl WelcomeService {
 
         // Process each expired verification
         for (key, verification) in expired_verifications {
+            let mut rng = StdRng::from_seed([0; 32]);
             log::info!(
                 "Cleaning up expired verification for user {} in chat {}",
                 verification.user_id.to_string(),
                 verification.chat_id.to_string()
             );
 
+            let mut range: Vec<i64> = (5..60).collect();
+            range.shuffle(&mut rng);
+
+            let mut time_option = range.choose(&mut rng);
+
+            let time = loop {
+                if let Some(time) = time_option {
+                    break time;
+                }
+                time_option = range.choose(&mut rng);
+            };
+
+            let until_date = chrono::Utc::now() + chrono::Duration::minutes(*time);
+
             // Remove user from group
-            if let Err(e) = bot
-                .ban_chat_member(verification.chat_id, verification.user_id)
-                .await
-            {
+            let kick_result = bot
+                .kick_chat_member(verification.chat_id, verification.user_id)
+                .until_date(until_date)
+                .revoke_messages(false)
+                .await;
+
+            if let Err(e) = kick_result {
                 log::error!(
-                    "Failed to ban expired verification user {} in chat {}: {}",
+                    "Failed to kick expired verification user {}: {}",
                     verification.user_id.to_string(),
-                    verification.chat_id.to_string(),
                     e
                 );
             }
 
             // Update verification message
             let expired_text = format!(
-                "⏰ Verification expired for {}. User has been removed from the group.",
-                verification.first_name
+                "⏰ Verification expired for {}. User has been removed from the group until {}.",
+                verification.first_name,
+                until_date.format("%Y-%m-%d %H:%M:%S")
             );
 
             if let Err(e) = bot
@@ -442,7 +462,7 @@ impl WelcomeService {
     }
 
     pub fn reset_stats(&self, chat_id: ChatId) -> Result<()> {
-        let key = format!("{}_stats", chat_id.0);
+        let key = format!("{}-{}", chat_id.to_string(), self.account_seed);
         self.stats_db.remove(key.as_bytes())?;
         Ok(())
     }
