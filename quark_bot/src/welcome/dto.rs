@@ -65,7 +65,7 @@ pub struct WelcomeMessageTemplate {
 impl Default for WelcomeMessageTemplate {
     fn default() -> Self {
         Self {
-            message: "👋 Welcome to {group_name}, {username}!\n\n🔒 Please verify you're human by clicking the button below within {timeout} minutes.\n\n⚠️ You'll be automatically removed if you don't verify in time.".to_string(),
+            message: "👋 Welcome to {group_name}, @{username}!\n\n🔒 Please verify you're human by clicking the button below within {timeout} minutes.\n\n⚠️ You'll be automatically removed if you don't verify in time.".to_string(),
             placeholders: vec!["{username}".to_string(), "{group_name}".to_string(), "{timeout}".to_string()],
         }
     }
