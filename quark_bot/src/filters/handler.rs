@@ -178,7 +178,7 @@ async fn start_filter_wizard(
         "filters_main",
     )]]);
 
-    let text = "🔍 <b>Add New Filter - Step 1/3</b>\n\nPlease send the trigger(s) for your filter. You can send multiple triggers separated by \", \".\n\n<b>Syntax:</b>\n• Single-word: <code>hello, bye, gm</code>\n• Multi-word (use brackets): <code>[good morning], [see you later]</code>\n• Mixed: <code>gm, [good morning], morning</code>\n\n<b>Examples:</b>\n• <code>gm, [good morning], morning</code>\n• <code>bye, [see you later], goodbye</code>\n• <code>help, [need help], support</code>\n\n💡 <i>Tip: Triggers are automatically converted to lowercase and match anywhere in a message (case-insensitive).</i>\n\n✨ <b>Pro tip:</b> In the next step, you can use placeholders like {username}, {group_name}, and {trigger} to make responses personal! HTML formatting is enabled by default, so you can use tags like <b>bold</b>, <i>italic</i>, and <code>code</code> in your responses.";
+    let text = "🔍 <b>Add New Filter - Step 1/3</b>\n\nPlease send the trigger(s) for your filter. You can send multiple triggers separated by \", \".\n\n<b>Syntax:</b>\n• Single-word: <code>hello, bye, gm</code>\n• Multi-word (use brackets): <code>[good morning], [see you later]</code>\n• Mixed: <code>gm, [good morning], morning</code>\n\n<b>Examples:</b>\n• <code>gm, [good morning], morning</code>\n• <code>bye, [see you later], goodbye</code>\n• <code>help, [need help], support</code>\n\n💡 <i>Tip: Triggers are automatically converted to lowercase and match anywhere in a message (case-insensitive).</i>\n\n✨ <b>Pro tip:</b> In the next step, you can use placeholders like {username}, {group_name}, and {trigger} to make responses personal! HTML formatting is enabled by default, so you can use tags like &lt;b&gt;bold&lt;/b&gt;, &lt;i&gt;italic&lt;/i&gt;, and &lt;code&gt;code&lt;/code&gt; in your responses.";
 
     if let Some(teloxide::types::MaybeInaccessibleMessage::Regular(message)) = &query.message {
         bot.edit_message_text(message.chat.id, message.id, text)
@@ -223,7 +223,7 @@ async fn show_filters_main_menu(
     ]);
 
         let text = format!(
-            "🔍 <b>Filters</b>\n\nMake your chat more lively with filters! The bot will reply to certain words.\n\nFilters are case insensitive; every time someone says your trigger words, Quark will reply something else! Can be used to create your own commands, if desired.\n\n✨ <b>Personalization:</b> Use placeholders like {{username}}, {{group_name}}, and {{trigger}} in your responses to make them personal!\n\n🎨 <b>Formatting:</b> HTML formatting is enabled by default! Use tags like <b>bold</b>, <i>italic</i>, and <code>code</code> in your responses for rich text.\n\n<b>Current filters:</b> {} active",
+            "🔍 <b>Filters</b>\n\nMake your chat more lively with filters! The bot will reply to certain words.\n\nFilters are case insensitive; every time someone says your trigger words, Quark will reply something else! Can be used to create your own commands, if desired.\n\n✨ <b>Personalization:</b> Use placeholders like {{username}}, {{group_name}}, and {{trigger}} in your responses to make them personal!\n\n🎨 <b>Formatting:</b> HTML formatting is enabled by default! Use tags like &lt;b&gt;bold&lt;/b&gt;, &lt;i&gt;italic&lt;/i&gt;, and &lt;code&gt;code&lt;/code&gt; in your responses for rich text.\n\n<b>Current filters:</b> {} active",
             filter_count
         );
 
