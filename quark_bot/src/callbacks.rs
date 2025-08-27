@@ -343,7 +343,8 @@ pub async fn handle_callback_query(
 
                         // Get effective summarization preferences
                         let user_id = id.0 as i64;
-                        let sum_prefs = bot_deps.summarization_settings.get_effective_prefs(user_id);
+                        let sum_prefs =
+                            bot_deps.summarization_settings.get_effective_prefs(user_id);
                         let sum_status = if sum_prefs.enabled { "On" } else { "Off" };
 
                         let text = format!(
@@ -813,6 +814,7 @@ pub async fn handle_callback_query(
         } else if data == "open_sponsor_settings"
             || data.starts_with("sponsor_set_")
             || data.starts_with("sponsor_interval_")
+            || data == "sponsor_enable"
             || data == "sponsor_disable"
             || data == "sponsor_cancel_input"
         {
@@ -822,7 +824,10 @@ pub async fn handle_callback_query(
             || data == "toggle_chat_commands"
             || data == "command_settings_back"
         {
-            crate::command_settings::handler::handle_command_settings_callback(bot, query, bot_deps).await?;
+            crate::command_settings::handler::handle_command_settings_callback(
+                bot, query, bot_deps,
+            )
+            .await?;
         } else if data.starts_with("welcome_verify:") {
             // Handle welcome verification callback
             log::info!("Received welcome verification callback: {}", data);

@@ -149,11 +149,11 @@ impl Sponsor {
         }
     }
 
-    /// Get current request status for a group
-    pub fn get_request_status(&self, group_id: String) -> Result<(u64, u64)> {
+    /// Get current request status and reset if interval has passed
+    pub fn get_request_status_and_reset(&self, group_id: String) -> Result<(u64, u64)> {
         let settings = self.get_sponsor_settings(group_id.clone());
-        let requests = self
-            .get_sponsor_requests(group_id)
+        let mut requests = self
+            .get_sponsor_requests(group_id.clone())
             .unwrap_or(SponsorRequest {
                 requests_left: settings.requests,
                 last_request: 0,
@@ -163,6 +163,10 @@ impl Sponsor {
 
         // Check if we need to reset the interval
         if self.should_reset_interval(&settings, requests.last_request, current_time) {
+            requests.requests_left = settings.requests;
+            requests.last_request = current_time;
+            // Update the database with the reset values
+            self.set_or_update_sponsor_requests(group_id, requests)?;
             Ok((settings.requests, settings.requests))
         } else {
             Ok((requests.requests_left, settings.requests))
