@@ -46,6 +46,19 @@ pub async fn answers(
         Command::ListFiles => handle_list_files(bot, msg, bot_deps.clone()).await?,
         Command::NewChat => handle_new_chat(bot, msg, bot_deps.clone()).await?,
         Command::C(prompt) => {
+            // Check if chat commands are enabled for this group (skip check for private chats)
+            if !msg.chat.is_private() {
+                let group_id = msg.chat.id.to_string();
+                if !bot_deps.command_settings.is_chat_commands_enabled(group_id) {
+                    bot.send_message(
+                        msg.chat.id,
+                        "❌ Chat commands (/c, /chat) are disabled in this group. Contact an administrator to enable them.",
+                    )
+                    .await?;
+                    return Ok(());
+                }
+            }
+
             let cmd_collector = bot_deps.cmd_collector.clone();
 
             if prompt.trim().is_empty() && msg.photo().is_some() {
@@ -158,6 +171,10 @@ pub async fn answers(
                         "open_my_settings",
                     )],
                     vec![InlineKeyboardButton::callback(
+                        "🧾 Summarization Settings",
+                        "open_summarization_settings",
+                    )],
+                    vec![InlineKeyboardButton::callback(
                         "↩️ Close",
                         "user_settings_close",
                     )],
@@ -225,9 +242,10 @@ pub async fn answers(
                             "👋 Welcome Settings",
                             "welcome_settings",
                         )],
+                        vec![InlineKeyboardButton::callback("🔍 Filters", "filters_main")],
                         vec![InlineKeyboardButton::callback(
-                            "🔍 Filters",
-                            "filters_main",
+                            "⚙️ Command Settings",
+                            "open_command_settings",
                         )],
                         vec![InlineKeyboardButton::callback(
                             "🔄 Migrate Group ID",

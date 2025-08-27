@@ -108,7 +108,7 @@ impl AI {
             input
         );
 
-        let address = if group_id.is_some() {
+        let (address, jwt) = if group_id.is_some() {
             let group_credentials = bot_deps.group.get_credentials(msg.chat.id);
 
             if group_credentials.is_none() {
@@ -117,7 +117,7 @@ impl AI {
 
             let group_credentials = group_credentials.unwrap();
 
-            group_credentials.resource_account_address
+            (group_credentials.resource_account_address, group_credentials.jwt)
         } else {
             let username = user.username.clone();
 
@@ -135,7 +135,7 @@ impl AI {
 
             let user_credentials = user_credentials.unwrap();
 
-            user_credentials.resource_account_address
+            (user_credentials.resource_account_address, user_credentials.jwt)
         };
 
         let default_payment_prefs = bot_deps.default_payment_prefs.clone();
@@ -225,6 +225,21 @@ impl AI {
         }
 
         let user_convos = UserConversations::new(&bot_deps.db)?;
+        
+        // Check if we need to clear the thread from a previous summarization
+        // But do this AFTER we get the current response, so AI can see its previous response
+        let should_clear_thread = if let Ok(should_clear) = bot_deps.summarizer.check_and_clear_pending_thread(user_id) {
+            if should_clear {
+                log::info!(
+                    "Thread will be cleared for user {} after this response (delayed from previous summarization)",
+                    user_id
+                );
+            }
+            should_clear
+        } else {
+            false
+        };
+        
         let previous_response_id = user_convos.get_response_id(user_id);
         let mut tool_called: Vec<FunctionCallInfo> = Vec::new();
 
@@ -267,9 +282,16 @@ impl AI {
 
         let system_prompt = format!("Entity {}: {}", user, self.system_prompt);
 
+        // Inject conversation summary if it exists
+        let final_system_prompt = if let Some(summary) = bot_deps.summarizer.get_summary_for_instructions(user_id) {
+            format!("{}\n\nSummary so far:\n{}", system_prompt, summary)
+        } else {
+            system_prompt
+        };
+
         let mut request_builder = Request::builder()
             .model(model.clone())
-            .instructions(system_prompt)
+            .instructions(final_system_prompt)
             .tools(tools.clone())
             .tool_choice(ToolChoice::auto())
             .parallel_tool_calls(true) // Enable parallel execution for efficiency
@@ -556,6 +578,57 @@ impl AI {
             response_id
         );
 
+        // Now clear the thread if it was pending from previous summarization
+        // This ensures the AI had access to its previous response for this turn
+        if should_clear_thread {
+            log::info!(
+                "Clearing conversation thread for user {} (delayed from previous summarization)",
+                user_id
+            );
+            if let Err(e) = user_convos.clear_response_id(user_id) {
+                log::error!("Failed to clear response_id for user {}: {}", user_id, e);
+            }
+        }
+
+        // Check if summarization is needed and enabled using per-user preferences
+        let effective_prefs = bot_deps.summarization_settings.get_effective_prefs(user_id);
+        
+        if effective_prefs.enabled {
+            let token_limit = effective_prefs.token_limit;
+
+            // Try to summarize, but don't fail the AI response if summarization fails
+            match bot_deps
+                .summarizer
+                .check_and_summarize(
+                    user_id,
+                    total_tokens_used,
+                    token_limit,
+                    input,
+                    &reply,
+                    bot_deps.clone(),
+                    group_id.clone(),
+                    &jwt,
+                )
+                .await
+            {
+                Ok(Some(_summary)) => {
+                    log::info!(
+                        "Conversation summarized for user {}, thread will be cleared on next request",
+                        user_id
+                    );
+                    // Don't clear response_id immediately - let the response stay visible
+                    // The thread will be cleared on the next request
+                }
+                Ok(None) => {
+                    // No summarization needed
+                }
+                Err(e) => {
+                    log::error!("Summarization failed for user {}: {}, but continuing with AI response", user_id, e);
+                    // Continue with the response even if summarization fails
+                }
+            }
+        }
+
         let mut image_data: Option<Vec<u8>> = None;
         for item in &current_response.output {
             if let ResponseItem::ImageGenerationCall { result, .. } = item {
@@ -730,9 +803,16 @@ impl AI {
         let user_label = format!("schedule-{}", sid_short);
         let system_prompt = format!("Entity {}: {}", user_label, self.system_prompt);
 
+        // Inject conversation summary if it exists (for scheduled prompts, use creator's summary)
+        let final_system_prompt = if let Some(summary) = bot_deps.summarizer.get_summary_for_instructions(creator_user_id) {
+            format!("{}\n\nSummary so far:\n{}", system_prompt, summary)
+        } else {
+            system_prompt
+        };
+
         let mut request_builder = Request::builder()
             .model(model.clone())
-            .instructions(system_prompt)
+            .instructions(final_system_prompt)
             .tools(tools.clone())
             .tool_choice(ToolChoice::auto())
             .parallel_tool_calls(true)

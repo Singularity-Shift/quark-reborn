@@ -822,7 +822,7 @@ pub async fn handle_chat(
             image_url_from_reply,
             all_image_urls,
             chat_model,
-            8192,
+            4000,
             temperature,
             None,
             bot_deps.clone(),
@@ -988,13 +988,25 @@ pub async fn handle_chat(
 pub async fn handle_new_chat(bot: Bot, msg: Message, bot_deps: BotDependencies) -> AnyResult<()> {
     let user_id = msg.from.as_ref().map(|u| u.id.0).unwrap_or(0) as i64;
 
-    match bot_deps.user_convos.clear_response_id(user_id) {
-        Ok(_) => {
+    // Clear conversation thread
+    let convos_result = bot_deps.user_convos.clear_response_id(user_id);
+    
+    // Clear stored conversation summary
+    let summary_result = bot_deps.summarizer.clear_summary(user_id);
+
+    match (convos_result, summary_result) {
+        (Ok(_), Ok(_)) => {
             bot.send_message(msg.chat.id, "🆕 <b>New conversation started!</b>\n\n✨ Your previous chat history has been cleared. Your next /chat command will start a fresh conversation thread.\n\n💡 <i>Your uploaded files and settings remain intact</i>")
                 .parse_mode(ParseMode::Html)
                 .await?;
         }
-        Err(e) => {
+        (Ok(_), Err(e)) => {
+            log::warn!("Failed to clear summary for user {}: {}", user_id, e);
+            bot.send_message(msg.chat.id, "🆕 <b>New conversation started!</b>\n\n✨ Your previous chat history has been cleared. Your next /chat command will start a fresh conversation thread.\n\n⚠️ <i>Note: Some conversation context may still be present</i>")
+                .parse_mode(ParseMode::Html)
+                .await?;
+        }
+        (Err(e), _) => {
             bot.send_message(
                 msg.chat.id,
                 format!(

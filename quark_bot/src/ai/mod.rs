@@ -6,5 +6,6 @@ pub mod moderation;
 pub mod prompt;
 pub mod schedule_guard;
 pub mod sentinel;
+pub mod summarizer;
 pub mod tools;
 pub mod vector_store;

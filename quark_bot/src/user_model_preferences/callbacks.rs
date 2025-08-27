@@ -148,6 +148,10 @@ pub async fn handle_model_preferences_callback(
                         "open_my_settings",
                     )],
                     vec![InlineKeyboardButton::callback(
+                        "🧾 Summarization Settings",
+                        "open_summarization_settings",
+                    )],
+                    vec![InlineKeyboardButton::callback(
                         "↩️ Close",
                         "user_settings_close",
                     )],
@@ -327,6 +331,10 @@ pub async fn handle_model_preferences_callback(
                     vec![InlineKeyboardButton::callback(
                         "📋 View My Settings",
                         "open_my_settings",
+                    )],
+                    vec![InlineKeyboardButton::callback(
+                        "🧾 Summarization Settings",
+                        "open_summarization_settings",
                     )],
                     vec![InlineKeyboardButton::callback(
                         "↩️ Close",
