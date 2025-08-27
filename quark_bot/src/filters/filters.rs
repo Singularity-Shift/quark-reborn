@@ -385,42 +385,30 @@ impl Filters {
                 (false, 0)
             }
             MatchType::Contains => {
-                // Check if trigger is multi-word (contains spaces)
-                if trigger_lower.contains(' ') {
-                    // Multi-word trigger: look for exact sequence in text
-                    if let Some(pos) = text.find(&trigger_lower) {
-                        // Verify it's a word boundary match, not inside other words
-                        let start_pos = pos;
-                        let end_pos = pos + trigger_lower.len();
-                        
-                        let start_ok = start_pos == 0 || 
-                            !text.chars().nth(start_pos - 1).unwrap_or(' ').is_alphanumeric();
-                        let end_ok = end_pos >= text.len() || 
-                            !text.chars().nth(end_pos).unwrap_or(' ').is_alphanumeric();
-                        
-                        if start_ok && end_ok {
-                            (true, pos)
-                        } else {
-                            (false, 0)
-                        }
-                    } else {
-                        (false, 0)
+                // Unified logic for both single-word and multi-word triggers
+                let text_lower = text.to_lowercase();
+                
+                if let Some(pos) = text_lower.find(&trigger_lower) {
+                    // Verify word boundary match for proper contains behavior
+                    let start_pos = pos;
+                    let end_pos = pos + trigger_lower.len();
+                    
+                    let start_ok = start_pos == 0 || 
+                        !text_lower.chars().nth(start_pos - 1).unwrap_or(' ').is_alphanumeric();
+                    let end_ok = end_pos >= text_lower.len() || 
+                        !text_lower.chars().nth(end_pos).unwrap_or(' ').is_alphanumeric();
+                    
+                    if start_ok && end_ok {
+                        // Extract the actual matched text from the original input (preserving case)
+                        let matched_text = text.chars().skip(start_pos).take(trigger_lower.len()).collect::<String>();
+                        return Some(FilterMatch {
+                            filter: filter.clone(),
+                            matched_text,
+                            match_position: start_pos,
+                        });
                     }
-                } else {
-                    // Single word trigger: match exact words only
-                    let words: Vec<&str> = text.split_whitespace().collect();
-                    for (i, word) in words.iter().enumerate() {
-                        let clean_word = word.trim_matches(|c: char| !c.is_alphanumeric());
-                        if clean_word == trigger_lower {
-                            return Some(FilterMatch {
-                                filter: filter.clone(),
-                                matched_text: word.to_string(),
-                                match_position: i,
-                            });
-                        }
-                    }
-                    (false, 0)
                 }
+                (false, 0)
             }
             MatchType::StartsWith => {
                 if text.starts_with(&trigger_lower) {
