@@ -385,11 +385,30 @@ impl Filters {
                 (false, 0)
             }
             MatchType::Contains => {
-                if let Some(pos) = text.find(&trigger_lower) {
-                    (true, pos)
-                } else {
-                    (false, 0)
+                // Unified logic for both single-word and multi-word triggers
+                let text_lower = text.to_lowercase();
+                
+                if let Some(pos) = text_lower.find(&trigger_lower) {
+                    // Verify word boundary match for proper contains behavior
+                    let start_pos = pos;
+                    let end_pos = pos + trigger_lower.len();
+                    
+                    let start_ok = start_pos == 0 || 
+                        !text_lower.chars().nth(start_pos - 1).unwrap_or(' ').is_alphanumeric();
+                    let end_ok = end_pos >= text_lower.len() || 
+                        !text_lower.chars().nth(end_pos).unwrap_or(' ').is_alphanumeric();
+                    
+                    if start_ok && end_ok {
+                        // Extract the actual matched text from the original input (preserving case)
+                        let matched_text = text.chars().skip(start_pos).take(trigger_lower.len()).collect::<String>();
+                        return Some(FilterMatch {
+                            filter: filter.clone(),
+                            matched_text,
+                            match_position: start_pos,
+                        });
+                    }
                 }
+                (false, 0)
             }
             MatchType::StartsWith => {
                 if text.starts_with(&trigger_lower) {

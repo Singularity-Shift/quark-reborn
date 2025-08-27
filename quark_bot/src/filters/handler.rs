@@ -8,7 +8,7 @@ use crate::dependencies::BotDependencies;
 use crate::filters::dto::{
     FilterError, MatchType, PendingFilterStep, PendingFilterWizardState, ResponseType,
 };
-use crate::filters::helpers::parse_triggers;
+use crate::filters::helpers::{parse_triggers, replace_filter_placeholders};
 use crate::utils;
 
 pub async fn handle_filters_callback(
@@ -88,14 +88,25 @@ pub async fn process_message_for_filters(
         match bot_deps.filters.find_matching_filters(&group_id, text) {
             Ok(matches) => {
                 if let Some(filter_match) = matches.first() {
-                    let response = &filter_match.filter.response;
+                    // Extract user info for placeholders
+                    let username = msg.from.as_ref().and_then(|u| u.username.as_deref());
+                    let group_name = msg.chat.title().unwrap_or("Group").to_string();
+                    let trigger = &filter_match.matched_text;
+                    
+                    // Replace placeholders in the response
+                    let personalized_response = replace_filter_placeholders(
+                        &filter_match.filter.response,
+                        username,
+                        &group_name,
+                        trigger
+                    );
 
                     let parse_mode = match filter_match.filter.response_type {
                         ResponseType::Markdown => Some(ParseMode::MarkdownV2),
                         ResponseType::Text => None,
                     };
 
-                    let mut send_message = bot.send_message(msg.chat.id, response);
+                    let mut send_message = bot.send_message(msg.chat.id, &personalized_response);
 
                     if let Some(mode) = parse_mode {
                         send_message = send_message.parse_mode(mode);
@@ -105,7 +116,7 @@ pub async fn process_message_for_filters(
                         log::error!("Failed to send filter response: {}", e);
 
                         // Fallback to simple message without reply
-                        bot.send_message(msg.chat.id, response).await?;
+                        bot.send_message(msg.chat.id, &personalized_response).await?;
                     }
 
                     if let Some(user) = &msg.from {
@@ -166,7 +177,7 @@ async fn start_filter_wizard(
         "filters_main",
     )]]);
 
-    let text = "🔍 <b>Add New Filter - Step 1/3</b>\n\nPlease send the trigger(s) for your filter. You can send multiple triggers separated by \", \".\n\n<b>Syntax:</b>\n• Single-word: <code>hello, bye, gm</code>\n• Multi-word (use brackets): <code>[good morning], [see you later]</code>\n• Mixed: <code>gm, [good morning], morning</code>\n\n<b>Examples:</b>\n• <code>gm, [good morning], morning</code>\n• <code>bye, [see you later], goodbye</code>\n• <code>help, [need help], support</code>\n\n💡 <i>Tip: Triggers are automatically converted to lowercase and match anywhere in a message (case-insensitive).</i>";
+    let text = "🔍 <b>Add New Filter - Step 1/3</b>\n\nPlease send the trigger(s) for your filter. You can send multiple triggers separated by \", \".\n\n<b>Syntax:</b>\n• Single-word: <code>hello, bye, gm</code>\n• Multi-word (use brackets): <code>[good morning], [see you later]</code>\n• Mixed: <code>gm, [good morning], morning</code>\n\n<b>Examples:</b>\n• <code>gm, [good morning], morning</code>\n• <code>bye, [see you later], goodbye</code>\n• <code>help, [need help], support</code>\n\n💡 <i>Tip: Triggers are automatically converted to lowercase and match anywhere in a message (case-insensitive).</i>\n\n✨ <b>Pro tip:</b> In the next step, you can use placeholders like {username}, {group_name}, and {trigger} to make responses personal!";
 
     if let Some(teloxide::types::MaybeInaccessibleMessage::Regular(message)) = &query.message {
         bot.edit_message_text(message.chat.id, message.id, text)
@@ -210,10 +221,10 @@ async fn show_filters_main_menu(
         )],
     ]);
 
-    let text = format!(
-        "🔍 <b>Filters</b>\n\nMake your chat more lively with filters! The bot will reply to certain words.\n\nFilters are case insensitive; every time someone says your trigger words, Quark will reply something else! Can be used to create your own commands, if desired.\n\n<b>Current filters:</b> {} active",
-        filter_count
-    );
+        let text = format!(
+            "🔍 <b>Filters</b>\n\nMake your chat more lively with filters! The bot will reply to certain words.\n\nFilters are case insensitive; every time someone says your trigger words, Quark will reply something else! Can be used to create your own commands, if desired.\n\n✨ <b>Personalization:</b> Use placeholders like {{username}}, {{group_name}}, and {{trigger}} in your responses to make them personal!\n\n<b>Current filters:</b> {} active",
+            filter_count
+        );
 
     if let Some(teloxide::types::MaybeInaccessibleMessage::Regular(message)) = &query.message {
         bot.edit_message_text(message.chat.id, message.id, text)
@@ -682,7 +693,7 @@ pub async fn handle_message_filters(
                         .await?;
                     return Ok(true);
                 }
-                bot.send_message(msg.chat.id, "🔍 <b>Add New Filter - Step 2/3</b>\n\nNow send the response message that the bot should reply with when someone types your trigger.\n\n💡 <i>This can be any text, including emojis and multiple lines.</i>")
+                bot.send_message(msg.chat.id, "🔍 <b>Add New Filter - Step 2/3</b>\n\nNow send the response message that the bot should reply with when someone types your trigger.\n\n💡 <i>This can be any text, including emojis and multiple lines.</i>\n\n✨ <b>Available Placeholders:</b>\n• <code>{username}</code> → @username (creates clickable mention)\n• <code>{group_name}</code> → Group name\n• <code>{trigger}</code> → The word/phrase that triggered the filter\n\n<b>Examples:</b>\n• <code>Hello {username}! Welcome to {group_name}! 👋</code>\n• <code>Hey @{username}, you said '{trigger}'! 🎯</code>\n• <code>Good morning {username}! ☀️</code>")
                         .parse_mode(ParseMode::Html)
                         .await?;
                 return Ok(true);
