@@ -103,6 +103,7 @@ pub async fn process_message_for_filters(
 
                     let parse_mode = match filter_match.filter.response_type {
                         ResponseType::Markdown => Some(ParseMode::MarkdownV2),
+                        ResponseType::Html => Some(ParseMode::Html),
                         ResponseType::Text => None,
                     };
 
@@ -158,7 +159,7 @@ async fn start_filter_wizard(
         trigger: None,
         response: None,
         match_type: MatchType::Contains,   // Default
-        response_type: ResponseType::Text, // Default
+        response_type: ResponseType::Html, // Default to Html for HTML formatting support
     };
 
     if let Err(e) = bot_deps
@@ -177,7 +178,7 @@ async fn start_filter_wizard(
         "filters_main",
     )]]);
 
-    let text = "🔍 <b>Add New Filter - Step 1/3</b>\n\nPlease send the trigger(s) for your filter. You can send multiple triggers separated by \", \".\n\n<b>Syntax:</b>\n• Single-word: <code>hello, bye, gm</code>\n• Multi-word (use brackets): <code>[good morning], [see you later]</code>\n• Mixed: <code>gm, [good morning], morning</code>\n\n<b>Examples:</b>\n• <code>gm, [good morning], morning</code>\n• <code>bye, [see you later], goodbye</code>\n• <code>help, [need help], support</code>\n\n💡 <i>Tip: Triggers are automatically converted to lowercase and match anywhere in a message (case-insensitive).</i>\n\n✨ <b>Pro tip:</b> In the next step, you can use placeholders like {username}, {group_name}, and {trigger} to make responses personal!";
+    let text = "🔍 <b>Add New Filter - Step 1/3</b>\n\nPlease send the trigger(s) for your filter. You can send multiple triggers separated by \", \".\n\n<b>Syntax:</b>\n• Single-word: <code>hello, bye, gm</code>\n• Multi-word (use brackets): <code>[good morning], [see you later]</code>\n• Mixed: <code>gm, [good morning], morning</code>\n\n<b>Examples:</b>\n• <code>gm, [good morning], morning</code>\n• <code>bye, [see you later], goodbye</code>\n• <code>help, [need help], support</code>\n\n💡 <i>Tip: Triggers are automatically converted to lowercase and match anywhere in a message (case-insensitive).</i>\n\n✨ <b>Pro tip:</b> In the next step, you can use placeholders like {username}, {group_name}, and {trigger} to make responses personal! HTML formatting is enabled by default, so you can use tags like <b>bold</b>, <i>italic</i>, and <code>code</code> in your responses.";
 
     if let Some(teloxide::types::MaybeInaccessibleMessage::Regular(message)) = &query.message {
         bot.edit_message_text(message.chat.id, message.id, text)
@@ -222,7 +223,7 @@ async fn show_filters_main_menu(
     ]);
 
         let text = format!(
-            "🔍 <b>Filters</b>\n\nMake your chat more lively with filters! The bot will reply to certain words.\n\nFilters are case insensitive; every time someone says your trigger words, Quark will reply something else! Can be used to create your own commands, if desired.\n\n✨ <b>Personalization:</b> Use placeholders like {{username}}, {{group_name}}, and {{trigger}} in your responses to make them personal!\n\n<b>Current filters:</b> {} active",
+            "🔍 <b>Filters</b>\n\nMake your chat more lively with filters! The bot will reply to certain words.\n\nFilters are case insensitive; every time someone says your trigger words, Quark will reply something else! Can be used to create your own commands, if desired.\n\n✨ <b>Personalization:</b> Use placeholders like {{username}}, {{group_name}}, and {{trigger}} in your responses to make them personal!\n\n🎨 <b>Formatting:</b> HTML formatting is enabled by default! Use tags like <b>bold</b>, <i>italic</i>, and <code>code</code> in your responses for rich text.\n\n<b>Current filters:</b> {} active",
             filter_count
         );
 
@@ -693,7 +694,7 @@ pub async fn handle_message_filters(
                         .await?;
                     return Ok(true);
                 }
-                bot.send_message(msg.chat.id, "🔍 <b>Add New Filter - Step 2/3</b>\n\nNow send the response message that the bot should reply with when someone types your trigger.\n\n💡 <i>This can be any text, including emojis and multiple lines.</i>\n\n✨ <b>Available Placeholders:</b>\n• <code>{username}</code> → @username (creates clickable mention)\n• <code>{group_name}</code> → Group name\n• <code>{trigger}</code> → The word/phrase that triggered the filter\n\n<b>Examples:</b>\n• <code>Hello {username}! Welcome to {group_name}! 👋</code>\n• <code>Hey @{username}, you said '{trigger}'! 🎯</code>\n• <code>Good morning {username}! ☀️</code>")
+                bot.send_message(msg.chat.id, "🔍 <b>Add New Filter - Step 2/3</b>\n\nNow send the response message that the bot should reply with when someone types your trigger.\n\n💡 <i>This can be any text, including emojis and multiple lines.</i>\n\n✨ <b>Available Placeholders:</b>\n• <code>{username}</code> → @username (creates clickable mention)\n• <code>{group_name}</code> → Group name\n• <code>{trigger}</code> → The word/phrase that triggered the filter\n\n🎨 <b>HTML Formatting (Default):</b>\n• <code>&lt;b&gt;text&lt;/b&gt;</code> → <b>bold text</b>\n• <code>&lt;i&gt;text&lt;/i&gt;</code> → <i>italic text</i>\n• <code>&lt;code&gt;text&lt;/code&gt;</code> → <code>monospace text</code>\n\n<b>Examples:</b>\n• <code>Hello {username}! Welcome to {group_name}! 👋</code>\n• <code>Hey @{username}, you said '{trigger}'! 🎯</code>\n• <code>Good morning {username}! ☀️</code>\n• <code>&lt;b&gt;Important:&lt;/b&gt; {username} said &lt;code&gt;{trigger}&lt;/code&gt;</code>")
                         .parse_mode(ParseMode::Html)
                         .await?;
                 return Ok(true);

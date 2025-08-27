@@ -97,10 +97,11 @@ pub fn summarize(state: &PendingFilterWizardState) -> String {
     let response_type = match state.response_type {
         ResponseType::Text => "Plain text",
         ResponseType::Markdown => "Markdown",
+        ResponseType::Html => "HTML",
     };
     
     format!(
-        "🔍 <b>Filter Summary</b>\n\n📝 Triggers: {}\n💬 Response: <code>{}</code>\n🎯 Match type: {}\n📄 Format: {}",
+        "🔍 <b>Filter Summary</b>\n\n📝 Triggers: {}\n💬 Response: <code>{}</code>\n🎯 Match type: {}\n📄 Format: {}\n\n💡 <i>Tip: HTML formatting is enabled by default! You can use tags like &lt;b&gt;, &lt;i&gt;, and &lt;code&gt; in your response.</i>",
         triggers_display, response, match_type, response_type
     )
 }

@@ -25,6 +25,7 @@ pub enum MatchType {
 pub enum ResponseType {
     Text,
     Markdown,
+    Html,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
