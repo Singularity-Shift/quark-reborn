@@ -198,7 +198,7 @@ async fn show_custom_message_menu(
             Current message:\n\
             <code>{}</code>\n\n\
             Available placeholders:\n\
-            • {{username}} - User's first name\n\
+            • {{username}} - @username (creates clickable mention)\n\
             • {{group_name}} - Group name\n\
             • {{timeout}} - Verification timeout in minutes\n\n\
             To set a custom message, reply to this message with your text.\n\
@@ -377,7 +377,7 @@ async fn start_custom_message_input(
     let text = "✏️ <b>Custom Welcome Message</b>\n\n\
         Please reply to this message with your custom welcome message.\n\n\
         Available placeholders:\n\
-        • {username} - User's first name\n\
+        • {username} - @username (creates clickable mention)\n\
         • {group_name} - Group name\n\
         • {timeout} - Verification timeout in minutes\n\n\
         <i>Send /cancel to cancel or just send your message.</i>";
