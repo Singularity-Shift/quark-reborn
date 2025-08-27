@@ -13,6 +13,7 @@ use crate::{
     scheduled_payments::handler::handle_message_scheduled_payments,
     scheduled_prompts::handler::handle_message_scheduled_prompts,
     sponsor::handler::handle_sponsor_message,
+    user_model_preferences::dto::ModelPreferences,
     utils::{self, create_purchase_request},
     welcome::handler::handle_welcome_message,
 };
@@ -665,7 +666,11 @@ pub async fn handle_chat(
     let group_credentials = bot_deps.group.get_credentials(msg.chat.id);
 
     // Load user's chat model preferences
-    let preferences = bot_deps.user_model_prefs.get_preferences(username);
+    let preferences = if group_id.is_some() {
+        ModelPreferences::default()
+    } else {
+        bot_deps.user_model_prefs.get_preferences(username)
+    };
 
     let chat_model = preferences.chat_model.to_openai_model();
     // Only pass temperature for models that support it
@@ -990,7 +995,7 @@ pub async fn handle_new_chat(bot: Bot, msg: Message, bot_deps: BotDependencies) 
 
     // Clear conversation thread
     let convos_result = bot_deps.user_convos.clear_response_id(user_id);
-    
+
     // Clear stored conversation summary
     let summary_result = bot_deps.summarizer.clear_summary(user_id);
 

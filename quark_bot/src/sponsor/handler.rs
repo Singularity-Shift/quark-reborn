@@ -303,6 +303,56 @@ pub async fn handle_sponsor_settings_callback(
                 show_sponsor_settings(&bot, m.chat.id, m.id, &bot_deps, &group_id).await?;
             }
         }
+    } else if data == "sponsor_enable" {
+        // Enable sponsor with default values (10 requests, hourly interval)
+        if let Some(message) = &query.message {
+            if let teloxide::types::MaybeInaccessibleMessage::Regular(m) = message {
+                let is_admin = utils::is_admin(&bot, m.chat.id, query.from.id).await;
+                if !is_admin {
+                    bot.answer_callback_query(query.id)
+                        .text("❌ Only administrators can manage sponsor settings")
+                        .await?;
+                    return Ok(());
+                }
+
+                let group_id = m.chat.id.to_string();
+                let mut settings = bot_deps.sponsor.get_sponsor_settings(group_id.clone());
+                settings.requests = 10; // Default to 10 requests
+                settings.interval = crate::sponsor::dto::SponsorInterval::Hourly; // Default to hourly
+
+                if let Err(e) = bot_deps
+                    .sponsor
+                    .set_or_update_sponsor_settings(group_id.clone(), settings)
+                {
+                    bot.answer_callback_query(query.id)
+                        .text(&format!("❌ Failed to enable sponsor: {}", e))
+                        .await?;
+                    return Ok(());
+                }
+
+                // Set current requests to the new limit
+                let new_requests = SponsorRequest {
+                    requests_left: 10,
+                    last_request: chrono::Utc::now().timestamp() as u64,
+                };
+
+                if let Err(e) = bot_deps
+                    .sponsor
+                    .set_or_update_sponsor_requests(group_id.clone(), new_requests)
+                {
+                    log::warn!("Failed to set current requests: {}", e);
+                }
+
+                bot.answer_callback_query(query.id)
+                    .text(
+                        "✅ Sponsor enabled with default settings (10 requests, hourly interval)!",
+                    )
+                    .await?;
+
+                // Return to sponsor settings
+                show_sponsor_settings(&bot, m.chat.id, m.id, &bot_deps, &group_id).await?;
+            }
+        }
     }
 
     Ok(())
@@ -318,7 +368,7 @@ async fn show_sponsor_settings(
     let settings = bot_deps.sponsor.get_sponsor_settings(group_id.to_string());
     let (requests_left, total_requests) = bot_deps
         .sponsor
-        .get_request_status(group_id.to_string())
+        .get_request_status_and_reset(group_id.to_string())
         .unwrap_or((0, 0));
 
     let interval_text = match settings.interval {
@@ -343,24 +393,40 @@ async fn show_sponsor_settings(
         total_requests, requests_left, interval_text
     );
 
-    let kb = InlineKeyboardMarkup::new(vec![
-        vec![InlineKeyboardButton::callback(
-            "📊 Set Request Limit",
-            "sponsor_set_requests",
-        )],
-        vec![InlineKeyboardButton::callback(
-            "⏰ Set Interval",
-            "sponsor_set_interval",
-        )],
-        vec![InlineKeyboardButton::callback(
-            "🚫 Disable Sponsor",
-            "sponsor_disable",
-        )],
-        vec![InlineKeyboardButton::callback(
-            "↩️ Back",
-            "back_to_group_settings",
-        )],
-    ]);
+    // Show different buttons based on whether sponsor is enabled or disabled
+    let kb = if settings.requests == 0 {
+        // Sponsor is disabled - show only enable button
+        InlineKeyboardMarkup::new(vec![
+            vec![InlineKeyboardButton::callback(
+                "✅ Enable Sponsor",
+                "sponsor_enable",
+            )],
+            vec![InlineKeyboardButton::callback(
+                "↩️ Back",
+                "back_to_group_settings",
+            )],
+        ])
+    } else {
+        // Sponsor is enabled - show all management buttons
+        InlineKeyboardMarkup::new(vec![
+            vec![InlineKeyboardButton::callback(
+                "📊 Set Request Limit",
+                "sponsor_set_requests",
+            )],
+            vec![InlineKeyboardButton::callback(
+                "⏰ Set Interval",
+                "sponsor_set_interval",
+            )],
+            vec![InlineKeyboardButton::callback(
+                "🚫 Disable Sponsor",
+                "sponsor_disable",
+            )],
+            vec![InlineKeyboardButton::callback(
+                "↩️ Back",
+                "back_to_group_settings",
+            )],
+        ])
+    };
 
     bot.edit_message_text(chat_id, message_id, text)
         .parse_mode(teloxide::types::ParseMode::Html)
@@ -468,12 +534,13 @@ pub async fn handle_sponsor_message(
                                 .parse_mode(teloxide::types::ParseMode::Html)
                                 .await?;
 
+                                // Get updated settings to show correct interface
                                 let settings = bot_deps
                                     .sponsor
                                     .get_sponsor_settings(current_group_id.to_string());
                                 let (requests_left, total_requests) = bot_deps
                                     .sponsor
-                                    .get_request_status(current_group_id.to_string())
+                                    .get_request_status_and_reset(current_group_id.to_string())
                                     .unwrap_or((0, 0));
 
                                 let interval_text = match settings.interval {
@@ -485,37 +552,53 @@ pub async fn handle_sponsor_message(
 
                                 let text = format!(
                                     "🎯 <b>Sponsor Settings</b>\n\n\
-                                            <b>Current Status:</b>\n\
-                                            • Total Requests: <b>{}</b>\n\
-                                            • Requests Left: <b>{}</b>\n\
-                                            • Interval: <b>{}</b>\n\n\
-                                            <b>How it works:</b>\n\
-                                            • Users can use <code>/g</code> command\n\
-                                            • No registration required\n\
-                                            • Requests reset every interval\n\
-                                            • Only admins can change settings\n\n\
-                                            Choose an action below:",
+                                    <b>Current Status:</b>\n\
+                                    • Total Requests: <b>{}</b>\n\
+                                    • Requests Left: <b>{}</b>\n\
+                                    • Interval: <b>{}</b>\n\n\
+                                    <b>How it works:</b>\n\
+                                    • Users can use <code>/g</code> command\n\
+                                    • No registration required\n\
+                                    • Requests reset every interval\n\
+                                    • Only admins can change settings\n\n\
+                                    Choose an action below:",
                                     total_requests, requests_left, interval_text
                                 );
 
-                                let kb = InlineKeyboardMarkup::new(vec![
-                                    vec![InlineKeyboardButton::callback(
-                                        "📊 Set Request Limit",
-                                        "sponsor_set_requests",
-                                    )],
-                                    vec![InlineKeyboardButton::callback(
-                                        "⏰ Set Interval",
-                                        "sponsor_set_interval",
-                                    )],
-                                    vec![InlineKeyboardButton::callback(
-                                        "🚫 Disable Sponsor",
-                                        "sponsor_disable",
-                                    )],
-                                    vec![InlineKeyboardButton::callback(
-                                        "↩️ Back",
-                                        "back_to_group_settings",
-                                    )],
-                                ]);
+                                // Show different buttons based on whether sponsor is enabled or disabled
+                                let kb = if settings.requests == 0 {
+                                    // Sponsor is disabled - show only enable button
+                                    InlineKeyboardMarkup::new(vec![
+                                        vec![InlineKeyboardButton::callback(
+                                            "✅ Enable Sponsor",
+                                            "sponsor_enable",
+                                        )],
+                                        vec![InlineKeyboardButton::callback(
+                                            "↩️ Back",
+                                            "back_to_group_settings",
+                                        )],
+                                    ])
+                                } else {
+                                    // Sponsor is enabled - show all management buttons
+                                    InlineKeyboardMarkup::new(vec![
+                                        vec![InlineKeyboardButton::callback(
+                                            "📊 Set Request Limit",
+                                            "sponsor_set_requests",
+                                        )],
+                                        vec![InlineKeyboardButton::callback(
+                                            "⏰ Set Interval",
+                                            "sponsor_set_interval",
+                                        )],
+                                        vec![InlineKeyboardButton::callback(
+                                            "🚫 Disable Sponsor",
+                                            "sponsor_disable",
+                                        )],
+                                        vec![InlineKeyboardButton::callback(
+                                            "↩️ Back",
+                                            "back_to_group_settings",
+                                        )],
+                                    ])
+                                };
 
                                 bot.send_message(group_id, text)
                                     .parse_mode(teloxide::types::ParseMode::Html)
