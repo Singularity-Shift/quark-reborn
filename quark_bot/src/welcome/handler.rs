@@ -106,7 +106,6 @@ async fn show_welcome_settings_menu(
         📈 Success Rate: {:.1}%\n\
         ✅ Total Verifications: {}\n\
         ❌ Failed Verifications: {}\n\n\
-        🎨 <b>HTML Formatting:</b> Custom welcome messages support HTML tags like <b>bold</b>, <i>italic</i>, and <code>code</code>!\n\n\
         Configure anti-spam protection for new group members.",
         status_text,
         timeout_text,
@@ -199,10 +198,14 @@ async fn show_custom_message_menu(
             Current message:\n\
             <code>{}</code>\n\n\
             Available placeholders:\n\
-            • {{username}} - @username (creates clickable mention)\n\
+            • {{username}} - @username (creates clickable mention - automatically formatted by the bot)\n\
             • {{group_name}} - Group name\n\
             • {{timeout}} - Verification timeout in minutes\n\n\
-            🎨 <b>HTML Formatting:</b> You can use HTML tags like <b>bold</b>, <i>italic</i>, and <code>code</code> in your message!\n\n\
+            🎨 <b>HTML Formatting:</b> You can use HTML tags like &lt;b&gt;bold&lt;/b&gt;, &lt;i&gt;italic&lt;/i&gt;, and &lt;code&gt;code&lt;/code&gt; in your message!\n\n\
+            💡 <b>Examples:</b>\n\
+            • &lt;b&gt;Welcome&lt;/b&gt; → <b>Welcome</b>\n\
+            • &lt;i&gt;Please verify&lt;/i&gt; → <i>Please verify</i>\n\
+            • &lt;code&gt;{{username}}&lt;/code&gt; → <code>{{username}}</code>\n\n\
             To set a custom message, reply to this message with your text.\n\
             To use the default message, click 'Reset to Default'.",
         teloxide::utils::html::escape(current_message)
@@ -382,7 +385,11 @@ async fn start_custom_message_input(
         • {username} - @username (creates clickable mention)\n\
         • {group_name} - Group name\n\
         • {timeout} - Verification timeout in minutes\n\n\
-        🎨 <b>HTML Formatting:</b> You can use HTML tags like <b>bold</b>, <i>italic</i>, and <code>code</code> in your message!\n\n\
+        🎨 <b>HTML Formatting:</b> You can use HTML tags like &lt;b&gt;bold&lt;/b&gt;, &lt;i&gt;italic&lt;/i&gt;, and &lt;code&gt;code&lt;/code&gt; in your message!\n\n\
+        💡 <b>Examples:</b>\n\
+        • &lt;b&gt;Welcome&lt;/b&gt; → <b>Welcome</b>\n\
+        • &lt;i&gt;Please verify&lt;/i&gt; → <i>Please verify</i>\n\
+        • &lt;code&gt;Contract&lt;/code&gt; → <code>Contract</code>\n\n\
         <i>Send /cancel to cancel or just send your message.</i>";
 
     let keyboard = InlineKeyboardMarkup::new(vec![vec![InlineKeyboardButton::callback(
@@ -527,8 +534,7 @@ pub async fn handle_welcome_message(
                 bot.send_message(
                     msg.chat.id,
                     "✅ <b>Custom welcome message updated successfully!</b>\n\n\
-                    New members will now see your custom message with placeholders replaced.\n\n\
-                    💡 <i>HTML formatting is supported, so you can use tags like <b>bold</b>, <i>italic</i>, and <code>code</code>!</i>",
+                    New members will now see your custom message with placeholders replaced.",
                 )
                 .parse_mode(teloxide::types::ParseMode::Html)
                 .await?;
