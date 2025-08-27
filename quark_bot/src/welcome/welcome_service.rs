@@ -122,6 +122,7 @@ impl WelcomeService {
         let welcome_text = get_custom_welcome_message(&settings, &first_name, &group_name);
         let message = bot
             .send_message(chat_id, welcome_text)
+            .parse_mode(teloxide::types::ParseMode::Html)
             .reply_markup(keyboard)
             .await?;
 
@@ -261,6 +262,7 @@ impl WelcomeService {
                 teloxide::types::MessageId(verification.verification_message_id),
                 success_text,
             )
+            .parse_mode(teloxide::types::ParseMode::Html)
             .await
         {
             Ok(_) => log::info!(
@@ -433,6 +435,7 @@ impl WelcomeService {
                     teloxide::types::MessageId(verification.verification_message_id),
                     expired_text,
                 )
+                .parse_mode(teloxide::types::ParseMode::Html)
                 .await
             {
                 log::error!(
