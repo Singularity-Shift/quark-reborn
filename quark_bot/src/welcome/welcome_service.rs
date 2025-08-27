@@ -5,6 +5,7 @@ use sled::Tree;
 use teloxide::{
     prelude::*,
     types::{ChatId, ChatPermissions, InlineKeyboardButton, InlineKeyboardMarkup, UserId},
+    utils::html,
 };
 
 use crate::welcome::{
@@ -253,7 +254,7 @@ impl WelcomeService {
         // Update verification message
         let success_text = format!(
             "✅ Welcome to the group, {}! You've been verified and can now participate.",
-            verification.first_name
+            html::escape(&verification.first_name)
         );
 
         match bot
@@ -425,7 +426,7 @@ impl WelcomeService {
             // Update verification message
             let expired_text = format!(
                 "⏰ Verification expired for {}. User has been removed from the group until {}.",
-                verification.first_name,
+                html::escape(&verification.first_name),
                 until_date.format("%Y-%m-%d %H:%M:%S")
             );
 
