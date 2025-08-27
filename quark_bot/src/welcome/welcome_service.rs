@@ -119,7 +119,7 @@ impl WelcomeService {
         )]]);
 
         // Send welcome message with verification button
-        let welcome_text = get_custom_welcome_message(&settings, &first_name, &group_name);
+        let welcome_text = get_custom_welcome_message(&settings, &first_name, user_id, &group_name);
         let message = bot
             .send_message(chat_id, welcome_text)
             .parse_mode(teloxide::types::ParseMode::Html)
