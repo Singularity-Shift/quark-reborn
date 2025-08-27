@@ -6,10 +6,8 @@ use teloxide::{
 
 use crate::{
     dependencies::BotDependencies,
-    welcome::{
-        helpers::format_timeout_display,
-        welcome_service::WelcomeService,
-    },
+    utils,
+    welcome::{helpers::format_timeout_display, welcome_service::WelcomeService},
 };
 
 pub async fn handle_welcome_settings_callback(
@@ -93,10 +91,14 @@ async fn show_welcome_settings_menu(
 ) -> Result<()> {
     let settings = welcome_service.get_settings(msg.chat.id);
     let stats = welcome_service.get_stats(msg.chat.id);
-    
-    let status_text = if settings.enabled { "🟢 Enabled" } else { "🔴 Disabled" };
+
+    let status_text = if settings.enabled {
+        "🟢 Enabled"
+    } else {
+        "🔴 Disabled"
+    };
     let timeout_text = format_timeout_display(settings.verification_timeout);
-    
+
     let text = format!(
         "👋 <b>Welcome Settings</b>\n\n\
         📊 Status: {}\n\
@@ -114,7 +116,11 @@ async fn show_welcome_settings_menu(
 
     let keyboard = InlineKeyboardMarkup::new(vec![
         vec![InlineKeyboardButton::callback(
-            if settings.enabled { "🔴 Disable Welcome" } else { "🟢 Enable Welcome" },
+            if settings.enabled {
+                "🔴 Disable Welcome"
+            } else {
+                "🟢 Enable Welcome"
+            },
             "welcome_toggle",
         )],
         vec![InlineKeyboardButton::callback(
@@ -139,10 +145,12 @@ async fn show_welcome_settings_menu(
         )],
     ]);
 
-    match bot.edit_message_text(msg.chat.id, msg.id, text)
+    match bot
+        .edit_message_text(msg.chat.id, msg.id, text)
         .parse_mode(ParseMode::Html)
         .reply_markup(keyboard)
-        .await {
+        .await
+    {
         Ok(_) => log::info!("Welcome settings menu updated successfully"),
         Err(e) => {
             if e.to_string().contains("message is not modified") {
@@ -164,12 +172,12 @@ async fn toggle_welcome_feature(
     let mut settings = welcome_service.get_settings(msg.chat.id);
     settings.enabled = !settings.enabled;
     settings.last_updated = chrono::Utc::now().timestamp();
-    
+
     welcome_service.save_settings(msg.chat.id, settings.clone())?;
-    
+
     // Always refresh the menu to show the new state
     show_welcome_settings_menu(bot, msg, welcome_service).await?;
-    
+
     Ok(())
 }
 
@@ -179,14 +187,14 @@ async fn show_custom_message_menu(
     welcome_service: WelcomeService,
 ) -> Result<()> {
     let settings = welcome_service.get_settings(msg.chat.id);
-            let current_message = if let Some(ref msg) = settings.custom_message {
-            msg
-        } else {
-            "Use default welcome message"
-        };
-        
-        let text = format!(
-            "✏️ <b>Custom Welcome Message</b>\n\n\
+    let current_message = if let Some(ref msg) = settings.custom_message {
+        msg
+    } else {
+        "Use default welcome message"
+    };
+
+    let text = format!(
+        "✏️ <b>Custom Welcome Message</b>\n\n\
             Current message:\n\
             <code>{}</code>\n\n\
             Available placeholders:\n\
@@ -195,23 +203,23 @@ async fn show_custom_message_menu(
             • {{timeout}} - Verification timeout in minutes\n\n\
             To set a custom message, reply to this message with your text.\n\
             To use the default message, click 'Reset to Default'.",
-            teloxide::utils::html::escape(current_message)
-        );
+        teloxide::utils::html::escape(current_message)
+    );
 
-            let keyboard = InlineKeyboardMarkup::new(vec![
-            vec![InlineKeyboardButton::callback(
-                "✏️ Set Custom Message",
-                "welcome_set_custom_message",
-            )],
-            vec![InlineKeyboardButton::callback(
-                "🔄 Reset to Default",
-                "welcome_reset_message",
-            )],
-            vec![InlineKeyboardButton::callback(
-                "↩️ Back",
-                "welcome_back_to_main",
-            )],
-        ]);
+    let keyboard = InlineKeyboardMarkup::new(vec![
+        vec![InlineKeyboardButton::callback(
+            "✏️ Set Custom Message",
+            "welcome_set_custom_message",
+        )],
+        vec![InlineKeyboardButton::callback(
+            "🔄 Reset to Default",
+            "welcome_reset_message",
+        )],
+        vec![InlineKeyboardButton::callback(
+            "↩️ Back",
+            "welcome_back_to_main",
+        )],
+    ]);
 
     bot.edit_message_text(msg.chat.id, msg.id, text)
         .parse_mode(ParseMode::Html)
@@ -221,14 +229,10 @@ async fn show_custom_message_menu(
     Ok(())
 }
 
-async fn show_timeout_menu(
-    bot: Bot,
-    msg: &Message,
-    welcome_service: WelcomeService,
-) -> Result<()> {
+async fn show_timeout_menu(bot: Bot, msg: &Message, welcome_service: WelcomeService) -> Result<()> {
     let settings = welcome_service.get_settings(msg.chat.id);
     let current_timeout = settings.verification_timeout;
-    
+
     let text = format!(
         "⏰ <b>Verification Timeout</b>\n\n\
         Current timeout: {}\n\n\
@@ -270,12 +274,12 @@ async fn set_welcome_timeout(
     let mut settings = welcome_service.get_settings(msg.chat.id);
     settings.verification_timeout = timeout_seconds;
     settings.last_updated = chrono::Utc::now().timestamp();
-    
+
     welcome_service.save_settings(msg.chat.id, settings)?;
-    
+
     // Refresh the menu
     show_welcome_settings_menu(bot, msg, welcome_service).await?;
-    
+
     Ok(())
 }
 
@@ -286,15 +290,14 @@ async fn show_welcome_stats(
 ) -> Result<()> {
     let stats = welcome_service.get_stats(msg.chat.id);
     let settings = welcome_service.get_settings(msg.chat.id);
-    
+
     let last_verification = if let Some(timestamp) = stats.last_verification {
-        let dt = chrono::DateTime::from_timestamp(timestamp, 0)
-            .unwrap_or_default();
+        let dt = chrono::DateTime::from_timestamp(timestamp, 0).unwrap_or_default();
         dt.format("%Y-%m-%d %H:%M:%S UTC").to_string()
     } else {
         "Never".to_string()
     };
-    
+
     let text = format!(
         "📊 <b>Welcome Statistics</b>\n\n\
         📈 Total Verifications: {}\n\
@@ -342,10 +345,10 @@ async fn reset_welcome_stats(
 ) -> Result<()> {
     // Reset stats by clearing the stats tree for this chat
     welcome_service.reset_stats(msg.chat.id)?;
-    
+
     // Refresh the stats view
     show_welcome_stats(bot, msg, welcome_service).await?;
-    
+
     Ok(())
 }
 
@@ -357,12 +360,12 @@ async fn reset_custom_message(
     let mut settings = welcome_service.get_settings(msg.chat.id);
     settings.custom_message = None;
     settings.last_updated = chrono::Utc::now().timestamp();
-    
+
     welcome_service.save_settings(msg.chat.id, settings)?;
-    
+
     // Refresh the custom message menu
     show_custom_message_menu(bot, msg, welcome_service).await?;
-    
+
     Ok(())
 }
 
@@ -378,15 +381,14 @@ async fn start_custom_message_input(
         • {group_name} - Group name\n\
         • {timeout} - Verification timeout in minutes\n\n\
         <i>Send /cancel to cancel or just send your message.</i>";
-    
-    let keyboard = InlineKeyboardMarkup::new(vec![vec![
-        InlineKeyboardButton::callback(
-            "↩️ Back",
-            "welcome_back_to_main",
-        ),
-    ]]);
-    
-    match bot.edit_message_text(msg.chat.id, msg.id, text)
+
+    let keyboard = InlineKeyboardMarkup::new(vec![vec![InlineKeyboardButton::callback(
+        "↩️ Back",
+        "welcome_back_to_main",
+    )]]);
+
+    match bot
+        .edit_message_text(msg.chat.id, msg.id, text)
         .parse_mode(ParseMode::Html)
         .reply_markup(keyboard)
         .await
@@ -394,15 +396,13 @@ async fn start_custom_message_input(
         Ok(_) => log::info!("Successfully updated custom message input screen"),
         Err(e) => log::error!("Failed to update custom message input screen: {}", e),
     }
-    
+
     // Store the state that we're waiting for custom message input
-    let key = format!("welcome_custom_msg_input:{}", msg.chat.id.0);
-    log::info!("Storing welcome input state for key: {}", key);
-    match welcome_service.store_input_state(key.clone(), msg.chat.id).await {
+    match welcome_service.store_input_state(msg.chat.id).await {
         Ok(_) => log::info!("Successfully stored welcome input state"),
         Err(e) => log::error!("Failed to store welcome input state: {}", e),
     }
-    
+
     Ok(())
 }
 
@@ -428,6 +428,11 @@ async fn show_main_group_settings(bot: Bot, msg: &Message) -> Result<()> {
             "👋 Welcome Settings",
             "welcome_settings",
         )],
+        vec![InlineKeyboardButton::callback("🔍 Filters", "filters_main")],
+        vec![InlineKeyboardButton::callback(
+            "⚙️ Command Settings",
+            "open_command_settings",
+        )],
         vec![InlineKeyboardButton::callback(
             "🔄 Migrate Group ID",
             "open_migrate_group_id",
@@ -441,11 +446,101 @@ async fn show_main_group_settings(bot: Bot, msg: &Message) -> Result<()> {
     bot.edit_message_text(
         msg.chat.id,
         msg.id,
-        "⚙️ <b>Group Settings</b>\n\n• Configure payment token, DAO preferences, moderation, sponsor settings, welcome protection, and group migration.\n\n💡 Only group administrators can access these settings.",
+        "⚙️ <b>Group Settings</b>\n\n• Configure payment token, DAO preferences, moderation, sponsor settings, welcome protection, command settings, filters, and group migration.\n\n💡 Only group administrators can access these settings.",
     )
     .parse_mode(ParseMode::Html)
     .reply_markup(keyboard)
     .await?;
 
     Ok(())
+}
+
+pub async fn handle_welcome_message(
+    bot: Bot,
+    bot_deps: BotDependencies,
+    msg: &Message,
+    user_id: String,
+    group_id: String,
+) -> Result<bool> {
+    let group_id = group_id.parse::<i64>();
+
+    if group_id.is_err() {
+        log::error!("Invalid group ID: {}", group_id.err().unwrap());
+        return Err(anyhow::anyhow!("Invalid group ID"));
+    }
+
+    let group_id = ChatId(group_id.unwrap());
+
+    let user_id = user_id.parse::<u64>();
+
+    if user_id.is_err() {
+        log::error!("Invalid user ID: {}", user_id.err().unwrap());
+        return Ok(false);
+    }
+
+    let user_id = UserId(user_id.unwrap());
+
+    if let Some(_input_state) = bot_deps.welcome_service.get_input_state(group_id) {
+        log::info!("Found welcome input state for group: {}", group_id);
+        // Only process if the user is an admin
+        let is_admin = utils::is_admin(&bot, group_id, user_id).await;
+        if !is_admin {
+            // Non-admin users typing during welcome setup - ignore silently
+            return Ok(false);
+        }
+
+        if let Some(text) = msg.text() {
+            let text = text.trim();
+            if !text.is_empty() {
+                if text == "/cancel" {
+                    // Cancel the custom message input
+                    bot_deps.welcome_service.clear_input_state(group_id)?;
+                    bot.send_message(msg.chat.id, "❌ Custom message input cancelled.")
+                        .await?;
+                    return Ok(true);
+                }
+
+                // Update the welcome settings with custom message
+                let mut settings = bot_deps.welcome_service.get_settings(msg.chat.id);
+                settings.custom_message = Some(text.to_string());
+                settings.last_updated = chrono::Utc::now().timestamp();
+
+                if let Err(e) = bot_deps
+                    .welcome_service
+                    .save_settings(msg.chat.id, settings)
+                {
+                    bot.send_message(
+                        msg.chat.id,
+                        format!("❌ Failed to save custom message: {}", e),
+                    )
+                    .await?;
+                    return Ok(true);
+                }
+
+                // Clear the input state
+                bot_deps.welcome_service.clear_input_state(group_id)?;
+
+                // Send success message
+                bot.send_message(
+                    msg.chat.id,
+                    "✅ <b>Custom welcome message updated successfully!</b>\n\n\
+                    New members will now see your custom message with placeholders replaced.",
+                )
+                .parse_mode(teloxide::types::ParseMode::Html)
+                .await?;
+
+                return Ok(true);
+            } else {
+                // Empty text, ask for valid input
+                bot.send_message(
+                    msg.chat.id,
+                    "❌ Please enter a valid welcome message. Use /cancel to cancel.",
+                )
+                .await?;
+                return Ok(true);
+            }
+        }
+    }
+
+    Ok(false)
 }

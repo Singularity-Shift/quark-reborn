@@ -348,6 +348,11 @@ async fn handle_payment_selection(
                         "👋 Welcome Settings",
                         "welcome_settings",
                     )],
+                    vec![InlineKeyboardButton::callback("🔍 Filters", "filters_main")],
+                    vec![InlineKeyboardButton::callback(
+                        "⚙️ Command Settings",
+                        "open_command_settings",
+                    )],
                     vec![InlineKeyboardButton::callback(
                         "🔄 Migrate Group ID",
                         "open_migrate_group_id",
@@ -361,7 +366,7 @@ async fn handle_payment_selection(
                 bot.edit_message_text(
                     m.chat.id,
                     m.id,
-                    "⚙️ <b>Group Settings</b>\n\n• Configure payment token, DAO preferences, moderation, sponsor settings, and group migration.\n\n💡 Only group administrators can access these settings."
+                    "⚙️ <b>Group Settings</b>\n\n• Configure payment token, DAO preferences, moderation, sponsor settings, command settings, filters, and group migration.\n\n💡 Only group administrators can access these settings."
                 )
                 .parse_mode(teloxide::types::ParseMode::Html)
                 .reply_markup(kb)

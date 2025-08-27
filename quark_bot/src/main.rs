@@ -4,9 +4,11 @@ mod aptos;
 mod assets;
 mod bot;
 mod callbacks;
+mod command_settings;
 mod credentials;
 mod dao;
 mod db;
+mod filters;
 mod group;
 mod job;
 mod message_history;
@@ -17,6 +19,7 @@ mod scheduled_payments;
 mod scheduled_prompts;
 mod services;
 mod sponsor;
+mod summarization_settings;
 mod user_conversation;
 mod user_model_preferences;
 mod utils;
@@ -29,14 +32,16 @@ use crate::{
     ai::{
         gcs::GcsImageUploader, handler::AI, moderation::ModerationService,
         schedule_guard::schedule_guard_service::ScheduleGuardService,
-        sentinel::sentinel::SentinelService,
+        sentinel::sentinel::SentinelService, summarizer::handler::SummarizerService,
     },
     aptos::handler::Aptos,
     assets::{command_image_collector, media_aggregator},
     bot::handler_tree::handler_tree,
+    command_settings::CommandSettingsManager,
     credentials::handler::Auth,
     dao::dao::Dao,
     dependencies::BotDependencies,
+    filters::filters::Filters,
     group::handler::Group,
     job::job_scheduler::schedule_jobs,
     message_history::handler::MessageHistory,
@@ -73,6 +78,8 @@ async fn main() {
     let db = db::init_tree();
     let auth_db = db.open_tree("auth").expect("Failed to open auth tree");
     let group_db = db.open_tree("group").expect("Failed to open group tree");
+
+
     let openai_api_key = env::var("OPENAI_API_KEY").expect("OPENAI_API_KEY not set");
     let gcs_creds = env::var("STORAGE_CREDENTIALS").expect("STORAGE_CREDENTIALS not set");
     let bucket_name = env::var("GCS_BUCKET_NAME").expect("GCS_BUCKET_NAME not set");
@@ -99,6 +106,7 @@ async fn main() {
 
     let auth = Auth::new(auth_db);
     let group = Group::new(group_db);
+    let filters = Filters::new(&db);
 
     // Execute token list updates immediately on startup
     let panora_startup = panora.clone();
@@ -128,6 +136,10 @@ async fn main() {
     let payment = Payment::new(&db).unwrap();
 
     let ai = AI::new(openai_api_key.clone(), google_cloud);
+    let summarizer = SummarizerService::new(
+        db.clone(),
+        ai.get_client().clone(),
+    );
     let schedule_guard = ScheduleGuardService::new(openai_api_key.clone())
         .expect("Failed to create ScheduleGuardService");
     let moderation = ModerationService::new(openai_api_key.clone(), db.clone())
@@ -140,6 +152,9 @@ async fn main() {
     let pending_transactions = PendingTransactions::new(&db).unwrap();
     let yield_ai = YieldAI::new();
     let welcome_service = welcome::welcome_service::WelcomeService::new(db.clone());
+    let summarization_settings = summarization_settings::SummarizationSettings::new(&db)
+        .expect("Failed to create SummarizationSettings");
+    let command_settings = CommandSettingsManager::new(db.clone());
 
     schedule_jobs(
         panora.clone(),
@@ -250,6 +265,8 @@ async fn main() {
         panora: panora_for_dispatcher,
         group,
         dao,
+        filters,
+        command_settings,
         scheduled_storage,
         scheduled_payments,
         media_aggregator,
@@ -263,7 +280,9 @@ async fn main() {
         moderation,
         sentinel,
         sponsor,
+        summarization_settings,
         welcome_service,
+        summarizer,
     };
 
     // Bootstrap user-defined schedules (load and register)

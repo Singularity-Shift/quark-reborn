@@ -1,3 +1,4 @@
+use anyhow::Result as AnyResult;
 use chrono::Utc;
 use quark_core::helpers::dto::{CoinVersion, CreateProposalRequest};
 use reqwest::Url;
@@ -240,7 +241,7 @@ pub async fn handle_dao_preference_callback(
     bot: Bot,
     query: CallbackQuery,
     bot_deps: BotDependencies,
-) -> anyhow::Result<()> {
+) -> AnyResult<()> {
     let data = query.data.as_ref().unwrap();
     let msg = match &query.message {
         Some(MaybeInaccessibleMessage::Regular(message)) => message,
@@ -1359,7 +1360,7 @@ pub async fn handle_disable_notifications_callback(
     bot: Bot,
     query: CallbackQuery,
     bot_deps: BotDependencies,
-) -> anyhow::Result<()> {
+) -> AnyResult<()> {
     let app_url =
         std::env::var("APP_URL").map_err(|e| anyhow::anyhow!("APP_URL is not set: {}", e))?;
 
@@ -1479,4 +1480,70 @@ pub async fn handle_disable_notifications_callback(
     }
 
     Ok(())
+}
+
+pub async fn handle_message_dao(
+    bot: Bot,
+    msg: Message,
+    bot_deps: BotDependencies,
+    user_id: String,
+    formatted_group_id: String,
+) -> AnyResult<bool> {
+    let key = format!("{}_{}", user_id, formatted_group_id);
+    if let Ok(_) = bot_deps.dao.get_pending_tokens(key.clone()) {
+        // User is in token input mode
+        if let Some(text) = msg.text() {
+            let text = text.trim();
+            if !text.is_empty() {
+                // Process the token: convert to uppercase except for emojis
+                let processed_token = if text.chars().any(|c| c.is_ascii_alphabetic()) {
+                    // Contains letters, convert to uppercase
+                    text.to_uppercase()
+                } else {
+                    // Likely an emoji or special characters, keep as-is
+                    text.to_string()
+                };
+
+                // Update DAO token preference using the formatted group ID
+                if let Ok(mut prefs) = bot_deps
+                    .dao
+                    .get_dao_admin_preferences(formatted_group_id.clone())
+                {
+                    prefs.default_dao_token = Some(processed_token.clone());
+                    if let Ok(_) = bot_deps
+                        .dao
+                        .set_dao_admin_preferences(formatted_group_id.clone(), prefs)
+                    {
+                        // Clear the pending state
+                        bot_deps.dao.remove_pending_tokens(key).unwrap();
+
+                        bot.send_message(
+                            msg.chat.id,
+                            format!("✅ <b>DAO token updated to {}</b>", processed_token),
+                        )
+                        .parse_mode(teloxide::types::ParseMode::Html)
+                        .await?;
+                        return Ok(true);
+                    }
+                }
+
+                // If we get here, there was an error
+                bot_deps.dao.remove_pending_tokens(key).unwrap();
+                bot.send_message(msg.chat.id, "❌ Error updating DAO token preference")
+                    .await?;
+                return Ok(true);
+            }
+        }
+
+        // Invalid input, ask again
+        bot.send_message(
+            msg.chat.id,
+            "❌ Please send a valid token ticker or emojicoin. Example: APT, USDC, or 📒",
+        )
+        .await?;
+
+        return Ok(true);
+    } else {
+        return Ok(false);
+    }
 }

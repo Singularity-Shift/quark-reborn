@@ -53,6 +53,8 @@ services:
       - YIELD_AI_URL=${YIELD_AI_URL}
       - YIELD_AI_API_KEY=${YIELD_AI_API_KEY}
       - DEFAULT_SYMBOL=${DEFAULT_SYMBOL}
+      - SUMMARIZER_ENABLED=${SUMMARIZER_ENABLED}
+      - CONVERSATION_TOKEN_LIMIT=${CONVERSATION_TOKEN_LIMIT}
     networks:
       - quark-net
     volumes:

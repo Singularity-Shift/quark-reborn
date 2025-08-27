@@ -6,6 +6,7 @@ use crate::ai::vector_store::{
 };
 use crate::dao::handler::{handle_dao_preference_callback, handle_disable_notifications_callback};
 use crate::dependencies::BotDependencies;
+use crate::filters::handler::handle_filters_callback;
 use crate::scheduled_payments::callbacks::handle_scheduled_payments_callback;
 use crate::scheduled_prompts::callbacks::handle_scheduled_prompts_callback;
 use crate::sponsor::handler::handle_sponsor_settings_callback;
@@ -340,12 +341,19 @@ pub async fn handle_callback_query(
                             .map(super::user_model_preferences::dto::verbosity_to_display_string)
                             .unwrap_or("Medium");
 
+                        // Get effective summarization preferences
+                        let user_id = id.0 as i64;
+                        let sum_prefs = bot_deps.summarization_settings.get_effective_prefs(user_id);
+                        let sum_status = if sum_prefs.enabled { "On" } else { "Off" };
+
                         let text = format!(
-                            "⚙️ <b>Your Settings</b>\n\n🤖 Model: {}\n🧩 Mode: {}\n🗣️ Verbosity: {}\n💳 Token: <code>{}</code>",
+                            "⚙️ <b>Your Settings</b>\n\n🤖 Model: {}\n🧩 Mode: {}\n🗣️ Verbosity: {}\n💳 Token: <code>{}</code>\n🧾 Summarizer: {}\n📏 Threshold: {} tokens",
                             prefs.chat_model.to_display_string(),
                             mode_text,
                             verbosity_text,
-                            token_label
+                            token_label,
+                            sum_status,
+                            sum_prefs.token_limit
                         );
 
                         let keyboard =
@@ -642,6 +650,7 @@ pub async fn handle_callback_query(
                                     "👋 Welcome Settings",
                                     "welcome_settings",
                                 )],
+                                vec![InlineKeyboardButton::callback("🔍 Filters", "filters_main")],
                                 vec![InlineKeyboardButton::callback(
                                     "🔄 Migrate Group ID",
                                     "open_migrate_group_id",
@@ -655,7 +664,7 @@ pub async fn handle_callback_query(
                             bot.edit_message_text(
                                 m.chat.id,
                                 m.id,
-                                "⚙️ <b>Group Settings</b>\n\n• Configure payment token, DAO preferences, moderation, sponsor settings, and group migration.\n\n💡 Only group administrators can access these settings."
+                                "⚙️ <b>Group Settings</b>\n\n• Configure payment token, DAO preferences, moderation, sponsor settings, welcome settings, filters, and group migration.\n\n💡 Only group administrators can access these settings."
                             )
                             .parse_mode(teloxide::types::ParseMode::Html)
                             .reply_markup(kb)
@@ -728,6 +737,11 @@ pub async fn handle_callback_query(
                             "👋 Welcome Settings",
                             "welcome_settings",
                         )],
+                        vec![InlineKeyboardButton::callback("🔍 Filters", "filters_main")],
+                        vec![InlineKeyboardButton::callback(
+                            "⚙️ Command Settings",
+                            "open_command_settings",
+                        )],
                         vec![InlineKeyboardButton::callback(
                             "🔄 Migrate Group ID",
                             "open_migrate_group_id",
@@ -737,7 +751,7 @@ pub async fn handle_callback_query(
                             "group_settings_close",
                         )],
                     ]);
-                    bot.edit_message_text(m.chat.id, m.id, "⚙️ <b>Group Settings</b>\n\n• Configure payment token, DAO preferences, moderation, sponsor settings, and group migration.\n\n💡 Only group administrators can access these settings.")
+                    bot.edit_message_text(m.chat.id, m.id, "⚙️ <b>Group Settings</b>\n\n• Configure payment token, DAO preferences, moderation, sponsor settings, command settings, filters, and group migration.\n\n💡 Only group administrators can access these settings.")
                         .parse_mode(teloxide::types::ParseMode::Html)
                         .reply_markup(kb)
                         .await?;
@@ -804,6 +818,11 @@ pub async fn handle_callback_query(
         {
             // Handle sponsor settings callbacks
             handle_sponsor_settings_callback(bot, query, bot_deps).await?;
+        } else if data == "open_command_settings"
+            || data == "toggle_chat_commands"
+            || data == "command_settings_back"
+        {
+            crate::command_settings::handler::handle_command_settings_callback(bot, query, bot_deps).await?;
         } else if data.starts_with("welcome_verify:") {
             // Handle welcome verification callback
             log::info!("Received welcome verification callback: {}", data);
@@ -887,6 +906,18 @@ pub async fn handle_callback_query(
         {
             // Handle welcome settings callbacks
             handle_welcome_settings_callback(bot, query, bot_deps).await?;
+        } else if data == "open_summarization_settings"
+            || data.starts_with("toggle_summarizer:")
+            || data.starts_with("set_summarizer_threshold:")
+            || data == "summarization_back_to_usersettings"
+        {
+            // Handle summarization settings callbacks
+            crate::summarization_settings::handler::handle_summarization_settings_callback(
+                bot,
+                query,
+                bot_deps.summarization_settings,
+            )
+            .await?;
         } else if data == "open_moderation_settings" {
             // Open Moderation submenu inside Group Settings
             if let Some(message) = &query.message {
@@ -1052,9 +1083,6 @@ pub async fn handle_callback_query(
 
                     let mut state =
                         ModerationState::from(("AwaitingAllowed".to_string(), None, None));
-                    bot_deps
-                        .moderation
-                        .set_moderation_state(m.chat.id.to_string(), state.clone())?;
                     // Prompt Step 1/2 in chat
                     let sent = bot.send_message(
                         m.chat.id,
@@ -1202,6 +1230,9 @@ If you have questions, ask an admin before posting.
         } else if data.starts_with("schedpay_") {
             // Handle scheduled payments wizard and management callbacks
             handle_scheduled_payments_callback(bot, query, bot_deps).await?;
+        } else if data.starts_with("filters_") {
+            // Handle filters callbacks
+            handle_filters_callback(bot, query, bot_deps).await?;
         } else if data == "open_payment_settings"
             || data == "open_group_payment_settings"
             || data == "payment_selected"
