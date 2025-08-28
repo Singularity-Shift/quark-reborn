@@ -427,7 +427,7 @@ impl WelcomeService {
 
             // Update verification message
             let expired_text = format!(
-                for {}\\. User has been removed from the group until {}\\.",
+                "⏰ Verification expired for {}\\. User has been removed from the group until {}\\.",
                 escape_for_markdown_v2(&verification.first_name),
                 escape_for_markdown_v2(&until_date.format("%Y-%m-%d %H:%M:%S").to_string())
             );
