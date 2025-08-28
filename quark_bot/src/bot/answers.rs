@@ -108,7 +108,9 @@ pub async fn answers(
 
             let is_admin = users_admin.iter().any(|member| member.user.id == user.id);
 
-            let sponsor = bot_deps.sponsor.can_make_request(msg.chat.id.to_string());
+            let sponsor = bot_deps
+                .sponsor
+                .can_make_request(msg.chat.id.to_string(), user.id.to_string());
 
             let is_sponsor = sponsor.is_ok() && sponsor.unwrap();
 

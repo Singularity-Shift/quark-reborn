@@ -814,6 +814,7 @@ pub async fn handle_callback_query(
         } else if data == "open_sponsor_settings"
             || data.starts_with("sponsor_set_")
             || data.starts_with("sponsor_interval_")
+            || data.starts_with("sponsor_cooldown_")
             || data == "sponsor_enable"
             || data == "sponsor_disable"
             || data == "sponsor_cancel_input"
