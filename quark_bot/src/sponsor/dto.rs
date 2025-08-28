@@ -9,9 +9,19 @@ pub enum SponsorInterval {
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
+pub enum SponsorCooldown {
+    WithoutCooldown,
+    FiveMinutes,
+    ThirtyMinutes,
+    OneHour,
+    OneDay,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct SponsorSettings {
     pub requests: u64,
     pub interval: SponsorInterval,
+    pub cooldown: SponsorCooldown,
 }
 
 impl Default for SponsorSettings {
@@ -19,6 +29,7 @@ impl Default for SponsorSettings {
         Self {
             requests: 0,
             interval: SponsorInterval::Hourly,
+            cooldown: SponsorCooldown::WithoutCooldown,
         }
     }
 }
@@ -33,6 +44,7 @@ pub struct SponsorRequest {
 pub enum SponsorStep {
     AwaitingRequestLimit,
     AwaitingInterval,
+    AwaitingCooldown,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -41,4 +53,9 @@ pub struct SponsorState {
     pub step: SponsorStep,
     pub message_id: Option<u32>,
     pub admin_user_id: Option<u64>,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct SponsorUserCooldown {
+    pub last_request: u64,
 }

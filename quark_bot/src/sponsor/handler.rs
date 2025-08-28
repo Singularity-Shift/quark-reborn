@@ -1,5 +1,7 @@
 use crate::dependencies::BotDependencies;
-use crate::sponsor::dto::{SponsorInterval, SponsorRequest, SponsorState, SponsorStep};
+use crate::sponsor::dto::{
+    SponsorCooldown, SponsorInterval, SponsorRequest, SponsorState, SponsorStep,
+};
 use crate::utils;
 use anyhow::Result;
 use teloxide::types::MessageId;
@@ -177,6 +179,76 @@ pub async fn handle_sponsor_settings_callback(
                 .await?;
             }
         }
+    } else if data == "sponsor_set_cooldown" {
+        // Show cooldown options
+        if let Some(message) = &query.message {
+            if let teloxide::types::MaybeInaccessibleMessage::Regular(m) = message {
+                let is_admin = utils::is_admin(&bot, m.chat.id, query.from.id).await;
+                if !is_admin {
+                    bot.answer_callback_query(query.id)
+                        .text("❌ Only administrators can manage sponsor settings")
+                        .await?;
+                    return Ok(());
+                }
+
+                let group_id = m.chat.id.to_string();
+                let admin_user_id = query.from.id.0;
+
+                // Set sponsor state to await cooldown selection
+                let sponsor_state = SponsorState {
+                    group_id: group_id.clone(),
+                    step: SponsorStep::AwaitingCooldown,
+                    message_id: Some(m.id.0 as u32),
+                    admin_user_id: Some(admin_user_id),
+                };
+
+                if let Err(e) = bot_deps
+                    .sponsor
+                    .set_sponsor_state(group_id.clone(), sponsor_state)
+                {
+                    bot.answer_callback_query(query.id)
+                        .text(&format!("❌ Failed to start cooldown selection: {}", e))
+                        .await?;
+                    return Ok(());
+                }
+
+                let kb = InlineKeyboardMarkup::new(vec![
+                    vec![InlineKeyboardButton::callback(
+                        "🚫 No Cooldown",
+                        "sponsor_cooldown_none",
+                    )],
+                    vec![InlineKeyboardButton::callback(
+                        "⏱️ 5 Minutes",
+                        "sponsor_cooldown_5min",
+                    )],
+                    vec![InlineKeyboardButton::callback(
+                        "⏱️ 30 Minutes",
+                        "sponsor_cooldown_30min",
+                    )],
+                    vec![InlineKeyboardButton::callback(
+                        "⏱️ 1 Hour",
+                        "sponsor_cooldown_1hour",
+                    )],
+                    vec![InlineKeyboardButton::callback(
+                        "⏱️ 1 Day",
+                        "sponsor_cooldown_1day",
+                    )],
+                    vec![InlineKeyboardButton::callback(
+                        "↩️ Back",
+                        "sponsor_cancel_input",
+                    )],
+                ]);
+
+                bot.edit_message_text(
+                    m.chat.id,
+                    m.id,
+                    "⏳ <b>Set Cooldown</b>\n\nChoose the cooldown period between user requests:",
+                )
+                .parse_mode(teloxide::types::ParseMode::Html)
+                .reply_markup(kb)
+                .await?;
+            }
+        }
     } else if data.starts_with("sponsor_interval_") {
         // Handle interval selection
         if let Some(message) = &query.message {
@@ -256,6 +328,74 @@ pub async fn handle_sponsor_settings_callback(
                 show_sponsor_settings(&bot, m.chat.id, m.id, &bot_deps, &group_id).await?;
             }
         }
+    } else if data.starts_with("sponsor_cooldown_") {
+        // Handle cooldown selection
+        if let Some(message) = &query.message {
+            if let teloxide::types::MaybeInaccessibleMessage::Regular(m) = message {
+                let is_admin = utils::is_admin(&bot, m.chat.id, query.from.id).await;
+                if !is_admin {
+                    bot.answer_callback_query(query.id)
+                        .text("❌ Only administrators can manage sponsor settings")
+                        .await?;
+                    return Ok(());
+                }
+
+                // Check if this admin is the one who started the cooldown selection
+                let group_id = m.chat.id.to_string();
+                if let Some(sponsor_state) = bot_deps.sponsor.get_sponsor_state(group_id.clone()) {
+                    if let Some(admin_user_id) = sponsor_state.admin_user_id {
+                        if admin_user_id != query.from.id.0 {
+                            bot.answer_callback_query(query.id)
+                                .text("❌ Only the admin who started this action can complete it")
+                                .await?;
+                            return Ok(());
+                        }
+                    }
+                }
+
+                let cooldown = match data.strip_prefix("sponsor_cooldown_").unwrap() {
+                    "none" => crate::sponsor::dto::SponsorCooldown::WithoutCooldown,
+                    "5min" => crate::sponsor::dto::SponsorCooldown::FiveMinutes,
+                    "30min" => crate::sponsor::dto::SponsorCooldown::ThirtyMinutes,
+                    "1hour" => crate::sponsor::dto::SponsorCooldown::OneHour,
+                    "1day" => crate::sponsor::dto::SponsorCooldown::OneDay,
+                    _ => crate::sponsor::dto::SponsorCooldown::WithoutCooldown,
+                };
+
+                let mut settings = bot_deps.sponsor.get_sponsor_settings(group_id.clone());
+                settings.cooldown = cooldown.clone();
+
+                if let Err(e) = bot_deps
+                    .sponsor
+                    .set_or_update_sponsor_settings(group_id.clone(), settings.clone())
+                {
+                    bot.answer_callback_query(query.id)
+                        .text(&format!("❌ Failed to update settings: {}", e))
+                        .await?;
+                    return Ok(());
+                }
+
+                // Clear the sponsor state
+                if let Err(e) = bot_deps.sponsor.remove_sponsor_state(group_id.clone()) {
+                    log::warn!("Failed to remove sponsor state: {}", e);
+                }
+
+                let cooldown_text = match cooldown {
+                    crate::sponsor::dto::SponsorCooldown::WithoutCooldown => "No Cooldown",
+                    crate::sponsor::dto::SponsorCooldown::FiveMinutes => "5 Minutes",
+                    crate::sponsor::dto::SponsorCooldown::ThirtyMinutes => "30 Minutes",
+                    crate::sponsor::dto::SponsorCooldown::OneHour => "1 Hour",
+                    crate::sponsor::dto::SponsorCooldown::OneDay => "1 Day",
+                };
+
+                bot.answer_callback_query(query.id)
+                    .text(&format!("✅ Cooldown set to {}", cooldown_text))
+                    .await?;
+
+                // Return to sponsor settings
+                show_sponsor_settings(&bot, m.chat.id, m.id, &bot_deps, &group_id).await?;
+            }
+        }
     } else if data == "sponsor_disable" {
         // Disable sponsor by setting requests to 0
         if let Some(message) = &query.message {
@@ -271,6 +411,7 @@ pub async fn handle_sponsor_settings_callback(
                 let group_id = m.chat.id.to_string();
                 let mut settings = bot_deps.sponsor.get_sponsor_settings(group_id.clone());
                 settings.requests = 0;
+                settings.cooldown = SponsorCooldown::WithoutCooldown;
 
                 if let Err(e) = bot_deps
                     .sponsor
@@ -319,7 +460,7 @@ pub async fn handle_sponsor_settings_callback(
                 let mut settings = bot_deps.sponsor.get_sponsor_settings(group_id.clone());
                 settings.requests = 10; // Default to 10 requests
                 settings.interval = crate::sponsor::dto::SponsorInterval::Hourly; // Default to hourly
-
+                settings.cooldown = SponsorCooldown::WithoutCooldown;
                 if let Err(e) = bot_deps
                     .sponsor
                     .set_or_update_sponsor_settings(group_id.clone(), settings)
@@ -378,19 +519,29 @@ async fn show_sponsor_settings(
         SponsorInterval::Monthly => "Monthly",
     };
 
+    let cooldown_text = match settings.cooldown {
+        crate::sponsor::dto::SponsorCooldown::WithoutCooldown => "No Cooldown",
+        crate::sponsor::dto::SponsorCooldown::FiveMinutes => "5 Minutes",
+        crate::sponsor::dto::SponsorCooldown::ThirtyMinutes => "30 Minutes",
+        crate::sponsor::dto::SponsorCooldown::OneHour => "1 Hour",
+        crate::sponsor::dto::SponsorCooldown::OneDay => "1 Day",
+    };
+
     let text = format!(
         "🎯 <b>Sponsor Settings</b>\n\n\
         <b>Current Status:</b>\n\
         • Total Requests: <b>{}</b>\n\
         • Requests Left: <b>{}</b>\n\
-        • Interval: <b>{}</b>\n\n\
+        • Interval: <b>{}</b>\n\
+        • Cooldown: <b>{}</b>\n\n\
         <b>How it works:</b>\n\
         • Users can use <code>/g</code> command\n\
         • No registration required\n\
         • Requests reset every interval\n\
+        • Cooldown applies between user requests\n\
         • Only admins can change settings\n\n\
         Choose an action below:",
-        total_requests, requests_left, interval_text
+        total_requests, requests_left, interval_text, cooldown_text
     );
 
     // Show different buttons based on whether sponsor is enabled or disabled
@@ -416,6 +567,10 @@ async fn show_sponsor_settings(
             vec![InlineKeyboardButton::callback(
                 "⏰ Set Interval",
                 "sponsor_set_interval",
+            )],
+            vec![InlineKeyboardButton::callback(
+                "⏳ Set Cooldown",
+                "sponsor_set_cooldown",
             )],
             vec![InlineKeyboardButton::callback(
                 "🚫 Disable Sponsor",
@@ -550,19 +705,35 @@ pub async fn handle_sponsor_message(
                                     SponsorInterval::Monthly => "Monthly",
                                 };
 
+                                let cooldown_text = match settings.cooldown {
+                                    crate::sponsor::dto::SponsorCooldown::WithoutCooldown => {
+                                        "No Cooldown"
+                                    }
+                                    crate::sponsor::dto::SponsorCooldown::FiveMinutes => {
+                                        "5 Minutes"
+                                    }
+                                    crate::sponsor::dto::SponsorCooldown::ThirtyMinutes => {
+                                        "30 Minutes"
+                                    }
+                                    crate::sponsor::dto::SponsorCooldown::OneHour => "1 Hour",
+                                    crate::sponsor::dto::SponsorCooldown::OneDay => "1 Day",
+                                };
+
                                 let text = format!(
                                     "🎯 <b>Sponsor Settings</b>\n\n\
                                     <b>Current Status:</b>\n\
                                     • Total Requests: <b>{}</b>\n\
                                     • Requests Left: <b>{}</b>\n\
-                                    • Interval: <b>{}</b>\n\n\
+                                    • Interval: <b>{}</b>\n\
+                                    • Cooldown: <b>{}</b>\n\n\
                                     <b>How it works:</b>\n\
                                     • Users can use <code>/g</code> command\n\
                                     • No registration required\n\
                                     • Requests reset every interval\n\
+                                    • Cooldown applies between user requests\n\
                                     • Only admins can change settings\n\n\
                                     Choose an action below:",
-                                    total_requests, requests_left, interval_text
+                                    total_requests, requests_left, interval_text, cooldown_text
                                 );
 
                                 // Show different buttons based on whether sponsor is enabled or disabled
@@ -588,6 +759,10 @@ pub async fn handle_sponsor_message(
                                         vec![InlineKeyboardButton::callback(
                                             "⏰ Set Interval",
                                             "sponsor_set_interval",
+                                        )],
+                                        vec![InlineKeyboardButton::callback(
+                                            "⏳ Set Cooldown",
+                                            "sponsor_set_cooldown",
                                         )],
                                         vec![InlineKeyboardButton::callback(
                                             "🚫 Disable Sponsor",

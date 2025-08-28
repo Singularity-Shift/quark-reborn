@@ -3,12 +3,13 @@ use std::env;
 use anyhow::Result;
 use sled::{Db, Tree};
 
-use crate::sponsor::dto::{SponsorRequest, SponsorSettings, SponsorState};
+use crate::sponsor::dto::{SponsorRequest, SponsorSettings, SponsorState, SponsorUserCooldown};
 
 #[derive(Clone)]
 pub struct Sponsor {
     pub sponsor_settings_tree: Tree,
     pub sponsor_requests_tree: Tree,
+    pub sponsor_user_cooldown: Tree,
     pub sponsor_state_tree: Tree,
     pub account_seed: String,
 }
@@ -28,10 +29,15 @@ impl Sponsor {
             .open_tree("sponsor_state")
             .expect("Failed to open sponsor state tree");
 
+        let sponsor_user_cooldown = db
+            .open_tree("sponsor_user_cooldown")
+            .expect("Failed to open sponsor user cooldown tree");
+
         Self {
             sponsor_settings_tree,
             sponsor_requests_tree,
             sponsor_state_tree,
+            sponsor_user_cooldown,
             account_seed,
         }
     }
@@ -56,9 +62,12 @@ impl Sponsor {
         self.sponsor_settings_tree
             .fetch_and_update(group_id, |existing| {
                 if let Some(existing) = existing {
-                    let mut existing: SponsorSettings = serde_json::from_slice(existing).unwrap();
+                    let mut existing: SponsorSettings =
+                        serde_json::from_slice(existing).unwrap_or_default();
+
                     existing.requests = settings.requests;
                     existing.interval = settings.interval.clone();
+                    existing.cooldown = settings.cooldown.clone();
                     Some(serde_json::to_vec(&existing).unwrap())
                 } else {
                     Some(serde_json::to_vec(&settings).unwrap())
@@ -101,7 +110,7 @@ impl Sponsor {
     }
 
     /// Check if a request can be made and update the request count
-    pub fn can_make_request(&self, group_id: String) -> Result<bool> {
+    pub fn can_make_request(&self, group_id: String, user_id: String) -> Result<bool> {
         let settings = self.get_sponsor_settings(group_id.clone());
         let mut requests = self
             .get_sponsor_requests(group_id.clone())
@@ -118,11 +127,40 @@ impl Sponsor {
             requests.last_request = current_time;
         }
 
+        // Check if user is in cooldown
+        let user_cooldown = self.get_sponsor_user_cooldown(user_id.clone());
+        let is_in_cooldown = if user_cooldown.is_some() {
+            let user_cooldown = user_cooldown.unwrap();
+            let last_request = user_cooldown.last_request;
+            let time_diff = current_time - last_request;
+
+            let group_cooldown = settings.cooldown;
+            match group_cooldown {
+                crate::sponsor::dto::SponsorCooldown::WithoutCooldown => false,
+                crate::sponsor::dto::SponsorCooldown::FiveMinutes => time_diff >= 300,
+                crate::sponsor::dto::SponsorCooldown::ThirtyMinutes => time_diff >= 1800,
+                crate::sponsor::dto::SponsorCooldown::OneHour => time_diff >= 3600,
+                crate::sponsor::dto::SponsorCooldown::OneDay => time_diff >= 86400,
+            }
+        } else {
+            false
+        };
+
+        if is_in_cooldown {
+            return Ok(false);
+        }
+
         // Check if we have requests left
         if requests.requests_left > 0 {
             requests.requests_left -= 1;
             requests.last_request = current_time;
             self.set_or_update_sponsor_requests(group_id, requests)?;
+            self.set_or_update_sponsor_user_cooldown(
+                user_id,
+                SponsorUserCooldown {
+                    last_request: current_time,
+                },
+            )?;
             Ok(true)
         } else {
             // Update last request time even if we can't make the request
@@ -198,5 +236,37 @@ impl Sponsor {
         let group_id = format!("{}-{}", group_id, self.account_seed);
         self.sponsor_state_tree.remove(group_id)?;
         Ok(())
+    }
+
+    pub fn set_or_update_sponsor_user_cooldown(
+        &self,
+        user_id: String,
+        cooldown: SponsorUserCooldown,
+    ) -> Result<()> {
+        let user_id = format!("{}", user_id);
+        self.sponsor_user_cooldown
+            .fetch_and_update(user_id, |existing| {
+                if let Some(existing) = existing {
+                    let mut existing: SponsorUserCooldown =
+                        serde_json::from_slice(existing).unwrap();
+                    existing.last_request = cooldown.last_request;
+                    Some(serde_json::to_vec(&existing).unwrap())
+                } else {
+                    Some(serde_json::to_vec(&cooldown).unwrap())
+                }
+            })?;
+        Ok(())
+    }
+
+    pub fn get_sponsor_user_cooldown(&self, user_id: String) -> Option<SponsorUserCooldown> {
+        let user_id = format!("{}", user_id);
+
+        let cooldown = self.sponsor_user_cooldown.get(user_id).ok().flatten();
+
+        if let Some(cooldown) = cooldown {
+            serde_json::from_slice(cooldown.as_ref()).unwrap_or_default()
+        } else {
+            None
+        }
     }
 }
