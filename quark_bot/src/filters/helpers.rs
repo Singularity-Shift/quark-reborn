@@ -114,6 +114,9 @@ pub fn replace_filter_placeholders(
 ) -> String {
     let mut result = response.to_string();
     
+    // First, unescape markdown characters that Telegram escaped
+    result = unescape_markdown(&result);
+    
     // Replace username with @ prefix for Telegram mentions
     let username_display = if let Some(username) = username {
         format!("@{}", username)
@@ -121,17 +124,24 @@ pub fn replace_filter_placeholders(
         "User".to_string()
     };
     
-    // Handle both escaped and unescaped versions
-    result = result.replace("\\{username\\}", &username_display);
+    // Replace placeholders (unescaped versions only, since unescape_markdown handles the rest)
     result = result.replace("{username}", &username_display);
-    
-    // Replace group name
-    result = result.replace("\\{group_name\\}", group_name);
     result = result.replace("{group_name}", group_name);
-    
-    // Replace trigger
-    result = result.replace("\\{trigger\\}", trigger);
     result = result.replace("{trigger}", trigger);
+    
+    result
+}
+
+/// Unescape essential markdown characters for filters
+fn unescape_markdown(text: &str) -> String {
+    let mut result = text.to_string();
+    
+    // Unescape essential markdown characters for filters
+    result = result.replace("\\*", "*");      // Bold/italic (very common)
+    result = result.replace("\\_", "_");      // Underline (less common)
+    result = result.replace("\\`", "`");      // Inline code (common for addresses, commands)
+    result = result.replace("\\{", "{");      // Placeholders (essential)
+    result = result.replace("\\}", "}");      // Placeholders (essential)
     
     result
 }
@@ -210,5 +220,32 @@ mod tests {
         let result = replace_filter_placeholders(response, Some("alice"), "Cool Group", "hi");
         
         assert_eq!(result, "Hey @alice! Welcome to Cool Group!");
+    }
+
+    #[test]
+    fn test_replace_filter_placeholders_escaped_underscore() {
+        // Test with escaped underscore in group name placeholder
+        let response = "Hello {username}! Welcome to \\{group\\_name\\}!";
+        let result = replace_filter_placeholders(response, Some("bob"), "Test Group", "hello");
+        
+        assert_eq!(result, "Hello @bob! Welcome to Test Group!");
+    }
+
+    #[test]
+    fn test_replace_filter_placeholders_markdown_unescaping() {
+        // Test with escaped markdown characters around placeholders
+        let response = "You said \\*\\*{trigger}\\*\\*!";
+        let result = replace_filter_placeholders(response, Some("alice"), "Test Group", "hello");
+        
+        assert_eq!(result, "You said **hello**!");
+    }
+
+    #[test]
+    fn test_replace_filter_placeholders_mixed_markdown() {
+        // Test with mixed escaped markdown and placeholders
+        let response = "Hello \\*{username}\\*, you said \\`{trigger}\\` in \\*\\*{group_name}\\*\\*!";
+        let result = replace_filter_placeholders(response, Some("bob"), "Test Group", "hi");
+        
+        assert_eq!(result, "Hello *@bob*, you said `hi` in **Test Group**!");
     }
 }

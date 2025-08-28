@@ -2,6 +2,7 @@ use anyhow::Result;
 use teloxide::{
     prelude::*,
     types::{CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message, ParseMode},
+    utils::render::RenderMessageTextHelper,
 };
 
 use crate::{
@@ -197,10 +198,15 @@ async fn show_custom_message_menu(
         "✏️ <b>Custom Welcome Message</b>\n\n\
             Current message:\n\
             <code>{}</code>\n\n\
+            💡 <i>You can use Markdown formatting (bold, italic, code, etc.) or just plain text. Both work perfectly!</i>\n\n\
             Available placeholders:\n\
             • {{username}} - @username (creates clickable mention)\n\
             • {{group_name}} - Group name\n\
             • {{timeout}} - Verification timeout in minutes\n\n\
+            <b>Examples:</b>\n\
+            • <code>Hello {{username}}! Welcome to {{group_name}}! 👋</code>\n\
+            • <code>**Bold welcome** to *{{group_name}}*, {{username}}!</code>\n\
+            • <code>Use `code` for inline formatting</code>\n\n\
             To set a custom message, reply to this message with your text.\n\
             To use the default message, click 'Reset to Default'.",
         teloxide::utils::html::escape(current_message)
@@ -376,10 +382,15 @@ async fn start_custom_message_input(
 ) -> Result<()> {
     let text = "✏️ <b>Custom Welcome Message</b>\n\n\
         Please reply to this message with your custom welcome message.\n\n\
+        💡 <i>You can use Markdown formatting (bold, italic, code, etc.) or just plain text. Both work perfectly!</i>\n\n\
         Available placeholders:\n\
         • {username} - @username (creates clickable mention)\n\
         • {group_name} - Group name\n\
         • {timeout} - Verification timeout in minutes\n\n\
+        <b>Examples:</b>\n\
+        • <code>Hello {username}! Welcome to {group_name}! 👋</code>\n\
+        • <code>**Bold welcome** to *{group_name}*, {username}!</code>\n\
+        • <code>Use `code` for inline formatting</code>\n\n\
         <i>Send /cancel to cancel or just send your message.</i>";
 
     let keyboard = InlineKeyboardMarkup::new(vec![vec![InlineKeyboardButton::callback(
@@ -500,9 +511,20 @@ pub async fn handle_welcome_message(
                     return Ok(true);
                 }
 
+                // Try to preserve markdown formatting, with fallback to plain text
+                let message_text = msg
+                    .markdown_text()
+                    .map(|s| s.to_string())
+                    .or_else(|| msg.markdown_caption().map(|s| s.to_string()))
+                    .or_else(|| msg.text().map(|s| s.to_string()))
+                    .or_else(|| msg.caption().map(|s| s.to_string()))
+                    .unwrap_or_default()
+                    .trim()
+                    .to_string();
+
                 // Update the welcome settings with custom message
                 let mut settings = bot_deps.welcome_service.get_settings(msg.chat.id);
-                settings.custom_message = Some(text.to_string());
+                settings.custom_message = Some(message_text);
                 settings.last_updated = chrono::Utc::now().timestamp();
 
                 if let Err(e) = bot_deps
@@ -524,7 +546,7 @@ pub async fn handle_welcome_message(
                 bot.send_message(
                     msg.chat.id,
                     "✅ <b>Custom welcome message updated successfully!</b>\n\n\
-                    New members will now see your custom message with placeholders replaced.",
+                    New members will now see your custom message with placeholders replaced and markdown formatting preserved!",
                 )
                 .parse_mode(teloxide::types::ParseMode::Html)
                 .await?;
