@@ -120,7 +120,9 @@ impl WelcomeService {
         )]]);
 
         // Send welcome message with verification button
-        let welcome_text = get_custom_welcome_message(&settings, &first_name, &group_name);
+        // Prefer the user's actual @username for a clickable mention; fall back to first name
+        let username_for_message = username.as_deref().unwrap_or(&first_name);
+        let welcome_text = get_custom_welcome_message(&settings, username_for_message, &group_name);
         let message = bot
             .send_message(chat_id, welcome_text)
             .parse_mode(teloxide::types::ParseMode::MarkdownV2)
@@ -425,7 +427,7 @@ impl WelcomeService {
 
             // Update verification message
             let expired_text = format!(
-                "⏰ Verification expired for {}\\. User has been removed from the group until {}\\.",
+                for {}\\. User has been removed from the group until {}\\.",
                 escape_for_markdown_v2(&verification.first_name),
                 escape_for_markdown_v2(&until_date.format("%Y-%m-%d %H:%M:%S").to_string())
             );
