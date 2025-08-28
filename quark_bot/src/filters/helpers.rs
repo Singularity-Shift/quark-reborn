@@ -117,17 +117,21 @@ pub fn replace_filter_placeholders(
     // First, unescape markdown characters that Telegram escaped
     result = unescape_markdown(&result);
     
-    // Replace username with @ prefix for Telegram mentions
+    // Replace username with @ prefix for Telegram mentions, then escape for MarkdownV2
     let username_display = if let Some(username) = username {
-        format!("@{}", username)
+        escape_for_markdown_v2(&format!("@{}", username))
     } else {
-        "User".to_string()
+        escape_for_markdown_v2("User")
     };
+    
+    // Escape dynamic content for MarkdownV2 before replacement
+    let escaped_group_name = escape_for_markdown_v2(group_name);
+    let escaped_trigger = escape_for_markdown_v2(trigger);
     
     // Replace placeholders (unescaped versions only, since unescape_markdown handles the rest)
     result = result.replace("{username}", &username_display);
-    result = result.replace("{group_name}", group_name);
-    result = result.replace("{trigger}", trigger);
+    result = result.replace("{group_name}", &escaped_group_name);
+    result = result.replace("{trigger}", &escaped_trigger);
     
     result
 }
@@ -142,6 +146,33 @@ fn unescape_markdown(text: &str) -> String {
     result = result.replace("\\`", "`");      // Inline code (common for addresses, commands)
     result = result.replace("\\{", "{");      // Placeholders (essential)
     result = result.replace("\\}", "}");      // Placeholders (essential)
+    
+    result
+}
+
+/// Escape dynamic content for MarkdownV2 to prevent parsing errors
+fn escape_for_markdown_v2(text: &str) -> String {
+    let mut result = text.to_string();
+    
+    // Escape MarkdownV2 special characters in dynamic content
+    result = result.replace("_", "\\_");      // Underline
+    result = result.replace("*", "\\*");      // Bold/italic
+    result = result.replace("[", "\\[");      // Links
+    result = result.replace("]", "\\]");      // Links
+    result = result.replace("(", "\\(");      // Links
+    result = result.replace(")", "\\)");      // Links
+    result = result.replace("~", "\\~");      // Strikethrough
+    result = result.replace("`", "\\`");      // Inline code
+    result = result.replace(">", "\\>");      // Blockquote
+    result = result.replace("#", "\\#");      // Headers
+    result = result.replace("+", "\\+");      // Lists
+    result = result.replace("-", "\\-");      // Lists
+    result = result.replace("=", "\\=");      // Headers
+    result = result.replace("|", "\\|");      // Tables
+    result = result.replace("{", "\\{");      // Code blocks
+    result = result.replace("}", "\\}");      // Code blocks
+    result = result.replace(".", "\\.");      // Numbered lists
+    result = result.replace("!", "\\!");      // Various
     
     result
 }
@@ -247,5 +278,15 @@ mod tests {
         let result = replace_filter_placeholders(response, Some("bob"), "Test Group", "hi");
         
         assert_eq!(result, "Hello *@bob*, you said `hi` in **Test Group**!");
+    }
+
+    #[test]
+    fn test_replace_filter_placeholders_special_chars_in_dynamic_content() {
+        // Test with MarkdownV2 special characters in dynamic content
+        let response = "Hello {username}! Welcome to {group_name}! You said {trigger}!";
+        let result = replace_filter_placeholders(response, Some("john_doe"), "My [Cool] Group", "test*code");
+        
+        // Dynamic content should be escaped for MarkdownV2
+        assert_eq!(result, "Hello @john\\_doe! Welcome to My \\[Cool\\] Group! You said test\\*code!");
     }
 }
