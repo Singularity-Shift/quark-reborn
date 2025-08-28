@@ -11,6 +11,7 @@ use crate::welcome::{
     dto::{PendingVerification, WelcomeSettings, WelcomeStats},
     helpers::{get_custom_welcome_message, get_verification_expiry_time, is_verification_expired},
 };
+use crate::utils::{escape_for_markdown_v2};
 
 use rand::{SeedableRng, prelude::*, rngs::StdRng};
 
@@ -252,7 +253,7 @@ impl WelcomeService {
 
         // Update verification message
         let success_text = format!(
-            "✅ Welcome to the group, {}! You've been verified and can now participate.",
+            "✅ Welcome to the group, {}\\! You've been verified and can now participate\\.",
             escape_for_markdown_v2(&verification.first_name)
         );
 
@@ -424,9 +425,9 @@ impl WelcomeService {
 
             // Update verification message
             let expired_text = format!(
-                "⏰ Verification expired for {}. User has been removed from the group until {}.",
+                "⏰ Verification expired for {}\\. User has been removed from the group until {}\\.",
                 escape_for_markdown_v2(&verification.first_name),
-                until_date.format("%Y-%m-%d %H:%M:%S")
+                escape_for_markdown_v2(&until_date.format("%Y-%m-%d %H:%M:%S").to_string())
             );
 
             if let Err(e) = bot
@@ -538,29 +539,6 @@ impl WelcomeService {
     }
 }
 
-/// Escape dynamic content for MarkdownV2 to prevent parsing errors
-fn escape_for_markdown_v2(text: &str) -> String {
-    let mut result = text.to_string();
-    
-    // Escape MarkdownV2 special characters in dynamic content
-    result = result.replace("_", "\\_");      // Underline
-    result = result.replace("*", "\\*");      // Bold/italic
-    result = result.replace("[", "\\[");      // Links
-    result = result.replace("]", "\\]");      // Links
-    result = result.replace("(", "\\(");      // Links
-    result = result.replace(")", "\\)");      // Links
-    result = result.replace("~", "\\~");      // Strikethrough
-    result = result.replace("`", "\\`");      // Inline code
-    result = result.replace(">", "\\>");      // Blockquote
-    result = result.replace("#", "\\#");      // Headers
-    result = result.replace("+", "\\+");      // Lists
-    result = result.replace("-", "\\-");      // Lists
-    result = result.replace("=", "\\=");      // Headers
-    result = result.replace("|", "\\|");      // Tables
-    result = result.replace("{", "\\{");      // Code blocks
-    result = result.replace("}", "\\}");      // Code blocks
-    result = result.replace(".", "\\.");      // Numbered lists
-    result = result.replace("!", "\\!");      // Various
-    
-    result
-}
+
+
+

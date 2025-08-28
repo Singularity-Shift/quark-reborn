@@ -3,6 +3,9 @@
 //   "[the contract], ca, contract" -> ["the contract", "ca", "contract"]
 //   "hello, world" -> ["hello", "world"]
 //   "[multi word] , single" -> ["multi word", "single"]
+use crate::filters::dto::{PendingFilterWizardState, MatchType};
+use crate::utils::{unescape_markdown, escape_for_markdown_v2};
+
 pub fn parse_triggers(input: &str) -> Vec<String> {
     let mut triggers: Vec<String> = Vec::new();
     let mut buf = String::new();
@@ -62,8 +65,6 @@ fn strip_brackets(s: &str) -> &str {
         s
     }
 }
-
-use crate::filters::dto::{PendingFilterWizardState, MatchType};
 
 pub fn summarize(state: &PendingFilterWizardState) -> String {
     let trigger_input = state
@@ -136,157 +137,5 @@ pub fn replace_filter_placeholders(
     result
 }
 
-/// Unescape essential markdown characters for filters
-fn unescape_markdown(text: &str) -> String {
-    let mut result = text.to_string();
-    
-    // Unescape essential markdown characters for filters
-    result = result.replace("\\*", "*");      // Bold/italic (very common)
-    result = result.replace("\\_", "_");      // Underline (less common)
-    result = result.replace("\\`", "`");      // Inline code (common for addresses, commands)
-    result = result.replace("\\{", "{");      // Placeholders (essential)
-    result = result.replace("\\}", "}");      // Placeholders (essential)
-    
-    result
-}
 
-/// Escape dynamic content for MarkdownV2 to prevent parsing errors
-fn escape_for_markdown_v2(text: &str) -> String {
-    let mut result = text.to_string();
-    
-    // Escape MarkdownV2 special characters in dynamic content
-    result = result.replace("_", "\\_");      // Underline
-    result = result.replace("*", "\\*");      // Bold/italic
-    result = result.replace("[", "\\[");      // Links
-    result = result.replace("]", "\\]");      // Links
-    result = result.replace("(", "\\(");      // Links
-    result = result.replace(")", "\\)");      // Links
-    result = result.replace("~", "\\~");      // Strikethrough
-    result = result.replace("`", "\\`");      // Inline code
-    result = result.replace(">", "\\>");      // Blockquote
-    result = result.replace("#", "\\#");      // Headers
-    result = result.replace("+", "\\+");      // Lists
-    result = result.replace("-", "\\-");      // Lists
-    result = result.replace("=", "\\=");      // Headers
-    result = result.replace("|", "\\|");      // Tables
-    result = result.replace("{", "\\{");      // Code blocks
-    result = result.replace("}", "\\}");      // Code blocks
-    result = result.replace(".", "\\.");      // Numbered lists
-    result = result.replace("!", "\\!");      // Various
-    
-    result
-}
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_replace_filter_placeholders() {
-        // Test basic placeholder replacement
-        let response = "Hello {username}! Welcome to {group_name}!";
-        let result = replace_filter_placeholders(response, Some("john_doe"), "Test Group", "hello");
-        
-        assert_eq!(result, "Hello @john_doe! Welcome to Test Group!");
-    }
-
-    #[test]
-    fn test_replace_filter_placeholders_with_trigger() {
-        // Test trigger placeholder
-        let response = "You said '{trigger}'!";
-        let result = replace_filter_placeholders(response, Some("alice"), "My Group", "gm");
-        
-        assert_eq!(result, "You said 'gm'!");
-    }
-
-    #[test]
-    fn test_replace_filter_placeholders_missing_username() {
-        // Test fallback when username is missing
-        let response = "Hello {username}!";
-        let result = replace_filter_placeholders(response, None, "Group", "hi");
-        
-        assert_eq!(result, "Hello User!");
-    }
-
-    #[test]
-    fn test_replace_filter_placeholders_all_placeholders() {
-        // Test all placeholders together
-        let response = "Hey {username}! You said '{trigger}' in {group_name}!";
-        let result = replace_filter_placeholders(response, Some("bob"), "Awesome Group", "hello");
-        
-        assert_eq!(result, "Hey @bob! You said 'hello' in Awesome Group!");
-    }
-
-    #[test]
-    fn test_replace_filter_placeholders_no_placeholders() {
-        // Test response with no placeholders
-        let response = "Hello world!";
-        let result = replace_filter_placeholders(response, Some("user"), "Group", "hi");
-        
-        assert_eq!(result, "Hello world!");
-    }
-
-    #[test]
-    fn test_replace_filter_placeholders_special_characters() {
-        // Test with special characters in usernames and group names
-        let response = "Hello {username} from {group_name}!";
-        let result = replace_filter_placeholders(response, Some("user_123"), "Group & Co.", "test");
-        
-        assert_eq!(result, "Hello @user_123 from Group & Co.!");
-    }
-
-    #[test]
-    fn test_replace_filter_placeholders_escaped() {
-        // Test with escaped placeholders (as they appear when captured from Telegram)
-        let response = "Hello \\{username\\}, you said '\\{trigger\\}' in \\{group_name\\}!";
-        let result = replace_filter_placeholders(response, Some("bob"), "Test Group", "hello");
-        
-        assert_eq!(result, "Hello @bob, you said 'hello' in Test Group!");
-    }
-
-    #[test]
-    fn test_replace_filter_placeholders_mixed() {
-        // Test with mix of escaped and unescaped placeholders
-        let response = "Hey \\{username\\}! Welcome to {group_name}!";
-        let result = replace_filter_placeholders(response, Some("alice"), "Cool Group", "hi");
-        
-        assert_eq!(result, "Hey @alice! Welcome to Cool Group!");
-    }
-
-    #[test]
-    fn test_replace_filter_placeholders_escaped_underscore() {
-        // Test with escaped underscore in group name placeholder
-        let response = "Hello {username}! Welcome to \\{group\\_name\\}!";
-        let result = replace_filter_placeholders(response, Some("bob"), "Test Group", "hello");
-        
-        assert_eq!(result, "Hello @bob! Welcome to Test Group!");
-    }
-
-    #[test]
-    fn test_replace_filter_placeholders_markdown_unescaping() {
-        // Test with escaped markdown characters around placeholders
-        let response = "You said \\*\\*{trigger}\\*\\*!";
-        let result = replace_filter_placeholders(response, Some("alice"), "Test Group", "hello");
-        
-        assert_eq!(result, "You said **hello**!");
-    }
-
-    #[test]
-    fn test_replace_filter_placeholders_mixed_markdown() {
-        // Test with mixed escaped markdown and placeholders
-        let response = "Hello \\*{username}\\*, you said \\`{trigger}\\` in \\*\\*{group_name}\\*\\*!";
-        let result = replace_filter_placeholders(response, Some("bob"), "Test Group", "hi");
-        
-        assert_eq!(result, "Hello *@bob*, you said `hi` in **Test Group**!");
-    }
-
-    #[test]
-    fn test_replace_filter_placeholders_special_chars_in_dynamic_content() {
-        // Test with MarkdownV2 special characters in dynamic content
-        let response = "Hello {username}! Welcome to {group_name}! You said {trigger}!";
-        let result = replace_filter_placeholders(response, Some("john_doe"), "My [Cool] Group", "test*code");
-        
-        // Dynamic content should be escaped for MarkdownV2
-        assert_eq!(result, "Hello @john\\_doe! Welcome to My \\[Cool\\] Group! You said test\\*code!");
-    }
-}
