@@ -63,7 +63,7 @@ fn strip_brackets(s: &str) -> &str {
     }
 }
 
-use crate::filters::dto::{PendingFilterWizardState, MatchType, ResponseType};
+use crate::filters::dto::{PendingFilterWizardState, MatchType};
 
 pub fn summarize(state: &PendingFilterWizardState) -> String {
     let trigger_input = state
@@ -94,14 +94,9 @@ pub fn summarize(state: &PendingFilterWizardState) -> String {
         MatchType::StartsWith => "Message starts with",
         MatchType::EndsWith => "Message ends with",
     };
-    let response_type = match state.response_type {
-        ResponseType::Text => "Plain text",
-        ResponseType::Markdown => "Markdown",
-    };
-    
     format!(
-        "🔍 <b>Filter Summary</b>\n\n📝 Triggers: {}\n💬 Response: <code>{}</code>\n🎯 Match type: {}\n📄 Format: {}",
-        triggers_display, response, match_type, response_type
+        "🔍 <b>Filter Summary</b>\n\n📝 Triggers: {}\n💬 Response: <code>{}</code>\n🎯 Match type: {}\n📄 Format: Markdown (supports both markdown and plain text)",
+        triggers_display, response, match_type
     )
 }
 
@@ -125,12 +120,17 @@ pub fn replace_filter_placeholders(
     } else {
         "User".to_string()
     };
+    
+    // Handle both escaped and unescaped versions
+    result = result.replace("\\{username\\}", &username_display);
     result = result.replace("{username}", &username_display);
     
     // Replace group name
+    result = result.replace("\\{group_name\\}", group_name);
     result = result.replace("{group_name}", group_name);
     
     // Replace trigger
+    result = result.replace("\\{trigger\\}", trigger);
     result = result.replace("{trigger}", trigger);
     
     result
@@ -192,5 +192,23 @@ mod tests {
         let result = replace_filter_placeholders(response, Some("user_123"), "Group & Co.", "test");
         
         assert_eq!(result, "Hello @user_123 from Group & Co.!");
+    }
+
+    #[test]
+    fn test_replace_filter_placeholders_escaped() {
+        // Test with escaped placeholders (as they appear when captured from Telegram)
+        let response = "Hello \\{username\\}, you said '\\{trigger\\}' in \\{group_name\\}!";
+        let result = replace_filter_placeholders(response, Some("bob"), "Test Group", "hello");
+        
+        assert_eq!(result, "Hello @bob, you said 'hello' in Test Group!");
+    }
+
+    #[test]
+    fn test_replace_filter_placeholders_mixed() {
+        // Test with mix of escaped and unescaped placeholders
+        let response = "Hey \\{username\\}! Welcome to {group_name}!";
+        let result = replace_filter_placeholders(response, Some("alice"), "Cool Group", "hi");
+        
+        assert_eq!(result, "Hey @alice! Welcome to Cool Group!");
     }
 }

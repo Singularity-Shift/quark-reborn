@@ -2,6 +2,7 @@ use anyhow::Result;
 use teloxide::{
     prelude::*,
     types::{InlineKeyboardButton, InlineKeyboardMarkup, Message, ParseMode, User},
+    utils::render::RenderMessageTextHelper,
 };
 
 use crate::dependencies::BotDependencies;
@@ -101,16 +102,9 @@ pub async fn process_message_for_filters(
                         trigger
                     );
 
-                    let parse_mode = match filter_match.filter.response_type {
-                        ResponseType::Markdown => Some(ParseMode::MarkdownV2),
-                        ResponseType::Text => None,
-                    };
-
-                    let mut send_message = bot.send_message(msg.chat.id, &personalized_response);
-
-                    if let Some(mode) = parse_mode {
-                        send_message = send_message.parse_mode(mode);
-                    }
+                    let send_message = bot
+                        .send_message(msg.chat.id, &personalized_response)
+                        .parse_mode(ParseMode::MarkdownV2);
 
                     if let Err(e) = send_message.await {
                         log::error!("Failed to send filter response: {}", e);
@@ -158,7 +152,7 @@ async fn start_filter_wizard(
         trigger: None,
         response: None,
         match_type: MatchType::Contains,   // Default
-        response_type: ResponseType::Text, // Default
+        response_type: ResponseType::Markdown, // Default
     };
 
     if let Err(e) = bot_deps
@@ -663,10 +657,14 @@ pub async fn handle_message_filters(
         msg.chat.id.0, bot_deps.filters.account_seed, user.id.0
     );
     if let Some(mut st) = bot_deps.filters.get_pending_settings(&filter_key) {
+        // Preserve markdown input from users when capturing response text
         let text_raw = msg
-            .text()
-            .or_else(|| msg.caption())
-            .unwrap_or("")
+            .markdown_text()
+            .map(|s| s.to_string())
+            .or_else(|| msg.markdown_caption().map(|s| s.to_string()))
+            .or_else(|| msg.text().map(|s| s.to_string()))
+            .or_else(|| msg.caption().map(|s| s.to_string()))
+            .unwrap_or_default()
             .trim()
             .to_string();
         if text_raw.eq_ignore_ascii_case("/cancel")
@@ -693,7 +691,7 @@ pub async fn handle_message_filters(
                         .await?;
                     return Ok(true);
                 }
-                bot.send_message(msg.chat.id, "🔍 <b>Add New Filter - Step 2/3</b>\n\nNow send the response message that the bot should reply with when someone types your trigger.\n\n💡 <i>This can be any text, including emojis and multiple lines.</i>\n\n✨ <b>Available Placeholders:</b>\n• <code>{username}</code> → @username (creates clickable mention)\n• <code>{group_name}</code> → Group name\n• <code>{trigger}</code> → The word/phrase that triggered the filter\n\n<b>Examples:</b>\n• <code>Hello {username}! Welcome to {group_name}! 👋</code>\n• <code>Hey @{username}, you said '{trigger}'! 🎯</code>\n• <code>Good morning {username}! ☀️</code>")
+                bot.send_message(msg.chat.id, "🔍 <b>Add New Filter - Step 2/3</b>\n\nNow send the response message that the bot should reply with when someone types your trigger.\n\n💡 <i>You can use Markdown formatting (bold, italic, code, etc.) or just plain text. Both work perfectly!</i>\n\n✨ <b>Available Placeholders:</b>\n• <code>{username}</code> → @username (creates clickable mention)\n• <code>{group_name}</code> → Group name\n• <code>{trigger}</code> → The word/phrase that triggered the filter\n\n<b>Examples:</b>\n• <code>Hello {username}! Welcome to {group_name}! 👋</code>\n• <code>**Bold text** or *italic text* works great!</code>\n• <code>Use `code` for inline formatting</code>\n• <code>Hey {username}, you said '{trigger}'! 🎯</code>\n• <code>*Good morning* {username}! ☀️</code>")
                         .parse_mode(ParseMode::Html)
                         .await?;
                 return Ok(true);
