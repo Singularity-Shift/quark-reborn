@@ -99,17 +99,24 @@ pub async fn process_message_for_filters(
                         &filter_match.filter.response,
                         username,
                         &group_name,
-                        trigger
+                        trigger,
+                        filter_match.filter.response_type.clone()
                     );
+
+                    // Determine parse mode based on filter response type
+                    let parse_mode = match filter_match.filter.response_type {
+                        ResponseType::Markdown => ParseMode::MarkdownV2,
+                        ResponseType::Text => ParseMode::Html, // Use HTML for plain text to avoid markdown parsing
+                    };
 
                     let send_message = bot
                         .send_message(msg.chat.id, &personalized_response)
-                        .parse_mode(ParseMode::MarkdownV2);
+                        .parse_mode(parse_mode);
 
                     if let Err(e) = send_message.await {
                         log::error!("Failed to send filter response: {}", e);
 
-                        // Fallback to simple message without reply
+                        // Fallback to simple message without parse mode
                         bot.send_message(msg.chat.id, &personalized_response).await?;
                     }
 

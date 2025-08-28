@@ -3,7 +3,7 @@
 //   "[the contract], ca, contract" -> ["the contract", "ca", "contract"]
 //   "hello, world" -> ["hello", "world"]
 //   "[multi word] , single" -> ["multi word", "single"]
-use crate::filters::dto::{PendingFilterWizardState, MatchType};
+use crate::filters::dto::{PendingFilterWizardState, MatchType, ResponseType};
 use crate::utils::{unescape_markdown, escape_for_markdown_v2};
 
 pub fn parse_triggers(input: &str) -> Vec<String> {
@@ -111,28 +111,46 @@ pub fn replace_filter_placeholders(
     response: &str, 
     username: Option<&str>, 
     group_name: &str, 
-    trigger: &str
+    trigger: &str,
+    response_type: ResponseType
 ) -> String {
     let mut result = response.to_string();
     
-    // First, unescape markdown characters that Telegram escaped
-    result = unescape_markdown(&result);
-    
-    // Replace username with @ prefix for Telegram mentions, then escape for MarkdownV2
-    let username_display = if let Some(username) = username {
-        escape_for_markdown_v2(&format!("@{}", username))
-    } else {
-        escape_for_markdown_v2("User")
-    };
-    
-    // Escape dynamic content for MarkdownV2 before replacement
-    let escaped_group_name = escape_for_markdown_v2(group_name);
-    let escaped_trigger = escape_for_markdown_v2(trigger);
-    
-    // Replace placeholders (unescaped versions only, since unescape_markdown handles the rest)
-    result = result.replace("{username}", &username_display);
-    result = result.replace("{group_name}", &escaped_group_name);
-    result = result.replace("{trigger}", &escaped_trigger);
+    match response_type {
+        ResponseType::Markdown => {
+            // For markdown responses, unescape and then escape for MarkdownV2
+            result = unescape_markdown(&result);
+            
+            // Replace username with @ prefix for Telegram mentions, then escape for MarkdownV2
+            let username_display = if let Some(username) = username {
+                escape_for_markdown_v2(&format!("@{}", username))
+            } else {
+                escape_for_markdown_v2("User")
+            };
+            
+            // Escape dynamic content for MarkdownV2 before replacement
+            let escaped_group_name = escape_for_markdown_v2(group_name);
+            let escaped_trigger = escape_for_markdown_v2(trigger);
+            
+            // Replace placeholders
+            result = result.replace("{username}", &username_display);
+            result = result.replace("{group_name}", &escaped_group_name);
+            result = result.replace("{trigger}", &escaped_trigger);
+        },
+        ResponseType::Text => {
+            // For text responses, just do simple placeholder replacement without escaping
+            let username_display = if let Some(username) = username {
+                format!("@{}", username)
+            } else {
+                "User".to_string()
+            };
+            
+            // Simple placeholder replacement for text
+            result = result.replace("{username}", &username_display);
+            result = result.replace("{group_name}", group_name);
+            result = result.replace("{trigger}", trigger);
+        }
+    }
     
     result
 }
