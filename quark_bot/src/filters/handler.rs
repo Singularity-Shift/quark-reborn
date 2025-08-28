@@ -104,14 +104,17 @@ pub async fn process_message_for_filters(
                     );
 
                     // Determine parse mode based on filter response type
-                    let parse_mode = match filter_match.filter.response_type {
-                        ResponseType::Markdown => ParseMode::MarkdownV2,
-                        ResponseType::Text => ParseMode::Html, // Use HTML for plain text to avoid markdown parsing
+                    let send_message = match filter_match.filter.response_type {
+                        ResponseType::Markdown => {
+                            // For markdown responses, use MarkdownV2 with proper escaping
+                            bot.send_message(msg.chat.id, &personalized_response)
+                                .parse_mode(ParseMode::MarkdownV2)
+                        },
+                        ResponseType::Text => {
+                            // For text responses, send as plain text without parse mode
+                            bot.send_message(msg.chat.id, &personalized_response)
+                        }
                     };
-
-                    let send_message = bot
-                        .send_message(msg.chat.id, &personalized_response)
-                        .parse_mode(parse_mode);
 
                     if let Err(e) = send_message.await {
                         log::error!("Failed to send filter response: {}", e);

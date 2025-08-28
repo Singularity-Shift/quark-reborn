@@ -138,14 +138,14 @@ pub fn replace_filter_placeholders(
             result = result.replace("{trigger}", &escaped_trigger);
         },
         ResponseType::Text => {
-            // For text responses, just do simple placeholder replacement without escaping
+            // For text responses, just do simple placeholder replacement without any escaping
             let username_display = if let Some(username) = username {
                 format!("@{}", username)
             } else {
                 "User".to_string()
             };
             
-            // Simple placeholder replacement for text
+            // Simple placeholder replacement for text - no escaping needed
             result = result.replace("{username}", &username_display);
             result = result.replace("{group_name}", group_name);
             result = result.replace("{trigger}", trigger);
