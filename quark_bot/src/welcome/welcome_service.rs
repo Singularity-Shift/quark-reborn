@@ -11,6 +11,7 @@ use crate::welcome::{
     dto::{PendingVerification, WelcomeSettings, WelcomeStats},
     helpers::{get_custom_welcome_message, get_verification_expiry_time, is_verification_expired},
 };
+use crate::utils::{escape_for_markdown_v2};
 
 use rand::{SeedableRng, prelude::*, rngs::StdRng};
 
@@ -119,9 +120,12 @@ impl WelcomeService {
         )]]);
 
         // Send welcome message with verification button
-        let welcome_text = get_custom_welcome_message(&settings, &first_name, &group_name);
+        // Prefer the user's actual @username for a clickable mention; fall back to first name
+        let username_for_message = username.as_deref().unwrap_or(&first_name);
+        let welcome_text = get_custom_welcome_message(&settings, username_for_message, &group_name);
         let message = bot
             .send_message(chat_id, welcome_text)
+            .parse_mode(teloxide::types::ParseMode::MarkdownV2)
             .reply_markup(keyboard)
             .await?;
 
@@ -251,8 +255,8 @@ impl WelcomeService {
 
         // Update verification message
         let success_text = format!(
-            "✅ Welcome to the group, {}! You've been verified and can now participate.",
-            verification.first_name
+            "✅ Welcome to the group, {}\\! You've been verified and can now participate\\.",
+            escape_for_markdown_v2(&verification.first_name)
         );
 
         match bot
@@ -261,6 +265,7 @@ impl WelcomeService {
                 teloxide::types::MessageId(verification.verification_message_id),
                 success_text,
             )
+            .parse_mode(teloxide::types::ParseMode::MarkdownV2)
             .await
         {
             Ok(_) => log::info!(
@@ -422,9 +427,9 @@ impl WelcomeService {
 
             // Update verification message
             let expired_text = format!(
-                "⏰ Verification expired for {}. User has been removed from the group until {}.",
-                verification.first_name,
-                until_date.format("%Y-%m-%d %H:%M:%S")
+                "⏰ Verification expired for {}\\. User has been removed from the group until {}\\.",
+                escape_for_markdown_v2(&verification.first_name),
+                escape_for_markdown_v2(&until_date.format("%Y-%m-%d %H:%M:%S").to_string())
             );
 
             if let Err(e) = bot
@@ -433,6 +438,7 @@ impl WelcomeService {
                     teloxide::types::MessageId(verification.verification_message_id),
                     expired_text,
                 )
+                .parse_mode(teloxide::types::ParseMode::MarkdownV2)
                 .await
             {
                 log::error!(
@@ -534,3 +540,7 @@ impl WelcomeService {
         Ok(())
     }
 }
+
+
+
+

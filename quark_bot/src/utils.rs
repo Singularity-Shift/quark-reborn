@@ -142,6 +142,47 @@ pub fn normalize_image_url_anchor(text: &str) -> String {
     re_anchor.replace(text, replacement.as_str()).to_string()
 }
 
+/// Unescape essential markdown characters for welcome messages and filters
+pub fn unescape_markdown(text: &str) -> String {
+    let mut result = text.to_string();
+    
+    // Unescape essential markdown characters for welcome messages and filters
+    result = result.replace("\\*", "*");      // Bold/italic (very common)
+    result = result.replace("\\_", "_");      // Underline (less common)
+    result = result.replace("\\`", "`");      // Inline code (common for addresses, commands)
+    result = result.replace("\\{", "{");      // Placeholders (essential)
+    result = result.replace("\\}", "}");      // Placeholders (essential)
+    
+    result
+}
+
+/// Escape dynamic content for MarkdownV2 to prevent parsing errors
+pub fn escape_for_markdown_v2(text: &str) -> String {
+    let mut result = text.to_string();
+    
+    // Escape MarkdownV2 special characters in dynamic content
+    result = result.replace("_", "\\_");      // Underline
+    result = result.replace("*", "\\*");      // Bold/italic
+    result = result.replace("[", "\\[");      // Links
+    result = result.replace("]", "\\]");      // Links
+    result = result.replace("(", "\\(");      // Links
+    result = result.replace(")", "\\)");      // Links
+    result = result.replace("~", "\\~");      // Strikethrough
+    result = result.replace("`", "\\`");      // Inline code
+    result = result.replace(">", "\\>");      // Blockquote
+    result = result.replace("#", "\\#");      // Headers
+    result = result.replace("+", "\\+");      // Lists
+    result = result.replace("-", "\\-");      // Lists
+    result = result.replace("=", "\\=");      // Headers
+    result = result.replace("|", "\\|");      // Tables
+    result = result.replace("{", "\\{");      // Code blocks
+    result = result.replace("}", "\\}");      // Code blocks
+    result = result.replace(".", "\\.");      // Periods (reserved)
+    result = result.replace("!", "\\!");      // Exclamation marks (reserved)
+    
+    result
+}
+
 pub async fn create_purchase_request(
     file_search_calls: u32,
     web_search_calls: u32,

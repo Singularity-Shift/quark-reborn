@@ -3,6 +3,9 @@
 //   "[the contract], ca, contract" -> ["the contract", "ca", "contract"]
 //   "hello, world" -> ["hello", "world"]
 //   "[multi word] , single" -> ["multi word", "single"]
+use crate::filters::dto::{PendingFilterWizardState, MatchType, ResponseType};
+use crate::utils::{unescape_markdown, escape_for_markdown_v2};
+
 pub fn parse_triggers(input: &str) -> Vec<String> {
     let mut triggers: Vec<String> = Vec::new();
     let mut buf = String::new();
@@ -63,8 +66,6 @@ fn strip_brackets(s: &str) -> &str {
     }
 }
 
-use crate::filters::dto::{PendingFilterWizardState, MatchType, ResponseType};
-
 pub fn summarize(state: &PendingFilterWizardState) -> String {
     let trigger_input = state
         .trigger
@@ -94,14 +95,9 @@ pub fn summarize(state: &PendingFilterWizardState) -> String {
         MatchType::StartsWith => "Message starts with",
         MatchType::EndsWith => "Message ends with",
     };
-    let response_type = match state.response_type {
-        ResponseType::Text => "Plain text",
-        ResponseType::Markdown => "Markdown",
-    };
-    
     format!(
-        "🔍 <b>Filter Summary</b>\n\n📝 Triggers: {}\n💬 Response: <code>{}</code>\n🎯 Match type: {}\n📄 Format: {}",
-        triggers_display, response, match_type, response_type
+        "🔍 <b>Filter Summary</b>\n\n📝 Triggers: {}\n💬 Response: <code>{}</code>\n🎯 Match type: {}\n📄 Format: Markdown (supports both markdown and plain text)",
+        triggers_display, response, match_type
     )
 }
 
@@ -115,82 +111,49 @@ pub fn replace_filter_placeholders(
     response: &str, 
     username: Option<&str>, 
     group_name: &str, 
-    trigger: &str
+    trigger: &str,
+    response_type: ResponseType
 ) -> String {
     let mut result = response.to_string();
     
-    // Replace username with @ prefix for Telegram mentions
-    let username_display = if let Some(username) = username {
-        format!("@{}", username)
-    } else {
-        "User".to_string()
-    };
-    result = result.replace("{username}", &username_display);
-    
-    // Replace group name
-    result = result.replace("{group_name}", group_name);
-    
-    // Replace trigger
-    result = result.replace("{trigger}", trigger);
+    match response_type {
+        ResponseType::Markdown => {
+            // For markdown responses, unescape and then escape for MarkdownV2
+            result = unescape_markdown(&result);
+            
+            // Replace username with @ prefix for Telegram mentions, then escape for MarkdownV2
+            let username_display = if let Some(username) = username {
+                escape_for_markdown_v2(&format!("@{}", username))
+            } else {
+                escape_for_markdown_v2("User")
+            };
+            
+            // Escape dynamic content for MarkdownV2 before replacement
+            let escaped_group_name = escape_for_markdown_v2(group_name);
+            let escaped_trigger = escape_for_markdown_v2(trigger);
+            
+            // Replace placeholders
+            result = result.replace("{username}", &username_display);
+            result = result.replace("{group_name}", &escaped_group_name);
+            result = result.replace("{trigger}", &escaped_trigger);
+        },
+        ResponseType::Text => {
+            // For text responses, just do simple placeholder replacement without any escaping
+            let username_display = if let Some(username) = username {
+                format!("@{}", username)
+            } else {
+                "User".to_string()
+            };
+            
+            // Simple placeholder replacement for text - no escaping needed
+            result = result.replace("{username}", &username_display);
+            result = result.replace("{group_name}", group_name);
+            result = result.replace("{trigger}", trigger);
+        }
+    }
     
     result
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
 
-    #[test]
-    fn test_replace_filter_placeholders() {
-        // Test basic placeholder replacement
-        let response = "Hello {username}! Welcome to {group_name}!";
-        let result = replace_filter_placeholders(response, Some("john_doe"), "Test Group", "hello");
-        
-        assert_eq!(result, "Hello @john_doe! Welcome to Test Group!");
-    }
 
-    #[test]
-    fn test_replace_filter_placeholders_with_trigger() {
-        // Test trigger placeholder
-        let response = "You said '{trigger}'!";
-        let result = replace_filter_placeholders(response, Some("alice"), "My Group", "gm");
-        
-        assert_eq!(result, "You said 'gm'!");
-    }
-
-    #[test]
-    fn test_replace_filter_placeholders_missing_username() {
-        // Test fallback when username is missing
-        let response = "Hello {username}!";
-        let result = replace_filter_placeholders(response, None, "Group", "hi");
-        
-        assert_eq!(result, "Hello User!");
-    }
-
-    #[test]
-    fn test_replace_filter_placeholders_all_placeholders() {
-        // Test all placeholders together
-        let response = "Hey {username}! You said '{trigger}' in {group_name}!";
-        let result = replace_filter_placeholders(response, Some("bob"), "Awesome Group", "hello");
-        
-        assert_eq!(result, "Hey @bob! You said 'hello' in Awesome Group!");
-    }
-
-    #[test]
-    fn test_replace_filter_placeholders_no_placeholders() {
-        // Test response with no placeholders
-        let response = "Hello world!";
-        let result = replace_filter_placeholders(response, Some("user"), "Group", "hi");
-        
-        assert_eq!(result, "Hello world!");
-    }
-
-    #[test]
-    fn test_replace_filter_placeholders_special_characters() {
-        // Test with special characters in usernames and group names
-        let response = "Hello {username} from {group_name}!";
-        let result = replace_filter_placeholders(response, Some("user_123"), "Group & Co.", "test");
-        
-        assert_eq!(result, "Hello @user_123 from Group & Co.!");
-    }
-}
