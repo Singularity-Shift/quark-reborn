@@ -573,7 +573,7 @@ pub async fn handle_dao_preference_callback(
             <b>Examples:</b>\n\
             • <code>APT</code>\n\
             • <code>USDC</code>\n\
-            • <code>📒</code>\n\
+            • <code>GUI</code>\n\
             • <code>eth</code> (will be converted to ETH)\n\n\
             <i>Token tickers will be automatically converted to uppercase.</i>",
         )
@@ -1538,7 +1538,7 @@ pub async fn handle_message_dao(
         // Invalid input, ask again
         bot.send_message(
             msg.chat.id,
-            "❌ Please send a valid token ticker or emojicoin. Example: APT, USDC, or 📒",
+            "❌ Please send a valid token ticker or emojicoin. Example: APT, USDC, or GUI",
         )
         .await?;
 

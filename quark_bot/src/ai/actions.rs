@@ -1759,7 +1759,7 @@ pub async fn execute_prices(_arguments: &serde_json::Value) -> String {
 • <code>WebSearchPreview</code> - <b>$0.04</b>
 
 💳 <b>Payment Information:</b>
-💰 Payment is made in <b>your selected payment token (deafult 📒)</b> at the <u>dollar market rate</u>
+💰 Payment is made in <b>your selected payment token (deafult APT)</b> at the <u>dollar market rate</u>
 ⚠️ <i>All prices are subject to change based on provider rates</i>"
         .to_string()
 }
