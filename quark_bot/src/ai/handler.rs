@@ -117,7 +117,10 @@ impl AI {
 
             let group_credentials = group_credentials.unwrap();
 
-            (group_credentials.resource_account_address, group_credentials.jwt)
+            (
+                group_credentials.resource_account_address,
+                group_credentials.jwt,
+            )
         } else {
             let username = user.username.clone();
 
@@ -135,7 +138,10 @@ impl AI {
 
             let user_credentials = user_credentials.unwrap();
 
-            (user_credentials.resource_account_address, user_credentials.jwt)
+            (
+                user_credentials.resource_account_address,
+                user_credentials.jwt,
+            )
         };
 
         let default_payment_prefs = bot_deps.default_payment_prefs.clone();
@@ -143,7 +149,8 @@ impl AI {
         let coin = if group_id.is_some() {
             bot_deps
                 .payment
-                .get_payment_token(group_id.clone().unwrap())
+                .get_payment_token(group_id.clone().unwrap(), &bot_deps)
+                .await
                 .unwrap_or(PaymentPrefs::from((
                     default_payment_prefs.label,
                     default_payment_prefs.currency,
@@ -152,7 +159,8 @@ impl AI {
         } else {
             bot_deps
                 .payment
-                .get_payment_token(user_id.to_string())
+                .get_payment_token(user_id.to_string(), &bot_deps)
+                .await
                 .unwrap_or(PaymentPrefs::from((
                     default_payment_prefs.label,
                     default_payment_prefs.currency,
@@ -225,10 +233,12 @@ impl AI {
         }
 
         let user_convos = UserConversations::new(&bot_deps.db)?;
-        
+
         // Check if we need to clear the thread from a previous summarization
         // But do this AFTER we get the current response, so AI can see its previous response
-        let should_clear_thread = if let Ok(should_clear) = bot_deps.summarizer.check_and_clear_pending_thread(user_id) {
+        let should_clear_thread = if let Ok(should_clear) =
+            bot_deps.summarizer.check_and_clear_pending_thread(user_id)
+        {
             if should_clear {
                 log::info!(
                     "Thread will be cleared for user {} after this response (delayed from previous summarization)",
@@ -239,7 +249,7 @@ impl AI {
         } else {
             false
         };
-        
+
         let previous_response_id = user_convos.get_response_id(user_id);
         let mut tool_called: Vec<FunctionCallInfo> = Vec::new();
 
@@ -283,11 +293,12 @@ impl AI {
         let system_prompt = format!("Entity {}: {}", user, self.system_prompt);
 
         // Inject conversation summary if it exists
-        let final_system_prompt = if let Some(summary) = bot_deps.summarizer.get_summary_for_instructions(user_id) {
-            format!("{}\n\nSummary so far:\n{}", system_prompt, summary)
-        } else {
-            system_prompt
-        };
+        let final_system_prompt =
+            if let Some(summary) = bot_deps.summarizer.get_summary_for_instructions(user_id) {
+                format!("{}\n\nSummary so far:\n{}", system_prompt, summary)
+            } else {
+                system_prompt
+            };
 
         let mut request_builder = Request::builder()
             .model(model.clone())
@@ -592,7 +603,7 @@ impl AI {
 
         // Check if summarization is needed and enabled using per-user preferences
         let effective_prefs = bot_deps.summarization_settings.get_effective_prefs(user_id);
-        
+
         if effective_prefs.enabled {
             let token_limit = effective_prefs.token_limit;
 
@@ -623,7 +634,11 @@ impl AI {
                     // No summarization needed
                 }
                 Err(e) => {
-                    log::error!("Summarization failed for user {}: {}, but continuing with AI response", user_id, e);
+                    log::error!(
+                        "Summarization failed for user {}: {}, but continuing with AI response",
+                        user_id,
+                        e
+                    );
                     // Continue with the response even if summarization fails
                 }
             }
@@ -726,7 +741,8 @@ impl AI {
         let default_payment_prefs = bot_deps.default_payment_prefs.clone();
         let coin = bot_deps
             .payment
-            .get_payment_token(group_id.clone())
+            .get_payment_token(group_id.clone(), &bot_deps)
+            .await
             .unwrap_or(PaymentPrefs::from((
                 default_payment_prefs.label,
                 default_payment_prefs.currency,
@@ -804,7 +820,10 @@ impl AI {
         let system_prompt = format!("Entity {}: {}", user_label, self.system_prompt);
 
         // Inject conversation summary if it exists (for scheduled prompts, use creator's summary)
-        let final_system_prompt = if let Some(summary) = bot_deps.summarizer.get_summary_for_instructions(creator_user_id) {
+        let final_system_prompt = if let Some(summary) = bot_deps
+            .summarizer
+            .get_summary_for_instructions(creator_user_id)
+        {
             format!("{}\n\nSummary so far:\n{}", system_prompt, summary)
         } else {
             system_prompt

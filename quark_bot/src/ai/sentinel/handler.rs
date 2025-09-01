@@ -42,7 +42,7 @@ pub async fn handle_message_sentinel(bot: Bot, msg: Message, bot_deps: BotDepend
 
         let default_payment_prefs = bot_deps.default_payment_prefs.clone();
 
-        let coin = bot_deps.payment.get_payment_token(msg.chat.id.to_string()).unwrap_or(PaymentPrefs::from((default_payment_prefs.label, default_payment_prefs.currency, default_payment_prefs.version)));
+        let coin = bot_deps.payment.get_payment_token(msg.chat.id.to_string(), &bot_deps).await.unwrap_or(PaymentPrefs::from((default_payment_prefs.label, default_payment_prefs.currency, default_payment_prefs.version)));
 
         let group_balance = bot_deps
         .panora

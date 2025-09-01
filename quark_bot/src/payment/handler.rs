@@ -80,7 +80,7 @@ async fn handle_open_group_payment_settings(
 ) -> Result<()> {
     if let Some(message) = &query.message {
         if let MaybeInaccessibleMessage::Regular(m) = message {
-            let mut default_currency = bot_deps.default_payment_prefs.label;
+            let mut default_currency = bot_deps.default_payment_prefs.label.clone();
 
             let is_admin = crate::utils::is_admin(&bot, m.chat.id, query.from.id).await;
 
@@ -91,7 +91,10 @@ async fn handle_open_group_payment_settings(
                 return Ok(());
             }
 
-            let prefs = bot_deps.payment.get_payment_token(m.chat.id.to_string());
+            let prefs = bot_deps
+                .payment
+                .get_payment_token(m.chat.id.to_string(), &bot_deps)
+                .await;
 
             log::info!("prefs: {:?}", prefs);
 
@@ -177,7 +180,8 @@ async fn handle_payment_selected(
                 }
 
                 let token = tokens.iter().find(|t| {
-                    t.token_address.as_ref().is_some() && t.token_address.as_ref().unwrap() == &addr
+                    t.token_address.as_ref().is_some()
+                        && t.token_address.as_ref().unwrap().starts_with(&addr)
                         || t.fa_address == addr
                 });
 

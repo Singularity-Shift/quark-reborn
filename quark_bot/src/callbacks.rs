@@ -322,8 +322,10 @@ pub async fn handle_callback_query(
                     if let Some(username) = user {
                         let prefs = bot_deps.user_model_prefs.get_preferences(&username);
                         // Resolve selected token from user prefs; fall back to default
-                        let token_label = if let Some(token) =
-                            bot_deps.payment.get_payment_token(id.to_string())
+                        let token_label = if let Some(token) = bot_deps
+                            .payment
+                            .get_payment_token(id.to_string(), &bot_deps)
+                            .await
                         {
                             token.label
                         } else {
@@ -378,9 +380,12 @@ pub async fn handle_callback_query(
             // Show submenu with the choose token action and the default currency
             if let Some(message) = &query.message {
                 if let teloxide::types::MaybeInaccessibleMessage::Regular(m) = message {
-                    let mut default_currency = bot_deps.default_payment_prefs.label;
+                    let mut default_currency = bot_deps.default_payment_prefs.label.clone();
 
-                    let prefs = bot_deps.payment.get_payment_token(m.chat.id.to_string());
+                    let prefs = bot_deps
+                        .payment
+                        .get_payment_token(m.chat.id.to_string(), &bot_deps)
+                        .await;
 
                     if prefs.is_some() {
                         let prefs = prefs.unwrap();
@@ -457,7 +462,10 @@ pub async fn handle_callback_query(
                         return Ok(());
                     }
 
-                    let prefs = bot_deps.payment.get_payment_token(m.chat.id.to_string());
+                    let prefs = bot_deps
+                        .payment
+                        .get_payment_token(m.chat.id.to_string(), &bot_deps)
+                        .await;
 
                     let default_currency = if prefs.is_some() {
                         prefs.unwrap().label

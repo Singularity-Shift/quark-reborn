@@ -115,10 +115,7 @@ impl Aptos {
             return Ok(format!("0x1::aptos_coin::AptosCoin"));
         }
 
-        Ok(format!(
-            "{}::coin_factory::Emojicoin",
-            coin_address[0].vec[0].clone()
-        ))
+        Ok(coin_address[0].vec[0].clone())
     }
 
     pub async fn get_account_balance(&self, address: &str, token_address: &str) -> Result<i64> {
