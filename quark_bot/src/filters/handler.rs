@@ -93,14 +93,14 @@ pub async fn process_message_for_filters(
                     let username = msg.from.as_ref().and_then(|u| u.username.as_deref());
                     let group_name = msg.chat.title().unwrap_or("Group").to_string();
                     let trigger = &filter_match.matched_text;
-                    
+
                     // Replace placeholders in the response
                     let personalized_response = replace_filter_placeholders(
                         &filter_match.filter.response,
                         username,
                         &group_name,
                         trigger,
-                        filter_match.filter.response_type.clone()
+                        filter_match.filter.response_type.clone(),
                     );
 
                     // Determine parse mode based on filter response type
@@ -109,7 +109,7 @@ pub async fn process_message_for_filters(
                             // For markdown responses, use MarkdownV2 with proper escaping
                             bot.send_message(msg.chat.id, &personalized_response)
                                 .parse_mode(ParseMode::MarkdownV2)
-                        },
+                        }
                         ResponseType::Text => {
                             // For text responses, send as plain text without parse mode
                             bot.send_message(msg.chat.id, &personalized_response)
@@ -120,7 +120,8 @@ pub async fn process_message_for_filters(
                         log::error!("Failed to send filter response: {}", e);
 
                         // Fallback to simple message without parse mode
-                        bot.send_message(msg.chat.id, &personalized_response).await?;
+                        bot.send_message(msg.chat.id, &personalized_response)
+                            .await?;
                     }
 
                     if let Some(user) = &msg.from {
@@ -161,7 +162,7 @@ async fn start_filter_wizard(
         step: PendingFilterStep::AwaitingTrigger,
         trigger: None,
         response: None,
-        match_type: MatchType::Contains,   // Default
+        match_type: MatchType::Contains,       // Default
         response_type: ResponseType::Markdown, // Default
     };
 
@@ -225,10 +226,10 @@ async fn show_filters_main_menu(
         )],
     ]);
 
-        let text = format!(
-            "🔍 <b>Filters</b>\n\nMake your chat more lively with filters! The bot will reply to certain words.\n\nFilters are case insensitive; every time someone says your trigger words, Quark will reply something else! Can be used to create your own commands, if desired.\n\n✨ <b>Personalization:</b> Use placeholders like {{username}}, {{group_name}}, and {{trigger}} in your responses to make them personal!\n\n<b>Current filters:</b> {} active",
-            filter_count
-        );
+    let text = format!(
+        "🔍 <b>Filters</b>\n\nMake your chat more lively with filters! The bot will reply to certain words.\n\nFilters are case insensitive; every time someone says your trigger words, Nova will reply something else! Can be used to create your own commands, if desired.\n\n✨ <b>Personalization:</b> Use placeholders like {{username}}, {{group_name}}, and {{trigger}} in your responses to make them personal!\n\n<b>Current filters:</b> {} active",
+        filter_count
+    );
 
     if let Some(teloxide::types::MaybeInaccessibleMessage::Regular(message)) = &query.message {
         bot.edit_message_text(message.chat.id, message.id, text)

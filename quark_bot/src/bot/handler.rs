@@ -361,7 +361,7 @@ pub async fn handle_aptos_connect(bot: Bot, msg: Message) -> AnyResult<()> {
 
     bot.send_message(
         msg.chat.id,
-        "Click the button below to login to your quark account",
+        "Click the button below to login to your Nova account",
     )
     .reply_markup(InlineKeyboardMarkup::new(vec![vec![aptos_connect_button]]))
     .await?;
@@ -398,7 +398,7 @@ pub async fn handle_login_user(bot: Bot, msg: Message) -> AnyResult<()> {
 
     let request = ButtonRequest::WebApp(web_app_info);
 
-    let login_button = KeyboardButton::new("Login to your Quark account");
+    let login_button = KeyboardButton::new("Login to your Nova account");
 
     let login_button = login_button.request(request);
 
@@ -406,7 +406,7 @@ pub async fn handle_login_user(bot: Bot, msg: Message) -> AnyResult<()> {
 
     bot.send_message(
         msg.chat.id,
-        "Click the button below to login to your quark account",
+        "Click the button below to login to your Nova account",
     )
     .reply_markup(login_markup)
     .await?;
@@ -501,7 +501,7 @@ pub async fn handle_login_group(
         return Ok(());
     }
 
-    bot.send_message(msg.chat.id, format!("🔑 <b>Group Login Successful!</b>\n\n<i>You can now use the group's Quark account to interact with the bot.</i>\n\n💡 <i>Use /groupwalletaddress to get the group's wallet address and /groupbalance to get the group's balance of a token.</i>"))
+    bot.send_message(msg.chat.id, format!("🔑 <b>Group Login Successful!</b>\n\n<i>You can now use the group's Nova account to interact with the bot.</i>\n\n💡 <i>Use /groupwalletaddress to get the group's wallet address and /groupbalance to get the group's balance of a token.</i>"))
         .parse_mode(ParseMode::Html)
         .await?;
     Ok(())

@@ -57,7 +57,7 @@ export const AccountStatus = ({
               marginBottom: "24px",
             }}
           />
-          <Title style={{ marginBottom: "8px" }}>Connecting to Quark AI</Title>
+          <Title style={{ marginBottom: "8px" }}>Connecting to Nova AI</Title>
           <Caption>Please wait while we set up your AI wallet...</Caption>
         </div>
       </Section>
@@ -70,12 +70,12 @@ export const AccountStatus = ({
       {/* Header Section */}
       <Section>
         <div className="text-center" style={{ padding: "32px 0" }}>
-          <Title style={{ marginBottom: "8px" }}>Quark AI Ready! 🚀</Title>
+          <Title style={{ marginBottom: "8px" }}>Nova AI Ready! 🚀</Title>
 
           <Subheadline>
             {txHash
-              ? "Your Quark account has been created successfully"
-              : "Welcome back to Quark!"}
+              ? "Your Nova account has been created successfully"
+              : "Welcome back to Nova!"}
           </Subheadline>
         </div>
       </Section>
@@ -250,7 +250,7 @@ export const AccountStatus = ({
                 alignItems: "center",
               }}
             >
-              <Text weight="2">Quark Wallet Address</Text>
+              <Text weight="2">Nova Wallet Address</Text>
               <Badge type="dot" mode="primary" style={{ marginLeft: "8px" }}>
                 Active
               </Badge>
