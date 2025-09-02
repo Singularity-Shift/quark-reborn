@@ -68,9 +68,9 @@ pub async fn handle_model_preferences_callback(
         if let Some(message) = query.message {
             if let teloxide::types::MaybeInaccessibleMessage::Regular(msg) = message {
                 let reasoning_status = if current_reasoning {
-                    "<b><span style=\"color: #00ff00;\">ON</span></b>"
+                    "<b>🟢 ON</b>"
                 } else {
-                    "<b><span style=\"color: #ff0000;\">OFF</span></b>"
+                    "<b>🔴 OFF</b>"
                 };
                 bot.edit_message_text(
                     msg.chat.id,
@@ -125,9 +125,9 @@ pub async fn handle_model_preferences_callback(
         if let Some(message) = query.message {
             if let teloxide::types::MaybeInaccessibleMessage::Regular(msg) = message {
                 let reasoning_status = if reasoning_enabled {
-                    "<b><span style=\"color: #00ff00;\">ON</span></b>"
+                    "<b>🟢 ON</b>"
                 } else {
-                    "<b><span style=\"color: #ff0000;\">OFF</span></b>"
+                    "<b>🔴 OFF</b>"
                 };
                 bot.edit_message_text(
                     msg.chat.id,
@@ -247,9 +247,9 @@ pub async fn handle_model_preferences_callback(
         if let Some(message) = query.message {
             if let teloxide::types::MaybeInaccessibleMessage::Regular(msg) = message {
                 let reasoning_status = if prefs.reasoning_enabled {
-                    "<b><span style=\"color: #00ff00;\">ON</span></b>"
+                    "<b>🟢 ON</b>"
                 } else {
-                    "<b><span style=\"color: #ff0000;\">OFF</span></b>"
+                    "<b>🔴 OFF</b>"
                 };
                 bot.edit_message_text(
                     msg.chat.id,
