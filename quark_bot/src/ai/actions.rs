@@ -1749,14 +1749,14 @@ pub async fn execute_prices(_arguments: &serde_json::Value) -> String {
 
 🤖 <b>AI Models:</b>
 • <code>gpt-4.1</code> - <b>$0.0128</b>
-• <code>gpt-5</code> - <b>$0.01200</b>
-• <code>gpt-5-mini</code> - <b>$0.00240</b>
-• <code>gpt-5-nano (sentinel)</code> - <b>$0.00048</b>
+• <code>gpt-5</code> - <b>$0.00410</b>
+• <code>gpt-5-mini</code> - <b>$0.00082</b>
+• <code>gpt-5-nano (sentinel)</code> - <b>$0.00016</b>
 
 🛠️ <b>Tools:</b>
-• <code>FileSearch</code> - <b>$0.01</b>
+• <code>FileSearch</code> - <b>$0.0040</b>
 • <code>ImageGeneration</code> - <b>$0.16</b>
-• <code>WebSearchPreview</code> - <b>$0.04</b>
+• <code>WebSearchPreview</code> - <b>$0.0160</b>
 
 💳 <b>Payment Information:</b>
 💰 Payment is made in <b>your selected payment token (deafult APT)</b> at the <u>dollar market rate</u>
