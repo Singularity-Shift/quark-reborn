@@ -67,12 +67,18 @@ pub async fn handle_model_preferences_callback(
 
         if let Some(message) = query.message {
             if let teloxide::types::MaybeInaccessibleMessage::Regular(msg) = message {
+                let reasoning_status = if current_reasoning {
+                    "<b><span style=\"color: #00ff00;\">ON</span></b>"
+                } else {
+                    "<b><span style=\"color: #ff0000;\">OFF</span></b>"
+                };
                 bot.edit_message_text(
                     msg.chat.id,
                     msg.id,
                     format!(
-                        "✅ <b>Model selected:</b> {}\n\n🧠 <b>Reasoning Setting:</b>\nChoose whether to enable reasoning mode.",
-                        model.to_display_string()
+                        "✅ <b>Model selected:</b> {}\n\n🧠 <b>Reasoning Setting:</b> {}\nChoose whether to enable reasoning for more detailed responses.",
+                        model.to_display_string(),
+                        reasoning_status
                     )
                 )
                 .reply_markup(keyboard)
@@ -118,12 +124,18 @@ pub async fn handle_model_preferences_callback(
 
         if let Some(message) = query.message {
             if let teloxide::types::MaybeInaccessibleMessage::Regular(msg) = message {
+                let reasoning_status = if reasoning_enabled {
+                    "<b><span style=\"color: #00ff00;\">ON</span></b>"
+                } else {
+                    "<b><span style=\"color: #ff0000;\">OFF</span></b>"
+                };
                 bot.edit_message_text(
                     msg.chat.id,
                     msg.id,
                     format!(
-                        "✅ <b>Model selected:</b> {}\n\n🧠 <b>Reasoning Setting:</b>\nChoose whether to enable reasoning for more detailed responses.",
-                        prefs.chat_model.to_display_string()
+                        "✅ <b>Model selected:</b> {}\n\n🧠 <b>Reasoning Setting:</b> {}\nChoose whether to enable reasoning for more detailed responses.",
+                        prefs.chat_model.to_display_string(),
+                        reasoning_status
                     )
                 )
                 .reply_markup(keyboard)
@@ -234,12 +246,18 @@ pub async fn handle_model_preferences_callback(
 
         if let Some(message) = query.message {
             if let teloxide::types::MaybeInaccessibleMessage::Regular(msg) = message {
+                let reasoning_status = if prefs.reasoning_enabled {
+                    "<b><span style=\"color: #00ff00;\">ON</span></b>"
+                } else {
+                    "<b><span style=\"color: #ff0000;\">OFF</span></b>"
+                };
                 bot.edit_message_text(
                     msg.chat.id,
                     msg.id,
                     format!(
-                        "✅ <b>Model selected:</b> {}\n\n🧠 <b>Reasoning Setting:</b>\nChoose whether to enable reasoning mode.",
-                        prefs.chat_model.to_display_string()
+                        "✅ <b>Model selected:</b> {}\n\n🧠 <b>Reasoning Setting:</b> {}\nChoose whether to enable reasoning for more detailed responses.",
+                        prefs.chat_model.to_display_string(),
+                        reasoning_status
                     )
                 )
                 .reply_markup(keyboard)
