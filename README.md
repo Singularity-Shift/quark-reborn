@@ -20,8 +20,8 @@ For detailed system architecture, component interactions, and data flow, see the
 ### 1. Clone and Setup
 
 ```bash
-git clone https://github.com/Singularity-Shift/nova.git
-cd quark-reborn
+git clone git@github.com:Inferenco/Nova.git
+cd Nova
 ```
 
 ### 2. Environment Configuration
