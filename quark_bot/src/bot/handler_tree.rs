@@ -18,7 +18,7 @@ use crate::{
 async fn handle_unauthenticated(bot: Bot, msg: Message) -> Result<()> {
     bot.send_message(
         msg.chat.id,
-        "👋 Welcome to Quark! 
+        "👋 Welcome to Nova! 
 
 To use commands like `/c` or `/newchat`, you need to authenticate first.
 

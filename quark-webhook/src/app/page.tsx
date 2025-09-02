@@ -12,7 +12,7 @@ export default function Home() {
   return (
     <Page back={false}>
       <List>
-        <Section footer="Login to your Quark account">
+        <Section footer="Login to your Nova account">
           <Link href="/login">
             <Cell>Login</Cell>
           </Link>

@@ -19,7 +19,7 @@ export const WalletProvider = ({ children }: PropsWithChildren) => {
           indexer: aptos?.config?.indexer || APTOS_INDEXER,
         }),
         aptosConnect: {
-          dappName: "Quark",
+          dappName: "Nova",
         },
       }}
       onError={(error) => {

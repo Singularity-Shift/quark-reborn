@@ -1,4 +1,4 @@
-# Quark Reborn
+# Nova
 
 A next-generation AI-powered Telegram bot ecosystem with blockchain integration, built in Rust and TypeScript. The system combines modern web technologies, AI capabilities, and decentralized finance (DeFi) features on the Aptos blockchain.
 
@@ -20,7 +20,7 @@ For detailed system architecture, component interactions, and data flow, see the
 ### 1. Clone and Setup
 
 ```bash
-git clone https://github.com/Singularity-Shift/quark-reborn.git
+git clone https://github.com/Singularity-Shift/nova.git
 cd quark-reborn
 ```
 

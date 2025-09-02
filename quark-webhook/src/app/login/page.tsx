@@ -106,13 +106,13 @@ const LoginPage = () => {
             className="text-2xl font-bold mb-2"
             style={{ color: "var(--tg-theme-text-color)" }}
           >
-            Quark Login
+            Nova Login
           </h1>
           <p
             className="text-sm mb-4"
             style={{ color: "var(--tg-theme-hint-color)" }}
           >
-            Connect your wallet and create your Quark account
+            Connect your wallet and create your Nova account
           </p>
         </div>
 
@@ -139,7 +139,7 @@ const LoginPage = () => {
                 ? "Creating Account..."
                 : isDelaying
                 ? "Processing..."
-                : "Login to Quark"}
+                : "Login to Nova"}
             </Button>
           </div>
         ) : (
