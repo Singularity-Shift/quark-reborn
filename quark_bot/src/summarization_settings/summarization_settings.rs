@@ -65,13 +65,13 @@ impl SummarizationSettings {
                 .unwrap_or(true)
         });
 
-        // Resolve token limit: user pref -> env (both spellings) -> default 12000
+        // Resolve token limit: user pref -> env (both spellings) -> default 18000
         let token_limit = prefs.summarizer_token_limit.unwrap_or_else(|| {
             env::var("CONVERSATION_TOKEN_LIMIT")
                 .or_else(|_| env::var("conversation_token_limit"))
-                .unwrap_or_else(|_| "12000".to_string())
+                .unwrap_or_else(|_| "18000".to_string())
                 .parse::<u32>()
-                .unwrap_or(12000)
+                .unwrap_or(18000)
         });
 
         EffectiveSummarizationPrefs {

@@ -18,7 +18,6 @@ use open_ai_rust_responses_by_sshift::types::{
 };
 use open_ai_rust_responses_by_sshift::{
     Client as OAIClient, FunctionCallInfo, Model, ReasoningEffort, RecoveryPolicy, Request,
-    Verbosity,
 };
 use serde_json;
 use teloxide::Bot;
@@ -88,7 +87,7 @@ impl AI {
         user_uploaded_image_urls: Vec<String>,
         model: Model,
         max_tokens: u32,
-        temperature: Option<f32>,
+        _temperature: Option<f32>,
         reasoning: Option<ReasoningParams>,
         bot_deps: BotDependencies,
         group_id: Option<String>,
@@ -310,31 +309,24 @@ impl AI {
             .user(&user)
             .store(true);
 
-        // Apply sampling/controls based on model family per SDK docs
-        match model {
-            Model::GPT41 | Model::GPT41Mini | Model::GPT4o => {
-                if let Some(temp) = temperature {
-                    request_builder = request_builder.temperature(temp);
-                }
-            }
-            Model::GPT5 | Model::GPT5Mini => {
-                // GPT-5: apply verbosity (and reasoning_effort if configured) from user preferences
-                if let Some(username) = msg.from.as_ref().and_then(|u| u.username.clone()) {
-                    let prefs = bot_deps.user_model_prefs.get_preferences(&username);
-                    // Verbosity default Medium
-                    let verbosity = prefs.gpt5_verbosity.unwrap_or(Verbosity::Medium);
+        // Apply user preferences based on model family
+        if let Some(username) = msg.from.as_ref().and_then(|u| u.username.clone()) {
+            let prefs = bot_deps.user_model_prefs.get_preferences(&username);
+            
+            match model {
+                Model::GPT5 | Model::GPT5Mini => {
+                    // GPT-5: apply verbosity and reasoning from user preferences
+                    let verbosity = prefs.verbosity.to_openai_verbosity();
                     request_builder = request_builder.verbosity(verbosity);
-                    // Reasoning mode optional
-                    if let Some(mode) = prefs.gpt5_mode {
-                        if mode == crate::user_model_preferences::dto::Gpt5Mode::Reasoning {
-                            let eff = prefs.gpt5_effort.unwrap_or(ReasoningEffort::Medium);
-                            request_builder = request_builder.reasoning_effort(eff);
-                        }
+                    
+                    // Apply reasoning if enabled (always low effort)
+                    if prefs.reasoning_enabled {
+                        request_builder = request_builder.reasoning_effort(ReasoningEffort::Minimal);
                     }
                 }
+                // O-series and others: reasoning passed via ReasoningParams below when provided
+                _ => {}
             }
-            // O-series and others: do not apply temperature; reasoning passed via ReasoningParams below when provided
-            _ => {}
         }
 
         if let Some(reasoning_params) = reasoning.clone() {
@@ -539,9 +531,7 @@ impl AI {
                     .user(&format!("user-{}", user_id))
                     .store(true);
 
-                if let Some(temp) = temperature {
-                    continuation_builder = continuation_builder.temperature(temp);
-                }
+                // No temperature controls anymore
 
                 if let Some(reasoning_params) = reasoning.clone() {
                     continuation_builder = continuation_builder.reasoning(reasoning_params);
@@ -718,7 +708,7 @@ impl AI {
         input: &str,
         model: Model,
         max_tokens: u32,
-        temperature: Option<f32>,
+        _temperature: Option<f32>,
         reasoning: Option<ReasoningParams>,
         bot_deps: BotDependencies,
         group_id: String,
@@ -840,21 +830,16 @@ impl AI {
             .store(true)
             .input(input);
 
+        // Apply user preferences based on model family
         match model {
-            Model::GPT41 | Model::GPT41Mini | Model::GPT4o => {
-                if let Some(temp) = temperature {
-                    request_builder = request_builder.temperature(temp);
-                }
-            }
             Model::GPT5 | Model::GPT5Mini => {
                 let prefs = bot_deps.user_model_prefs.get_preferences(&creator_username);
-                let verbosity = prefs.gpt5_verbosity.unwrap_or(Verbosity::Medium);
+                let verbosity = prefs.verbosity.to_openai_verbosity();
                 request_builder = request_builder.verbosity(verbosity);
-                if let Some(mode) = prefs.gpt5_mode {
-                    if mode == crate::user_model_preferences::dto::Gpt5Mode::Reasoning {
-                        let eff = prefs.gpt5_effort.unwrap_or(ReasoningEffort::Medium);
-                        request_builder = request_builder.reasoning_effort(eff);
-                    }
+                
+                // Apply reasoning if enabled (always low effort)
+                if prefs.reasoning_enabled {
+                    request_builder = request_builder.reasoning_effort(ReasoningEffort::Minimal);
                 }
             }
             _ => {}
@@ -940,9 +925,7 @@ impl AI {
                 .max_output_tokens(max_tokens)
                 .user(&user_label)
                 .store(true);
-            if let Some(temp) = temperature {
-                continuation_builder = continuation_builder.temperature(temp);
-            }
+            // No temperature controls anymore
             if let Some(reasoning_params) = reasoning.clone() {
                 continuation_builder = continuation_builder.reasoning(reasoning_params);
             }

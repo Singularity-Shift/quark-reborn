@@ -24,7 +24,7 @@ pub async fn handle_summarization_settings_callback(
         if let Some(threshold_str) = data.strip_prefix("set_summarizer_threshold:") {
             if let Ok(threshold) = threshold_str.parse::<u32>() {
                 // Validate against allowed presets
-                if [12000, 14000, 16000, 18000, 20000].contains(&threshold) {
+                if [16000, 18000, 20000, 24000, 26000].contains(&threshold) {
                     if let Err(e) = summarization_settings.set_token_limit(user_id, threshold) {
                         log::error!("Failed to set token limit for user {}: {}", user_id, e);
                     }

@@ -1,8 +1,31 @@
-use super::dto::{ChatModel, ModelPreferences};
+use super::dto::{ChatModel, ModelPreferences, VerbosityLevel};
 use anyhow::Result;
+use serde::{Deserialize, Serialize};
 use serde_json;
 use sled::Db;
-use teloxide::types::{InlineKeyboardButton, InlineKeyboardMarkup};
+
+// Legacy struct for migration
+#[derive(Serialize, Deserialize, Debug, Clone)]
+struct LegacyModelPreferences {
+    pub chat_model: LegacyChatModel,
+    pub temperature: f32,
+    pub gpt5_mode: Option<LegacyGpt5Mode>,
+    pub gpt5_effort: Option<open_ai_rust_responses_by_sshift::ReasoningEffort>,
+    pub gpt5_verbosity: Option<open_ai_rust_responses_by_sshift::Verbosity>,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+enum LegacyChatModel {
+    GPT41,
+    GPT5,
+    GPT5Mini,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+enum LegacyGpt5Mode {
+    Regular,
+    Reasoning,
+}
 
 const TREE_NAME: &str = "user_model_preferences";
 
@@ -19,7 +42,24 @@ impl UserModelPreferences {
 
     pub fn get_preferences(&self, username: &str) -> ModelPreferences {
         match self.tree.get(username) {
-            Ok(Some(bytes)) => serde_json::from_slice(&bytes).unwrap_or_default(),
+            Ok(Some(bytes)) => {
+                // Try to deserialize as new format first
+                if let Ok(prefs) = serde_json::from_slice::<ModelPreferences>(&bytes) {
+                    prefs
+                } else {
+                    // Try to deserialize as legacy format and migrate
+                    if let Ok(legacy_prefs) = serde_json::from_slice::<LegacyModelPreferences>(&bytes) {
+                        let migrated_prefs = self.migrate_legacy_preferences(legacy_prefs);
+                        // Save migrated preferences back to database
+                        if let Ok(_) = self.set_preferences(username, &migrated_prefs) {
+                            log::info!("Migrated legacy preferences for user: {}", username);
+                        }
+                        migrated_prefs
+                    } else {
+                        ModelPreferences::default()
+                    }
+                }
+            }
             _ => ModelPreferences::default(),
         }
     }
@@ -34,31 +74,41 @@ impl UserModelPreferences {
         Ok(())
     }
 
-    pub fn set_chat_preferences(
-        &self,
-        username: &str,
-        model: ChatModel,
-        temperature: f32,
-    ) -> sled::Result<()> {
-        let mut prefs = self.get_preferences(username);
-        prefs.chat_model = model;
-        prefs.temperature = temperature;
-        self.set_preferences(username, &prefs)
+    fn migrate_legacy_preferences(&self, legacy: LegacyModelPreferences) -> ModelPreferences {
+        // Migrate chat model: only GPT41 was actually used, migrate to GPT5Mini with reasoning off
+        let chat_model = match legacy.chat_model {
+            LegacyChatModel::GPT41 => ChatModel::GPT5Mini,
+            LegacyChatModel::GPT5 => ChatModel::GPT5,
+            LegacyChatModel::GPT5Mini => ChatModel::GPT5Mini,
+        };
+
+        // Migrate reasoning: if mode was Reasoning, enable reasoning; otherwise disable
+        let reasoning_enabled = if let Some(mode) = legacy.gpt5_mode {
+            mode == LegacyGpt5Mode::Reasoning
+        } else {
+            false
+        };
+
+        // Migrate verbosity: Low -> Normal, Medium/High -> Chatty
+        let verbosity = if let Some(legacy_verbosity) = legacy.gpt5_verbosity {
+            match legacy_verbosity {
+                open_ai_rust_responses_by_sshift::Verbosity::Low => VerbosityLevel::Normal,
+                open_ai_rust_responses_by_sshift::Verbosity::Medium => VerbosityLevel::Chatty,
+                open_ai_rust_responses_by_sshift::Verbosity::High => VerbosityLevel::Chatty,
+            }
+        } else {
+            VerbosityLevel::Normal
+        };
+
+        ModelPreferences {
+            chat_model,
+            reasoning_enabled,
+            verbosity,
+        }
     }
 }
 
-pub fn get_temperature_keyboard() -> InlineKeyboardMarkup {
-    InlineKeyboardMarkup::new(vec![
-        vec![
-            InlineKeyboardButton::callback("0.3", "set_temperature:0.3"),
-            InlineKeyboardButton::callback("0.6", "set_temperature:0.6"),
-        ],
-        vec![
-            InlineKeyboardButton::callback("0.8", "set_temperature:0.8"),
-            InlineKeyboardButton::callback("1.0", "set_temperature:1.0"),
-        ],
-    ])
-}
+
 
 // Removed legacy O-series effort keyboard
 

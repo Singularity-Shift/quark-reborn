@@ -673,11 +673,8 @@ pub async fn handle_chat(
     };
 
     let chat_model = preferences.chat_model.to_openai_model();
-    // Only pass temperature for models that support it
-    let temperature = match chat_model {
-        Model::GPT41 | Model::GPT41Mini | Model::GPT4o => Some(preferences.temperature),
-        _ => None,
-    };
+    // No temperature controls anymore
+    let temperature = None;
 
     // --- Vision Support: Check for replied-to images ---
     let mut image_url_from_reply: Option<String> = None;

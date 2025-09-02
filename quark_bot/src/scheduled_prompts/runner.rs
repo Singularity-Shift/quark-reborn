@@ -367,10 +367,9 @@ pub async fn register_schedule(
                 .get_preferences(&rec.creator_username);
             let _model = prefs.chat_model.to_openai_model();
             let temperature = match prefs.chat_model {
-                ChatModel::GPT41 | ChatModel::GPT41Mini | ChatModel::GPT4o => {
-                    Some(prefs.temperature)
+                ChatModel::GPT5 | ChatModel::GPT5Mini => {
+                    None // No temperature controls anymore
                 }
-                _ => None,
             };
 
             log::info!(
@@ -384,9 +383,6 @@ pub async fn register_schedule(
 
             // Execute AI as group scheduled prompt
             let chat_model: Model = match prefs.chat_model {
-                ChatModel::GPT41 => Model::GPT41,
-                ChatModel::GPT41Mini => Model::GPT41Mini,
-                ChatModel::GPT4o => Model::GPT4o,
                 ChatModel::GPT5 => Model::GPT5,
                 ChatModel::GPT5Mini => Model::GPT5Mini,
             };
