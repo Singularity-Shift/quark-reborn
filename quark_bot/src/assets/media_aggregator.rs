@@ -4,7 +4,7 @@ use crate::dependencies::BotDependencies;
 use crate::user_model_preferences::handler::UserModelPreferences;
 use dashmap::DashMap;
 use open_ai_rust_responses_by_sshift::types::ReasoningParams;
-use crate::user_model_preferences::dto::ChatModel;
+
 use std::sync::Arc;
 use std::time::Duration;
 use teloxide::net::Download;
@@ -139,13 +139,7 @@ impl MediaGroupAggregator {
             // Load model prefs and compute request params (unified)
             let prefs = self.user_model_prefs.get_preferences(username);
             let model = prefs.chat_model.to_openai_model();
-            let temperature: Option<f32> = None;
             let reasoning_params: Option<ReasoningParams> = None;
-            match prefs.chat_model {
-                ChatModel::GPT5 | ChatModel::GPT5Mini => {
-                    // GPT-5 models: no temperature controls anymore
-                }
-            }
 
             // --- Gather photos: take largest variant from each message ---
             let mut image_paths: Vec<(String, String)> = Vec::new();
@@ -209,7 +203,6 @@ impl MediaGroupAggregator {
                     uploaded_urls,
                     model,
                     4000,
-                    temperature,
                     reasoning_params,
                     bot_deps.clone(),
                     group_id.clone(),

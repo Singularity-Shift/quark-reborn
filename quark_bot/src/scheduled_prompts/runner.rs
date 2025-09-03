@@ -366,9 +366,9 @@ pub async fn register_schedule(
                 .user_model_prefs
                 .get_preferences(&rec.creator_username);
             let _model = prefs.chat_model.to_openai_model();
-            let temperature = match prefs.chat_model {
+            let temperature: Option<f32> = match prefs.chat_model {
                 ChatModel::GPT5 | ChatModel::GPT5Mini => {
-                    None // No temperature controls anymore
+                    None
                 }
             };
 
@@ -397,7 +397,6 @@ pub async fn register_schedule(
                     &prompt_for_api,
                     chat_model,
                     4000,
-                    temperature,
                     None,
                     bot_deps.clone(),
                     rec.group_id.to_string(),

@@ -87,7 +87,6 @@ impl AI {
         user_uploaded_image_urls: Vec<String>,
         model: Model,
         max_tokens: u32,
-        _temperature: Option<f32>,
         reasoning: Option<ReasoningParams>,
         bot_deps: BotDependencies,
         group_id: Option<String>,
@@ -531,8 +530,6 @@ impl AI {
                     .user(&format!("user-{}", user_id))
                     .store(true);
 
-                // No temperature controls anymore
-
                 if let Some(reasoning_params) = reasoning.clone() {
                     continuation_builder = continuation_builder.reasoning(reasoning_params);
                 }
@@ -708,7 +705,6 @@ impl AI {
         input: &str,
         model: Model,
         max_tokens: u32,
-        _temperature: Option<f32>,
         reasoning: Option<ReasoningParams>,
         bot_deps: BotDependencies,
         group_id: String,
@@ -925,7 +921,6 @@ impl AI {
                 .max_output_tokens(max_tokens)
                 .user(&user_label)
                 .store(true);
-            // No temperature controls anymore
             if let Some(reasoning_params) = reasoning.clone() {
                 continuation_builder = continuation_builder.reasoning(reasoning_params);
             }
