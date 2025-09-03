@@ -276,6 +276,11 @@ pub async fn handle_callback_query(
             || data.starts_with("set_gpt5_mode:")
             || data.starts_with("set_gpt5_effort:")
             || data.starts_with("set_gpt5_verbosity:")
+            || data.starts_with("set_reasoning:")
+            || data.starts_with("set_verbosity:")
+            || data == "continue_to_verbosity"
+            || data == "back_to_model_selection"
+            || data == "back_to_reasoning"
         {
             // Handle model preference callbacks
             handle_model_preferences_callback(bot, query, bot_deps.user_model_prefs.clone())
@@ -285,10 +290,6 @@ pub async fn handle_callback_query(
             if let Some(message) = &query.message {
                 if let teloxide::types::MaybeInaccessibleMessage::Regular(m) = message {
                     let keyboard = InlineKeyboardMarkup::new(vec![
-                        vec![InlineKeyboardButton::callback(
-                            "GPT-4.1 (💰  Most Expensive)",
-                            "select_chat_model:GPT41",
-                        )],
                         vec![InlineKeyboardButton::callback(
                             "GPT-5 (💸 Smart & Creative)",
                             "select_chat_model:GPT5",
@@ -332,16 +333,8 @@ pub async fn handle_callback_query(
                             bot_deps.default_payment_prefs.label
                         };
 
-                        let mode_text = prefs
-                            .gpt5_mode
-                            .as_ref()
-                            .map(super::user_model_preferences::dto::gpt5_mode_to_display_string)
-                            .unwrap_or("Regular");
-                        let verbosity_text = prefs
-                            .gpt5_verbosity
-                            .as_ref()
-                            .map(super::user_model_preferences::dto::verbosity_to_display_string)
-                            .unwrap_or("Medium");
+                        let reasoning_text = if prefs.reasoning_enabled { "On" } else { "Off" };
+                        let verbosity_text = prefs.verbosity.to_display_string();
 
                         // Get effective summarization preferences
                         let user_id = id.0 as i64;
@@ -350,9 +343,9 @@ pub async fn handle_callback_query(
                         let sum_status = if sum_prefs.enabled { "On" } else { "Off" };
 
                         let text = format!(
-                            "⚙️ <b>Your Settings</b>\n\n🤖 Model: {}\n🧩 Mode: {}\n🗣️ Verbosity: {}\n💳 Token: <code>{}</code>\n🧾 Summarizer: {}\n📏 Threshold: {} tokens",
+                            "⚙️ <b>Your Settings</b>\n\n🤖 Model: {}\n🧠 Reasoning: {}\n🗣️ Verbosity: {}\n💳 Token: <code>{}</code>\n🧾 Summarizer: {}\n📏 Threshold: {} tokens",
                             prefs.chat_model.to_display_string(),
-                            mode_text,
+                            reasoning_text,
                             verbosity_text,
                             token_label,
                             sum_status,

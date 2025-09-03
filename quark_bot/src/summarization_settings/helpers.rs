@@ -7,7 +7,7 @@ pub fn build_summarization_keyboard(prefs: &EffectiveSummarizationPrefs) -> Inli
     let toggle_callback = if prefs.enabled { "toggle_summarizer:off" } else { "toggle_summarizer:on" };
     
     // Create token threshold buttons with current selection highlighted
-    let token_buttons = vec![12000, 14000, 16000, 18000, 20000]
+    let token_buttons = vec![16000, 18000, 20000, 24000, 26000]
         .into_iter()
         .map(|threshold| {
             let text = if threshold == prefs.token_limit {
@@ -23,11 +23,11 @@ pub fn build_summarization_keyboard(prefs: &EffectiveSummarizationPrefs) -> Inli
         // Single toggle button
         vec![InlineKeyboardButton::callback(toggle_text, toggle_callback)],
         // Token threshold buttons in single column
-        vec![token_buttons[0].clone()], // 12k
-        vec![token_buttons[1].clone()], // 14k
-        vec![token_buttons[2].clone()], // 16k
-        vec![token_buttons[3].clone()], // 18k
-        vec![token_buttons[4].clone()], // 20k
+        vec![token_buttons[0].clone()], // 16k
+        vec![token_buttons[1].clone()], // 18k
+        vec![token_buttons[2].clone()], // 20k
+        vec![token_buttons[3].clone()], // 24k
+        vec![token_buttons[4].clone()], // 26k
         // Back button
         vec![InlineKeyboardButton::callback(
             "↩️ Back",
