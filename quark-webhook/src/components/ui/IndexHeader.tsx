@@ -261,16 +261,6 @@ export function IndexHeader() {
             </DialogContent>
           </Dialog>
         </div>
-        <div className="mt-4">
-          <a
-            href="https://ledgerapp.fun/"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="text-gray-800 hover:text-gray-600 transition-colors font-medium text-[13px] min-[500px]:text-base"
-          >
-            SShift 📒 Token
-          </a>
-        </div>
       </nav>
     </header>
   );
