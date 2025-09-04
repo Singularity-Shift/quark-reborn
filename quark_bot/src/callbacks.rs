@@ -11,9 +11,10 @@ use crate::scheduled_payments::callbacks::handle_scheduled_payments_callback;
 use crate::scheduled_prompts::callbacks::handle_scheduled_prompts_callback;
 use crate::sponsor::handler::handle_sponsor_settings_callback;
 use crate::user_model_preferences::callbacks::handle_model_preferences_callback;
-use crate::utils;
+use crate::utils::{self, send_html_message};
 use crate::welcome::handler::handle_welcome_settings_callback;
 use anyhow::Result;
+use teloxide::sugar::request::RequestReplyExt;
 use teloxide::{
     prelude::*,
     types::{InlineKeyboardButton, InlineKeyboardMarkup},
@@ -1112,6 +1113,7 @@ pub async fn handle_callback_query(
                         "🛡️ <b>Moderation Settings — Step 1/2</b>\n\n<b>Send ALLOWED items</b> for this group.\n\n<b>Be specific</b>: include concrete phrases and examples.\n\n<b>Cancel anytime</b>: Tap <b>Back</b> or <b>Close</b> in the Moderation menu — this prompt will be removed.\n\n<b>Warning</b>: Allowed items can reduce moderation strictness; we've included a <b>copy & paste</b> template below to safely allow discussion of your token. To skip this step, send <code>na</code>.\n\n<b>Format</b>:\n- Send them in a <b>single message</b>\n- Separate each item with <code>;</code>\n\n<b>Example</b>:\n<b>discussion of APT token and ecosystem; official project links and documentation; community updates and announcements</b>\n\n<b>Quick template (copy/paste) to allow your own token</b>:\n<code>discussion of [YOUR_TOKEN] and ecosystem; official project links and documentation; community updates and announcements</code>\n\n<i>Note:</i> Default rules still protect against scams, phishing, and inappropriate content.\n\nWhen ready, send your list now.\n\n<i>Tip:</i> Use <b>Reset Custom Rules</b> in the Moderation menu anytime to clear custom rules.",
                     )
                     .parse_mode(teloxide::types::ParseMode::Html)
+                    .reply_to(m.id)
                     .await?;
 
                     state.message_id = Some(sent.id.0 as i64);
@@ -1227,9 +1229,7 @@ To avoid being muted or banned, please follow these rules:
 
 If you have questions, ask an admin before posting.
 "#;
-                    bot.send_message(m.chat.id, rules)
-                        .parse_mode(teloxide::types::ParseMode::Html)
-                        .await?;
+                    send_html_message(*m.clone(), bot.clone(), rules.to_string()).await?;
                     bot.answer_callback_query(query.id)
                         .text("📜 Default rules sent")
                         .await?;

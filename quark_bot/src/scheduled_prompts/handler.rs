@@ -14,7 +14,7 @@ use crate::{
         helpers::{build_hours_keyboard, summarize},
         runner::{register_all_schedules, register_schedule},
     },
-    utils::create_purchase_request,
+    utils::{KeyboardMarkupType, create_purchase_request, send_markdown_message, send_message},
 };
 
 pub async fn bootstrap_scheduled_prompts(bot: Bot, bot_deps: BotDependencies) -> Result<()> {
@@ -27,30 +27,42 @@ pub async fn handle_scheduleprompt_command(
     bot_deps: BotDependencies,
 ) -> Result<()> {
     if !msg.chat.is_group() && !msg.chat.is_supergroup() {
-        bot.send_message(msg.chat.id, "❌ This command is only available in groups.")
-            .await?;
+        send_message(
+            msg.clone(),
+            bot,
+            "❌ This command is only available in groups.".to_string(),
+        )
+        .await?;
         return Ok(());
     }
 
     // Admin check
     let admins = bot.get_chat_administrators(msg.chat.id).await?;
-    let user = match msg.from {
+    let user = match msg.from.as_ref() {
         Some(u) => u,
         None => {
             return Ok(());
         }
     };
     if !admins.iter().any(|m| m.user.id == user.id) {
-        bot.send_message(msg.chat.id, "❌ Only administrators can use this command.")
-            .await?;
+        send_message(
+            msg.clone(),
+            bot,
+            "❌ Only administrators can use this command.".to_string(),
+        )
+        .await?;
         return Ok(());
     }
 
     let username = match user.username.clone() {
         Some(u) => u,
         None => {
-            bot.send_message(msg.chat.id, "❌ Username required to schedule prompts.")
-                .await?;
+            send_message(
+                msg.clone(),
+                bot,
+                "❌ Username required to schedule prompts.".to_string(),
+            )
+            .await?;
             return Ok(());
         }
     };
@@ -64,6 +76,11 @@ pub async fn handle_scheduleprompt_command(
         hour_utc: None,
         minute_utc: None,
         repeat: None,
+        thread_id: if let Some(thread_id) = msg.thread_id {
+            Some(thread_id.0.0)
+        } else {
+            None
+        },
     };
     bot_deps
         .scheduled_storage
@@ -90,15 +107,19 @@ pub async fn handle_listscheduled_command(
 ) -> Result<()> {
     // Admin check
     let admins = bot.get_chat_administrators(msg.chat.id).await?;
-    let user = match msg.from {
+    let user = match msg.from.as_ref() {
         Some(u) => u,
         None => {
             return Ok(());
         }
     };
     if !admins.iter().any(|m| m.user.id == user.id) {
-        bot.send_message(msg.chat.id, "❌ Only administrators can use this command.")
-            .await?;
+        send_message(
+            msg.clone(),
+            bot,
+            "❌ Only administrators can use this command.".to_string(),
+        )
+        .await?;
         return Ok(());
     }
 
@@ -107,8 +128,12 @@ pub async fn handle_listscheduled_command(
         .list_schedules_for_group(msg.chat.id.0 as i64);
 
     if list.is_empty() {
-        bot.send_message(msg.chat.id, "📭 No active scheduled prompts in this group.")
-            .await?;
+        send_message(
+            msg.clone(),
+            bot.clone(),
+            "📭 No active scheduled prompts in this group.".to_string(),
+        )
+        .await?;
         return Ok(());
     }
 
@@ -143,9 +168,13 @@ pub async fn handle_listscheduled_command(
                 "❌ Cancel".to_string(),
                 format!("sched_cancel:{}", rec.id),
             )]]);
-        bot.send_message(msg.chat.id, title)
-            .reply_markup(kb)
-            .await?;
+        send_markdown_message(
+            bot.clone(),
+            msg.clone(),
+            KeyboardMarkupType::InlineKeyboardType(kb),
+            &title,
+        )
+        .await?;
     }
 
     Ok(())
@@ -188,6 +217,7 @@ pub async fn finalize_and_register(
         locked_until: None,
         scheduler_job_id: None,
         conversation_response_id: None,
+        thread_id: state.thread_id,
     };
 
     bot_deps.scheduled_storage.put_schedule(&rec)?;
@@ -207,6 +237,7 @@ pub async fn finalize_and_register(
                 hour_utc: Some(rec.start_hour_utc),
                 minute_utc: Some(rec.start_minute_utc),
                 repeat: Some(rec.repeat),
+                thread_id: rec.thread_id,
             })
         ),
     )
@@ -265,9 +296,7 @@ pub async fn handle_message_scheduled_prompts(
                                     "❌ This prompt can't be scheduled. PLEASE TRY AGAIN\n\n<b>Reason:</b> {}\n\n<b>Allowed for schedules</b>: informational queries, analytics, web/file search, time, market snapshots, and image generation.\n\n<b>Blocked</b>: payments/transfers, withdrawals/funding, DAO/proposal creation, or any on-chain/interactive actions.\n\nPlease send a new prompt (you can just send it here without replying).",
                                     teloxide::utils::html::escape(&reason)
                                 );
-                                bot.send_message(msg.chat.id, warn)
-                                    .parse_mode(ParseMode::Html)
-                                    .await?;
+                                send_message(msg.clone(), bot, warn).await?;
                                 // Do not advance wizard; let user try again by sending a new prompt
                                 return Ok(true);
                             }
@@ -282,17 +311,23 @@ pub async fn handle_message_scheduled_prompts(
                 st.step = PendingStep::AwaitingHour;
                 if let Err(e) = bot_deps.scheduled_storage.put_pending(key, &st) {
                     log::error!("Failed to persist scheduled wizard state: {}", e);
-                    bot.send_message(
-                        msg.chat.id,
-                        "❌ Error saving schedule state. Please try /scheduleprompt again.",
+                    send_message(
+                        msg.clone(),
+                        bot,
+                        "❌ Error saving schedule state. Please try /scheduleprompt again."
+                            .to_string(),
                     )
                     .await?;
                     return Ok(true);
                 }
                 let kb = build_hours_keyboard();
-                bot.send_message(msg.chat.id, "Select start hour (UTC)")
-                    .reply_markup(kb)
-                    .await?;
+                send_markdown_message(
+                    bot,
+                    msg,
+                    KeyboardMarkupType::InlineKeyboardType(kb),
+                    "Select start hour (UTC)",
+                )
+                .await?;
                 return Ok(true);
             }
         }

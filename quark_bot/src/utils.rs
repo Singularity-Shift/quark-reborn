@@ -6,12 +6,18 @@ use quark_core::helpers::dto::{AITool, PurchaseRequest, ToolUsage};
 use regex::Regex;
 use std::env;
 use teloxide::{
-    Bot,
+    Bot, RequestError,
     prelude::*,
-    types::{ChatId, UserId},
+    sugar::request::RequestReplyExt,
+    types::{ChatId, InlineKeyboardMarkup, KeyboardMarkup, MessageId, ParseMode, UserId},
 };
 
 use crate::dependencies::BotDependencies;
+
+pub enum KeyboardMarkupType {
+    InlineKeyboardType(InlineKeyboardMarkup),
+    KeyboardType(KeyboardMarkup),
+}
 
 /// Helper function to format Unix timestamp into readable date and time
 pub fn format_timestamp(timestamp: u64) -> String {
@@ -291,4 +297,147 @@ pub async fn is_admin(bot: &Bot, chat_id: ChatId, user_id: UserId) -> bool {
     let admins = admins.unwrap();
     let is_admin = admins.iter().any(|member| member.user.id == user_id);
     is_admin
+}
+
+pub async fn send_message(msg: Message, bot: Bot, text: String) -> Result<(), anyhow::Error> {
+    if msg.chat.is_group() || msg.chat.is_supergroup() {
+        bot.send_message(msg.chat.id, text).reply_to(msg.id).await?;
+    } else {
+        bot.send_message(msg.chat.id, text).await?;
+    }
+
+    Ok(())
+}
+
+pub async fn send_html_message(msg: Message, bot: Bot, text: String) -> Result<(), anyhow::Error> {
+    if msg.chat.is_group() || msg.chat.is_supergroup() {
+        bot.send_message(msg.chat.id, text)
+            .parse_mode(ParseMode::Html)
+            .reply_to(msg.id)
+            .await?;
+    } else {
+        bot.send_message(msg.chat.id, text)
+            .parse_mode(ParseMode::Html)
+            .await?;
+    }
+
+    Ok(())
+}
+
+pub async fn send_scheduled_message(
+    bot: &Bot,
+    chat_id: ChatId,
+    text: &str,
+    thread_id: Option<i32>,
+) -> Result<Message, RequestError> {
+    // For scheduled messages, send to thread if thread_id is available
+    let mut request = bot.send_message(chat_id, text).parse_mode(ParseMode::Html);
+
+    if let Some(thread) = thread_id {
+        request = request.reply_to(MessageId(thread));
+    }
+
+    request.await
+}
+
+pub async fn send_markdown_message(
+    bot: Bot,
+    msg: Message,
+    keyboard_markup_type: KeyboardMarkupType,
+    text: &str,
+) -> Result<(), RequestError> {
+    match keyboard_markup_type {
+        KeyboardMarkupType::InlineKeyboardType(keyboard_markup) => {
+            reply_inline_markup(bot, msg, keyboard_markup, text).await?
+        }
+        KeyboardMarkupType::KeyboardType(keyboard_markup) => {
+            reply_markup(bot, msg, keyboard_markup, text).await?
+        }
+    };
+    Ok(())
+}
+
+pub async fn reply_markup(
+    bot: Bot,
+    msg: Message,
+    keyboard_markup: KeyboardMarkup,
+    text: &str,
+) -> Result<(), RequestError> {
+    if msg.chat.is_group() || msg.chat.is_supergroup() {
+        bot.send_message(msg.chat.id, text)
+            .parse_mode(ParseMode::Html)
+            .reply_markup(keyboard_markup)
+            .reply_to(msg.id)
+            .await?;
+    } else {
+        bot.send_message(msg.chat.id, text)
+            .parse_mode(ParseMode::Html)
+            .reply_markup(keyboard_markup)
+            .await?;
+    }
+    Ok(())
+}
+
+pub async fn reply_inline_markup(
+    bot: Bot,
+    msg: Message,
+    keyboard_markup: InlineKeyboardMarkup,
+    text: &str,
+) -> Result<(), RequestError> {
+    if msg.chat.is_group() || msg.chat.is_supergroup() {
+        bot.send_message(msg.chat.id, text)
+            .parse_mode(ParseMode::Html)
+            .reply_markup(keyboard_markup)
+            .reply_to(msg.id)
+            .await?;
+    } else {
+        bot.send_message(msg.chat.id, text)
+            .parse_mode(ParseMode::Html)
+            .reply_markup(keyboard_markup)
+            .await?;
+    }
+    Ok(())
+}
+
+pub async fn send_markdown_message_with_reply(
+    bot: Bot,
+    msg: Message,
+    keyboard_markup: KeyboardMarkupType,
+    text: &str,
+) -> Result<Message, RequestError> {
+    let mut request = bot.send_message(msg.chat.id, text);
+
+    match keyboard_markup {
+        KeyboardMarkupType::InlineKeyboardType(inline_keyboard) => {
+            request = request.reply_markup(inline_keyboard);
+        }
+        KeyboardMarkupType::KeyboardType(keyboard) => {
+            request = request.reply_markup(keyboard);
+        }
+    }
+
+    if msg.chat.is_group() || msg.chat.is_supergroup() {
+        request = request.reply_to(msg.id);
+    }
+
+    request.await.map_err(|e| e.into())
+}
+
+pub async fn send_scheduled_message_with_keyboard(
+    bot: &Bot,
+    chat_id: ChatId,
+    text: &str,
+    thread_id: Option<i32>,
+    keyboard: InlineKeyboardMarkup,
+) -> Result<Message, RequestError> {
+    let mut request = bot
+        .send_message(chat_id, text)
+        .parse_mode(ParseMode::Html)
+        .reply_markup(keyboard);
+
+    if let Some(thread) = thread_id {
+        request = request.reply_to(MessageId(thread));
+    }
+
+    request.await
 }

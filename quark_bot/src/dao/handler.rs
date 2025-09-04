@@ -216,6 +216,11 @@ pub async fn execute_create_proposal(
         } else {
             token.fa_address
         },
+        thread_id: if let Some(thread_id) = msg.thread_id {
+            Some(thread_id.0.0)
+        } else {
+            None
+        },
     };
 
     log::info!("Creating proposal with request: {:?}", request);

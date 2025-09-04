@@ -2,6 +2,8 @@
 
 use crate::ai::vector_store::upload_files_to_vector_store;
 use crate::dependencies::BotDependencies;
+use crate::utils::send_message;
+use anyhow::Result as AnyResult;
 use std::time::Duration;
 use teloxide::net::Download;
 use teloxide::prelude::*;
@@ -12,7 +14,7 @@ pub async fn handle_file_upload(
     bot: Bot,
     msg: Message,
     bot_deps: BotDependencies,
-) -> Result<(), teloxide::RequestError> {
+) -> AnyResult<()> {
     use tokio::fs::File;
     let user_id = msg.from.as_ref().map(|u| u.id.0).unwrap_or(0) as i64;
     let chat_id = msg.chat.id;
@@ -110,8 +112,9 @@ pub async fn handle_file_upload(
             Ok(vector_store_id) => {
                 let file_count = file_paths.len();
                 let files_text = if file_count == 1 { "file" } else { "files" };
-                bot.send_message(
-                    chat_id,
+                send_message(
+                    msg,
+                    bot,
                     format!(
                         "✅ {} {} uploaded and indexed! Your vector store ID: {}",
                         file_count, files_text, vector_store_id
@@ -120,12 +123,11 @@ pub async fn handle_file_upload(
                 .await?;
             }
             Err(e) => {
-                bot.send_message(chat_id, format!("[Upload error]: {}", e))
-                    .await?;
+                send_message(msg, bot, format!("[Upload error]: {}", e).to_string()).await?;
             }
         }
     } else {
-        bot.send_message(msg.chat.id, "No supported files found in your message. Please attach documents, photos, videos, or audio files.").await?;
+        send_message(msg, bot, "No supported files found in your message. Please attach documents, photos, videos, or audio files.".to_string()).await?;
     }
     Ok(())
 }

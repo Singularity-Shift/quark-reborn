@@ -21,7 +21,7 @@ use open_ai_rust_responses_by_sshift::{
 };
 use serde_json;
 use teloxide::Bot;
-use teloxide::types::Message;
+use teloxide::types::{Message, User};
 
 #[derive(Clone)]
 pub struct AI {
@@ -91,7 +91,7 @@ impl AI {
         bot_deps: BotDependencies,
         group_id: Option<String>,
     ) -> Result<AIResponse, anyhow::Error> {
-        let user: Option<teloxide::types::User> = msg.from.clone();
+        let user: Option<User> = msg.from.clone();
 
         if user.is_none() {
             return Err(anyhow::anyhow!("User not found"));

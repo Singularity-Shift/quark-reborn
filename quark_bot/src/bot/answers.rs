@@ -1,14 +1,18 @@
 use anyhow::Result;
 use quark_core::helpers::bot_commands::Command;
-use teloxide::{Bot, prelude::*, types::Message};
+use teloxide::{
+    Bot,
+    prelude::*,
+    types::{InlineKeyboardButton, InlineKeyboardMarkup, Message},
+};
 
 use super::handler::{
     handle_add_files, handle_chat, handle_help, handle_list_files, handle_login_group,
     handle_login_user, handle_mod, handle_moderation_rules, handle_new_chat, handle_prices,
 };
-use crate::announcement::handle_announcement;
-use crate::utils;
+use crate::utils::{self, KeyboardMarkupType, send_markdown_message};
 use crate::yield_ai::handler as yield_ai_handler;
+use crate::{announcement::handle_announcement, utils::send_message};
 
 use crate::bot::handler::{
     handle_aptos_connect, handle_balance, handle_group_balance, handle_group_wallet_address,
@@ -50,9 +54,10 @@ pub async fn answers(
             if !msg.chat.is_private() {
                 let group_id = msg.chat.id.to_string();
                 if !bot_deps.command_settings.is_chat_commands_enabled(group_id) {
-                    bot.send_message(
-                        msg.chat.id,
-                        "❌ Chat commands (/c, /chat) are disabled in this group. Contact an administrator to enable them.",
+                    send_message(
+                        msg,
+                        bot,
+                        "❌ Chat commands (/c, /chat) are disabled in this group. Contact an administrator to enable them.".to_string(),
                     )
                     .await?;
                     return Ok(());
@@ -64,9 +69,11 @@ pub async fn answers(
             if prompt.trim().is_empty() && msg.photo().is_some() {
                 cmd_collector.add_command(msg, bot_deps.clone(), None).await;
             } else if prompt.trim().is_empty() {
-                bot.send_message(
-                    msg.chat.id,
-                    "Please include a message after /c, e.g. /c What is the weather today?",
+                send_message(
+                    msg,
+                    bot,
+                    "Please include a message after /c, e.g. /c What is the weather today?"
+                        .to_string(),
                 )
                 .await?;
             } else {
@@ -83,24 +90,30 @@ pub async fn answers(
             let multimedia_message = msg.clone();
 
             if prompt.trim().is_empty() && multimedia_message.photo().is_none() {
-                bot.send_message(
-                    msg.chat.id,
-                    "Please include a message after /g, e.g. /g What is the weather today?",
+                send_message(
+                    msg,
+                    bot,
+                    "Please include a message after /g, e.g. /g What is the weather today?"
+                        .to_string(),
                 )
                 .await?;
                 return Ok(());
             }
 
             if !msg.chat.is_group() && !msg.chat.is_supergroup() {
-                bot.send_message(msg.chat.id, "This command can only be used in a group.")
-                    .await?;
+                send_message(
+                    msg,
+                    bot,
+                    "This command can only be used in a group.".to_string(),
+                )
+                .await?;
                 return Ok(());
             }
 
-            let user = msg.from;
+            let user = msg.from.clone();
 
             if user.is_none() {
-                bot.send_message(msg.chat.id, "❌ User not found").await?;
+                send_message(msg, bot, "❌ User not found".to_string()).await?;
                 return Ok(());
             }
 
@@ -115,7 +128,7 @@ pub async fn answers(
             let is_sponsor = sponsor.is_ok() && sponsor.unwrap();
 
             if !is_admin && !is_sponsor {
-                bot.send_message(msg.chat.id, "Only group admins can use this command or requests allowed to members reached the limit.")
+                send_message(msg, bot, "Only group admins can use this command or requests allowed to members reached the limit.".to_string())
                     .await?;
                 return Ok(());
             }
@@ -145,17 +158,18 @@ pub async fn answers(
         }
 
         Command::PromptExamples => {
-            bot.send_message(msg.chat.id, "Here are some example prompts you can use:\n\n💰 Wallet & Balance:\n- /prompt \"What's my wallet address?\" or /p \"What's my wallet address?\"\n- /prompt \"Show my balance\" or /p \"Show my balance\"\n- /prompt \"Check my SUI balance\" or /p \"Check my SUI balance\"\n- /prompt \"How much do I have?\" or /p \"How much do I have?\"\n\n💸 Transactions:\n- /prompt \"Send 10 SUI to @username\" or /p \"Send 10 SUI to @username\"\n- /prompt \"Withdraw 5 SUI\" or /p \"Withdraw 5 SUI\"\n- /prompt \"Send 100 SUI to everyone\" or /p \"Send 100 SUI to everyone\"\n\n❓ General:\n- /prompt \"What can you help me with?\" or /p \"What can you help me with?\"\n- /prompt \"Explain how this bot works\" or /p \"Explain how this bot works\"\n\n💡 Tip: Use /p as a shortcut for /prompt!").await?;
+            send_message(msg, bot, "Here are some example prompts you can use:\n\n💰 Wallet & Balance:\n- /prompt \"What's my wallet address?\" or /p \"What's my wallet address?\"\n- /prompt \"Show my balance\" or /p \"Show my balance\"\n- /prompt \"Check my SUI balance\" or /p \"Check my SUI balance\"\n- /prompt \"How much do I have?\" or /p \"How much do I have?\"\n\n💸 Transactions:\n- /prompt \"Send 10 SUI to @username\" or /p \"Send 10 SUI to @username\"\n- /prompt \"Withdraw 5 SUI\" or /p \"Withdraw 5 SUI\"\n- /prompt \"Send 100 SUI to everyone\" or /p \"Send 100 SUI to everyone\"\n\n❓ General:\n- /prompt \"What can you help me with?\" or /p \"What can you help me with?\"\n- /prompt \"Explain how this bot works\" or /p \"Explain how this bot works\"\n\n💡 Tip: Use /p as a shortcut for /prompt!".to_string()).await?;
             ()
         }
         // SelectModel and MySettings are now accessible from /usersettings menu
         Command::Usersettings => {
             // Keep menu assembly in bot layer per request; present model prefs, my settings, and payment submenu
-            use teloxide::types::{InlineKeyboardButton, InlineKeyboardMarkup, ParseMode};
+            use teloxide::types::{InlineKeyboardButton, InlineKeyboardMarkup};
             if !msg.chat.is_private() {
-                bot.send_message(
-                    msg.chat.id,
-                    "❌ This command can only be used in a private chat.",
+                send_message(
+                    msg,
+                    bot,
+                    "❌ This command can only be used in a private chat.".to_string(),
                 )
                 .await?;
             } else {
@@ -181,10 +195,13 @@ pub async fn answers(
                         "user_settings_close",
                     )],
                 ]);
-                bot.send_message(msg.chat.id, "⚙️ <b>User Settings</b>\n\n• Manage your model, view current settings, and configure payment.\n\n💡 If no payment token is selected, the on-chain default will be used.")
-                    .parse_mode(ParseMode::Html)
-                    .reply_markup(kb)
-                    .await?;
+                send_markdown_message(
+                    bot,
+                    msg,
+                    KeyboardMarkupType::InlineKeyboardType(kb),
+                    "⚙️ <b>User Settings</b>\n\n• Manage your model, view current settings, and configure payment.\n\n💡 If no payment token is selected, the on-chain default will be used.",
+                )
+                .await?;
             }
         }
         Command::GroupWalletAddress => {
@@ -201,15 +218,18 @@ pub async fn answers(
             handle_announcement(bot, msg, text, bot_deps.clone()).await?;
         }
         Command::Groupsettings => {
-            use teloxide::types::{InlineKeyboardButton, InlineKeyboardMarkup, ParseMode};
             if msg.chat.is_private() {
-                bot.send_message(msg.chat.id, "❌ This command must be used in a group chat.")
-                    .await?;
+                send_message(
+                    msg,
+                    bot,
+                    "❌ This command must be used in a group chat.".to_string(),
+                )
+                .await?;
             } else {
                 let uid = msg.from.as_ref().map(|u| u.id);
 
                 if uid.is_none() {
-                    bot.send_message(msg.chat.id, "❌ User not found").await?;
+                    send_message(msg, bot, "❌ User not found".to_string()).await?;
                     return Ok(());
                 }
 
@@ -217,9 +237,10 @@ pub async fn answers(
 
                 let is_admin = utils::is_admin(&bot, msg.chat.id, uid).await;
                 if !is_admin {
-                    bot.send_message(
-                        msg.chat.id,
-                        "❌ Only group administrators can open group settings.",
+                    send_message(
+                        msg,
+                        bot,
+                        "❌ Only group administrators can open group settings.".to_string(),
                     )
                     .await?;
                 } else {
@@ -262,10 +283,13 @@ pub async fn answers(
                             "group_settings_close",
                         )],
                     ]);
-                    bot.send_message(msg.chat.id, "⚙️ <b>Group Settings</b>\n\n• Configure payment token, DAO preferences, moderation, sponsor settings, welcome settings, filters, and group migration.\n\n💡 Only group administrators can access these settings.")
-                        .parse_mode(ParseMode::Html)
-                        .reply_markup(kb)
-                        .await?;
+                    send_markdown_message(
+                        bot,
+                        msg,
+                        KeyboardMarkupType::InlineKeyboardType(kb),
+                        "⚙️ <b>Group Settings</b>\n\n• Configure payment token, DAO preferences, moderation, sponsor settings, welcome settings, filters, and group migration.\n\n💡 Only group administrators can access these settings.",
+                    )
+                    .await?;
                 }
             }
         }

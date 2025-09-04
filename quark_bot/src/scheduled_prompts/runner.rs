@@ -5,7 +5,7 @@ use teloxide::{
 };
 use tokio_cron_scheduler::Job;
 
-use crate::utils::create_purchase_request;
+use crate::utils::{create_purchase_request, send_scheduled_message};
 use crate::{
     dependencies::BotDependencies,
     scheduled_prompts::dto::{RepeatPolicy, ScheduledPromptRecord},
@@ -87,18 +87,19 @@ fn split_message(text: &str) -> Vec<String> {
     chunks
 }
 
-async fn send_long_message(bot: &Bot, chat_id: ChatId, text: &str) -> usize {
+async fn send_long_message(
+    bot: &Bot,
+    chat_id: ChatId,
+    text: &str,
+    thread_id: Option<i32>,
+) -> usize {
     // AI responses are already Telegram-HTML formatted; send as-is
     let parts = split_message(text);
     for (i, part) in parts.iter().enumerate() {
         if i > 0 {
             sleep(Duration::from_millis(100)).await;
         }
-        match bot
-            .send_message(chat_id, part)
-            .parse_mode(ParseMode::Html)
-            .await
-        {
+        match send_scheduled_message(bot, chat_id, part, thread_id).await {
             Ok(msg) => {
                 log::info!(
                     "Sent chunk {}/{} to chat {} (msg_id={})",
@@ -367,9 +368,7 @@ pub async fn register_schedule(
                 .get_preferences(&rec.creator_username);
             let _model = prefs.chat_model.to_openai_model();
             let temperature: Option<f32> = match prefs.chat_model {
-                ChatModel::GPT5 | ChatModel::GPT5Mini => {
-                    None
-                }
+                ChatModel::GPT5 | ChatModel::GPT5Mini => None,
             };
 
             log::info!(
@@ -454,8 +453,13 @@ pub async fn register_schedule(
                                 ),
                             }
                             if text_out.len() > 1024 {
-                                let chunks =
-                                    send_long_message(&bot, group_chat_id, &text_out[1024..]).await;
+                                let chunks = send_long_message(
+                                    &bot,
+                                    group_chat_id,
+                                    &text_out[1024..],
+                                    rec.thread_id,
+                                )
+                                .await;
                                 log::info!(
                                     "[sched:{}] sent remainder text chunks={} total_len={} to chat {}",
                                     schedule_id,
@@ -471,7 +475,8 @@ pub async fn register_schedule(
                         } else {
                             text_out
                         };
-                        let chunks = send_long_message(&bot, group_chat_id, &payload).await;
+                        let chunks =
+                            send_long_message(&bot, group_chat_id, &payload, rec.thread_id).await;
                         log::info!(
                             "[sched:{}] sent text chunks={} total_len={} to chat {}",
                             schedule_id,

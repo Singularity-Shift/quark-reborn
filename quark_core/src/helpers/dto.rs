@@ -135,6 +135,7 @@ pub struct CreateProposalRequest {
     pub proposal_id: String,
     pub version: CoinVersion,
     pub currency: String,
+    pub thread_id: Option<i32>,
 }
 
 #[derive(Deserialize, Serialize, Debug)]

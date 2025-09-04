@@ -1,6 +1,7 @@
+use bincode::{Decode, Encode};
 use serde::{Deserialize, Serialize};
 
-#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq, bincode::Encode, bincode::Decode)]
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq, Encode, Decode)]
 pub enum RepeatPolicy {
     None,
     Every5m,
@@ -16,7 +17,7 @@ pub enum RepeatPolicy {
     Monthly,
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize, bincode::Encode, bincode::Decode)]
+#[derive(Clone, Debug, Serialize, Deserialize, Encode, Decode)]
 pub struct ScheduledPromptRecord {
     pub id: String,
     pub group_id: i64,
@@ -34,9 +35,10 @@ pub struct ScheduledPromptRecord {
     pub locked_until: Option<i64>,
     pub scheduler_job_id: Option<String>,
     pub conversation_response_id: Option<String>,
+    pub thread_id: Option<i32>,
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq, bincode::Encode, bincode::Decode)]
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq, Encode, Decode)]
 pub enum PendingStep {
     AwaitingPrompt,
     AwaitingHour,
@@ -45,7 +47,7 @@ pub enum PendingStep {
     AwaitingConfirm,
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize, bincode::Encode, bincode::Decode)]
+#[derive(Clone, Debug, Serialize, Deserialize, Encode, Decode)]
 pub struct PendingWizardState {
     pub group_id: i64,
     pub creator_user_id: i64,
@@ -55,6 +57,5 @@ pub struct PendingWizardState {
     pub hour_utc: Option<u8>,
     pub minute_utc: Option<u8>,
     pub repeat: Option<RepeatPolicy>,
+    pub thread_id: Option<i32>,
 }
-
-

@@ -1,9 +1,11 @@
+use crate::utils::{
+    KeyboardMarkupType, send_markdown_message, send_markdown_message_with_reply, send_message,
+};
 use anyhow::Result;
 use quark_core::helpers::utils::extract_url_from_markdown;
 use reqwest::Url;
 use teloxide::{
     Bot,
-    prelude::*,
     types::{InlineKeyboardButton, InlineKeyboardMarkup, Message, WebAppInfo},
 };
 
@@ -11,8 +13,12 @@ pub async fn withdraw_funds_hook(bot: Bot, msg: Message, text: String) -> Result
     let url = extract_url_from_markdown(&text);
 
     if url.is_none() {
-        bot.send_message(msg.chat.id, "❌ Unable to extract URL from response.")
-            .await?;
+        send_message(
+            msg.clone(),
+            bot,
+            "❌ Unable to extract URL from response.".to_string(),
+        )
+        .await?;
         return Ok(());
     }
 
@@ -26,9 +32,13 @@ pub async fn withdraw_funds_hook(bot: Bot, msg: Message, text: String) -> Result
 
     let withdraw_funds_markup = InlineKeyboardMarkup::new(vec![vec![withdraw_funds_button]]);
 
-    bot.send_message(msg.chat.id, "Click the button below to withdraw funds")
-        .reply_markup(withdraw_funds_markup)
-        .await?;
+    send_markdown_message(
+        bot,
+        msg,
+        KeyboardMarkupType::InlineKeyboardType(withdraw_funds_markup),
+        "Click the button below to withdraw funds",
+    )
+    .await?;
 
     Ok(())
 }
@@ -37,8 +47,12 @@ pub async fn fund_account_hook(bot: Bot, msg: Message, text: String) -> Result<(
     let url = extract_url_from_markdown(&text);
 
     if url.is_none() {
-        bot.send_message(msg.chat.id, "❌ Unable to extract URL from response.")
-            .await?;
+        send_message(
+            msg.clone(),
+            bot,
+            "❌ Unable to extract URL from response.".to_string(),
+        )
+        .await?;
         return Ok(());
     }
 
@@ -52,16 +66,20 @@ pub async fn fund_account_hook(bot: Bot, msg: Message, text: String) -> Result<(
 
     let fund_account_markup = InlineKeyboardMarkup::new(vec![vec![fund_account_button]]);
 
-    bot.send_message(msg.chat.id, "Click the button below to fund your account")
-        .reply_markup(fund_account_markup)
-        .await?;
+    send_markdown_message(
+        bot,
+        msg,
+        KeyboardMarkupType::InlineKeyboardType(fund_account_markup),
+        "Click the button below to fund your account",
+    )
+    .await?;
     Ok(())
 }
 
 pub async fn pay_users_hook(
-    bot: Bot, 
-    msg: Message, 
-    text: String, 
+    bot: Bot,
+    msg: Message,
+    text: String,
     group_id: Option<String>,
     transaction_id: String,
     bot_deps: crate::dependencies::BotDependencies,
@@ -72,26 +90,36 @@ pub async fn pay_users_hook(
         return Ok(());
     };
 
-    let group_id_i64 = group_id.and_then(|gid| gid.parse::<i64>().ok()).unwrap_or(0);
+    let group_id_i64 = group_id
+        .and_then(|gid| gid.parse::<i64>().ok())
+        .unwrap_or(0);
 
     let accept_btn = InlineKeyboardButton::callback(
-        "✅ Accept", 
-        format!("pay_accept:{}:{}:{}", user_id, group_id_i64, transaction_id)
+        "✅ Accept",
+        format!("pay_accept:{}:{}:{}", user_id, group_id_i64, transaction_id),
     );
     let reject_btn = InlineKeyboardButton::callback(
-        "❌ Reject", 
-        format!("pay_reject:{}:{}:{}", user_id, group_id_i64, transaction_id)
+        "❌ Reject",
+        format!("pay_reject:{}:{}:{}", user_id, group_id_i64, transaction_id),
     );
-    
+
     let markup = InlineKeyboardMarkup::new(vec![vec![accept_btn, reject_btn]]);
-    
+
     // Send the message with buttons and capture the sent message
-    let sent_message = bot.send_message(msg.chat.id, text)
-        .reply_markup(markup)
-        .await?;
-    
+    let sent_message = send_markdown_message_with_reply(
+        bot.clone(),
+        msg.clone(),
+        KeyboardMarkupType::InlineKeyboardType(markup),
+        &text,
+    )
+    .await?;
+
     // Update the pending transaction with the message ID
-    let group_id_opt = if group_id_i64 == 0 { None } else { Some(group_id_i64) };
+    let group_id_opt = if group_id_i64 == 0 {
+        None
+    } else {
+        Some(group_id_i64)
+    };
     if let Err(e) = bot_deps.pending_transactions.update_transaction_message_id(
         user_id,
         group_id_opt,
@@ -99,30 +127,36 @@ pub async fn pay_users_hook(
     ) {
         log::error!("Failed to update transaction message ID: {}", e);
     }
-    
+
     // Start timeout for this transaction
-    if let Some(transaction) = bot_deps.pending_transactions.get_pending_transaction(user_id, group_id_opt) {
+    if let Some(transaction) = bot_deps
+        .pending_transactions
+        .get_pending_transaction(user_id, group_id_opt)
+    {
         // Verify this is the transaction we just processed
         if transaction.transaction_id == transaction_id {
             // Spawn the async timeout function
             let pending_transactions = bot_deps.pending_transactions.clone();
             let bot_clone = bot.clone();
             tokio::spawn(async move {
-                pending_transactions.start_transaction_timeout(
-                    bot_clone,
-                    user_id,
-                    group_id_opt,
-                    &transaction,
-                ).await;
+                pending_transactions
+                    .start_transaction_timeout(bot_clone, user_id, group_id_opt, &transaction)
+                    .await;
             });
             log::info!("Started timeout for transaction: {}", transaction_id);
         } else {
-            log::warn!("Transaction ID mismatch when starting timeout: expected {}, found {}", 
-                transaction_id, transaction.transaction_id);
+            log::warn!(
+                "Transaction ID mismatch when starting timeout: expected {}, found {}",
+                transaction_id,
+                transaction.transaction_id
+            );
         }
     } else {
-        log::error!("Failed to retrieve transaction {} for timeout start", transaction_id);
+        log::error!(
+            "Failed to retrieve transaction {} for timeout start",
+            transaction_id
+        );
     }
-    
+
     Ok(())
 }

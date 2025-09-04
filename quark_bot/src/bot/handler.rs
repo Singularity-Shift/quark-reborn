@@ -14,7 +14,10 @@ use crate::{
     scheduled_prompts::handler::handle_message_scheduled_prompts,
     sponsor::handler::handle_sponsor_message,
     user_model_preferences::dto::ModelPreferences,
-    utils::{self, create_purchase_request},
+    utils::{
+        self, KeyboardMarkupType, create_purchase_request, send_html_message,
+        send_markdown_message, send_message,
+    },
     welcome::handler::handle_welcome_message,
 };
 use anyhow::Result as AnyResult;
@@ -345,9 +348,10 @@ async fn send_long_message(bot: &Bot, chat_id: ChatId, text: &str) -> AnyResult<
 
 pub async fn handle_aptos_connect(bot: Bot, msg: Message) -> AnyResult<()> {
     if !msg.chat.is_private() {
-        bot.send_message(
-            msg.chat.id,
-            "❌ This command can only be used in a private chat with the bot.",
+        send_message(
+            msg.clone(),
+            bot.clone(),
+            "❌ This command can only be used in a private chat with the bot.".to_string(),
         )
         .await?;
     }
@@ -359,31 +363,40 @@ pub async fn handle_aptos_connect(bot: Bot, msg: Message) -> AnyResult<()> {
 
     let aptos_connect_button = InlineKeyboardButton::web_app("Open Aptos Connect", web_app_info);
 
-    bot.send_message(
-        msg.chat.id,
+    send_markdown_message(
+        bot,
+        msg,
+        KeyboardMarkupType::InlineKeyboardType(InlineKeyboardMarkup::new(vec![vec![
+            aptos_connect_button,
+        ]])),
         "Click the button below to login to your Nova account",
     )
-    .reply_markup(InlineKeyboardMarkup::new(vec![vec![aptos_connect_button]]))
     .await?;
 
     return Ok(());
 }
 
 pub async fn handle_login_user(bot: Bot, msg: Message) -> AnyResult<()> {
-    if !msg.chat.is_private() {
-        bot.send_message(
-            msg.chat.id,
-            "❌ This command can only be used in a private chat with the bot.",
+    let private_msg = msg.clone();
+    if !private_msg.chat.is_private() {
+        send_message(
+            private_msg,
+            bot,
+            "❌ This command can only be used in a private chat with the bot.".to_string(),
         )
         .await?;
         return Ok(());
     }
 
-    let user = msg.from;
+    let user = msg.from.as_ref();
 
     if user.is_none() {
-        bot.send_message(msg.chat.id, "❌ Unable to verify permissions.")
-            .await?;
+        send_message(
+            msg.clone(),
+            bot,
+            "❌ Unable to verify permissions.".to_string(),
+        )
+        .await?;
         return Ok(());
     }
 
@@ -404,11 +417,12 @@ pub async fn handle_login_user(bot: Bot, msg: Message) -> AnyResult<()> {
 
     let login_markup = KeyboardMarkup::new(vec![vec![login_button]]);
 
-    bot.send_message(
-        msg.chat.id,
+    send_markdown_message(
+        bot,
+        msg,
+        KeyboardMarkupType::KeyboardType(login_markup),
         "Click the button below to login to your Nova account",
     )
-    .reply_markup(login_markup)
     .await?;
 
     return Ok(());
@@ -421,8 +435,12 @@ pub async fn handle_login_group(
 ) -> AnyResult<()> {
     // Ensure this command is used in a group chat
     if msg.chat.is_private() {
-        bot.send_message(msg.chat.id, "❌ This command must be used in a group chat.")
-            .await?;
+        send_message(
+            msg.clone(),
+            bot,
+            "❌ This command must be used in a group chat.".to_string(),
+        )
+        .await?;
         return Ok(());
     }
 
@@ -440,17 +458,22 @@ pub async fn handle_login_group(
     if let Some(uid) = requester_id {
         let is_admin = admins.iter().any(|member| member.user.id == uid);
         if !is_admin {
-            bot.send_message(
-                group_id,
-                "❌ Only group administrators can use this command.",
+            send_message(
+                msg.clone(),
+                bot,
+                "❌ Only group administrators can use this command.".to_string(),
             )
             .await?;
             return Ok(());
         }
     } else {
         // Cannot identify sender; deny action
-        bot.send_message(group_id, "❌ Unable to verify permissions.")
-            .await?;
+        send_message(
+            msg.clone(),
+            bot,
+            "❌ Unable to verify permissions.".to_string(),
+        )
+        .await?;
         return Ok(());
     }
 
@@ -468,8 +491,7 @@ pub async fn handle_login_group(
             .await;
 
         if group_result.is_err() {
-            bot.send_message(msg.chat.id, "❌ Unable to create group.")
-                .await?;
+            send_message(msg, bot, "❌ Unable to create group.".to_string()).await?;
             return Ok(());
         }
     }
@@ -477,16 +499,14 @@ pub async fn handle_login_group(
     let jwt = bot_deps.group.generate_new_jwt(group_id);
 
     if !jwt {
-        bot.send_message(group_id, "❌ Unable to generate JWT.")
-            .await?;
+        send_message(msg, bot, "❌ Unable to generate JWT.".to_string()).await?;
         return Ok(());
     }
 
     let payload_response = bot_deps.group.get_credentials(group_id);
 
     if payload_response.is_none() {
-        bot.send_message(group_id, "❌ Unable to get credentials.")
-            .await?;
+        send_message(msg, bot, "❌ Unable to get credentials.".to_string()).await?;
         return Ok(());
     }
 
@@ -496,45 +516,47 @@ pub async fn handle_login_group(
         check_group_resource_account_address(&bot, payload, msg.clone(), &bot_deps).await;
 
     if updated_credentials.is_err() {
-        bot.send_message(msg.chat.id, "❌ Unable to save credentials.")
-            .await?;
+        send_message(msg, bot, "❌ Unable to save credentials.".to_string()).await?;
         return Ok(());
     }
 
-    bot.send_message(msg.chat.id, format!("🔑 <b>Group Login Successful!</b>\n\n<i>You can now use the group's Nova account to interact with the bot.</i>\n\n💡 <i>Use /groupwalletaddress to get the group's wallet address and /groupbalance to get the group's balance of a token.</i>"))
-        .parse_mode(ParseMode::Html)
-        .await?;
+    send_html_message(msg, bot, format!("🔑 <b>Group Login Successful!</b>\n\n<i>You can now use the group's Nova account to interact with the bot.</i>\n\n💡 <i>Use /groupwalletaddress to get the group's wallet address and /groupbalance to get the group's balance of a token.</i>").to_string()).await?;
     Ok(())
 }
 
 pub async fn handle_help(bot: Bot, msg: Message) -> AnyResult<()> {
-    bot.send_message(msg.chat.id, Command::descriptions().to_string())
-        .await?;
+    send_message(msg, bot, Command::descriptions().to_string()).await?;
     Ok(())
 }
 
 pub async fn handle_prices(bot: Bot, msg: Message) -> AnyResult<()> {
     let pricing_info = crate::ai::actions::execute_prices(&serde_json::json!({})).await;
-    bot.send_message(msg.chat.id, pricing_info)
-        .parse_mode(ParseMode::Html)
-        .await?;
+    send_html_message(msg, bot, pricing_info).await?;
     Ok(())
 }
 
 pub async fn handle_add_files(bot: Bot, msg: Message) -> AnyResult<()> {
     if !msg.chat.is_private() {
-        bot.send_message(msg.chat.id, "❌ Please DM the bot to upload files.")
-            .await?;
+        send_message(
+            msg,
+            bot,
+            "❌ Please DM the bot to upload files.".to_string(),
+        )
+        .await?;
         return Ok(());
     }
-    bot.send_message(msg.chat.id, "📎 Please attach the files you wish to upload in your next message.\n\n✅ Supported: Documents, Photos, Videos, Audio files\n💡 You can send multiple files in one message!").await?;
+    send_message(msg, bot, "📎 Please attach the files you wish to upload in your next message.\n\n✅ Supported: Documents, Photos, Videos, Audio files\n💡 You can send multiple files in one message!".to_string()).await?;
     Ok(())
 }
 
 pub async fn handle_list_files(bot: Bot, msg: Message, bot_deps: BotDependencies) -> AnyResult<()> {
     if !msg.chat.is_private() {
-        bot.send_message(msg.chat.id, "❌ Please DM the bot to list your files.")
-            .await?;
+        send_message(
+            msg,
+            bot,
+            "❌ Please DM the bot to list your files.".to_string(),
+        )
+        .await?;
         return Ok(());
     }
     let user_id = msg.from.as_ref().map(|u| u.id.0).unwrap_or(0) as i64;
@@ -542,9 +564,8 @@ pub async fn handle_list_files(bot: Bot, msg: Message, bot_deps: BotDependencies
         match list_user_files_with_names(user_id, bot_deps.clone()) {
             Ok(files) => {
                 if files.is_empty() {
-                    bot.send_message(msg.chat.id, "📁 <b>Your Document Library</b>\n\n<i>No files uploaded yet</i>\n\n💡 Use /add_files to start building your personal AI knowledge base!")
-                        .parse_mode(ParseMode::Html)
-                        .await?;
+                    send_html_message(msg, bot, "📁 <b>Your Document Library</b>\n\n<i>No files uploaded yet</i>\n\n💡 Use /add_files to start building your personal AI knowledge base!".to_string())
+                    .await?;
                 } else {
                     let file_list = files
                         .iter()
@@ -581,28 +602,29 @@ pub async fn handle_list_files(bot: Bot, msg: Message, bot_deps: BotDependencies
                         keyboard_rows.push(vec![clear_all_button]);
                     }
                     let keyboard = InlineKeyboardMarkup::new(keyboard_rows);
-                    bot.send_message(msg.chat.id, response)
-                        .parse_mode(teloxide::types::ParseMode::Html)
-                        .reply_markup(keyboard)
-                        .await?;
+                    send_markdown_message(
+                        bot,
+                        msg,
+                        KeyboardMarkupType::InlineKeyboardType(keyboard),
+                        &response,
+                    )
+                    .await?;
                 }
             }
             Err(e) => {
-                bot.send_message(
-                    msg.chat.id,
+                send_html_message(
+                    msg,
+                    bot,
                     format!(
                         "❌ <b>Error accessing your files</b>\n\n<i>Technical details:</i> {}",
                         e
                     ),
                 )
-                .parse_mode(teloxide::types::ParseMode::Html)
                 .await?;
             }
         }
     } else {
-        bot.send_message(msg.chat.id, "🆕 <b>Welcome to Your Document Library!</b>\n\n<i>No documents uploaded yet</i>\n\n💡 Use /add_files to upload your first files and start building your AI-powered knowledge base!")
-            .parse_mode(ParseMode::Html)
-            .await?;
+        send_html_message(msg, bot, "🆕 <b>Welcome to Your Document Library!</b>\n\n<i>No documents uploaded yet</i>\n\n💡 Use /add_files to upload your first files and start building your AI-powered knowledge base!".to_string()).await?;
     }
     Ok(())
 }
@@ -638,8 +660,7 @@ pub async fn handle_chat(
 
     if user.is_none() {
         typing_indicator_handle.abort();
-        bot.send_message(msg.chat.id, "❌ Unable to verify permissions.")
-            .await?;
+        send_message(msg, bot, "❌ Unable to verify permissions.".to_string()).await?;
         return Ok(());
     }
 
@@ -648,8 +669,7 @@ pub async fn handle_chat(
 
     if username.is_none() {
         typing_indicator_handle.abort();
-        bot.send_message(msg.chat.id, "❌ Unable to verify permissions.")
-            .await?;
+        send_message(msg, bot, "❌ Unable to verify permissions.".to_string()).await?;
         return Ok(());
     }
 
@@ -658,8 +678,7 @@ pub async fn handle_chat(
     let credentials = bot_deps.auth.get_credentials(&username);
     if credentials.is_none() && !is_sponsor {
         typing_indicator_handle.abort();
-        bot.send_message(msg.chat.id, "❌ Unable to verify permissions.")
-            .await?;
+        send_message(msg, bot, "❌ Unable to verify permissions.".to_string()).await?;
         return Ok(());
     }
 
@@ -793,12 +812,12 @@ pub async fn handle_chat(
         Err(e) => {
             log::error!("Failed to upload user images: {}", e);
             typing_indicator_handle.abort();
-            bot.send_message(
-                msg.chat.id,
-                "Sorry, I couldn't upload your image. Please try again.",
+            send_message(
+                msg,
+                bot,
+                "Sorry, I couldn't upload your image. Please try again.".to_string(),
             )
             .await?;
-            // We should probably stop execution here
             return Ok(());
         }
     };
@@ -872,15 +891,18 @@ pub async fn handle_chat(
                     if response.as_ref().err().unwrap().to_string().contains("401")
                         || response.as_ref().err().unwrap().to_string().contains("403")
                     {
-                        bot.send_message(
-                            msg.chat.id,
-                            "Your login has expired. Please login again.",
+                        send_message(
+                            msg,
+                            bot,
+                            "Your login has expired. Please login again.".to_string(),
                         )
                         .await?;
                     } else {
-                        bot.send_message(
-                            msg.chat.id,
-                            "Sorry, I encountered an error while processing your chat request.",
+                        send_message(
+                            msg,
+                            bot,
+                            "Sorry, I encountered an error while processing your chat request."
+                                .to_string(),
                         )
                         .await?;
                     }
@@ -974,11 +996,11 @@ pub async fn handle_chat(
             }
         }
         Err(e) => {
-            bot.send_message(
-                msg.chat.id,
-                format!("An error occurred while processing your request: {}", e),
+            send_html_message(
+                msg,
+                bot,
+                format!("An error occurred while processing your request: {}", e).to_string(),
             )
-            .parse_mode(ParseMode::Html)
             .await?;
         }
     }
@@ -1005,25 +1027,22 @@ pub async fn handle_new_chat(bot: Bot, msg: Message, bot_deps: BotDependencies) 
 
     match (convos_result, summary_result) {
         (Ok(_), Ok(_)) => {
-            bot.send_message(msg.chat.id, "🆕 <b>New conversation started!</b>\n\n✨ Your previous chat history has been cleared. Your next /chat command will start a fresh conversation thread.\n\n💡 <i>Your uploaded files and settings remain intact</i>")
-                .parse_mode(ParseMode::Html)
-                .await?;
+            send_html_message(msg, bot, "🆕 <b>New conversation started!</b>\n\n✨ Your previous chat history has been cleared. Your next /chat command will start a fresh conversation thread.\n\n💡 <i>Your uploaded files and settings remain intact</i>".to_string()).await?;
         }
         (Ok(_), Err(e)) => {
             log::warn!("Failed to clear summary for user {}: {}", user_id, e);
-            bot.send_message(msg.chat.id, "🆕 <b>New conversation started!</b>\n\n✨ Your previous chat history has been cleared. Your next /chat command will start a fresh conversation thread.\n\n⚠️ <i>Note: Some conversation context may still be present</i>")
-                .parse_mode(ParseMode::Html)
-                .await?;
+            send_html_message(msg, bot, "🆕 <b>New conversation started!</b>\n\n✨ Your previous chat history has been cleared. Your next /chat command will start a fresh conversation thread.\n\n⚠️ <i>Note: Some conversation context may still be present</i>".to_string()).await?;
         }
         (Err(e), _) => {
-            bot.send_message(
-                msg.chat.id,
+            send_html_message(
+                msg,
+                bot,
                 format!(
                     "❌ <b>Error starting new chat</b>\n\n<i>Technical details:</i> {}",
                     e
-                ),
+                )
+                .to_string(),
             )
-            .parse_mode(ParseMode::Html)
             .await?;
         }
     }
@@ -1041,17 +1060,16 @@ pub async fn handle_web_app_data(
     let payload = serde_json::from_str::<CredentialsPayload>(&payload);
 
     if payload.is_err() {
-        bot.send_message(msg.chat.id, "❌ Error parsing payload")
-            .await?;
+        send_message(msg, bot, "❌ Error parsing payload".to_string()).await?;
         return Ok(());
     };
 
     let payload = payload.unwrap();
 
-    let user = msg.from;
+    let user = msg.from.clone();
 
     if user.is_none() {
-        bot.send_message(msg.chat.id, "❌ User not found").await?;
+        send_message(msg, bot, "❌ User not found".to_string()).await?;
         return Ok(());
     }
 
@@ -1060,8 +1078,12 @@ pub async fn handle_web_app_data(
     let username = user.username;
 
     if username.is_none() {
-        bot.send_message(msg.chat.id, "❌ Username not found, required for login")
-            .await?;
+        send_message(
+            msg,
+            bot,
+            "❌ Username not found, required for login".to_string(),
+        )
+        .await?;
         return Ok(());
     }
 
@@ -1110,8 +1132,12 @@ pub async fn handle_message(bot: Bot, msg: Message, bot_deps: BotDependencies) -
         if group_credentials.is_none() {
             log::error!("Group credentials not found");
 
-            bot.send_message(msg.chat.id, "❌ Group not found, please login again")
-                .await?;
+            send_message(
+                msg,
+                bot,
+                "❌ Group not found, please login again".to_string(),
+            )
+            .await?;
             return Ok(());
         }
 
@@ -1261,10 +1287,10 @@ pub async fn handle_wallet_address(
     bot_deps: BotDependencies,
 ) -> AnyResult<()> {
     println!("handle_wallet_address");
-    let user = msg.from;
+    let user = msg.from.clone();
 
     if user.is_none() {
-        bot.send_message(msg.chat.id, "❌ User not found").await?;
+        send_message(msg, bot, "❌ User not found".to_string()).await?;
         return Ok(());
     }
 
@@ -1273,8 +1299,7 @@ pub async fn handle_wallet_address(
     let username = user.username;
 
     if username.is_none() {
-        bot.send_message(msg.chat.id, "❌ Username not found")
-            .await?;
+        send_message(msg, bot, "❌ Username not found".to_string()).await?;
         return Ok(());
     }
 
@@ -1283,7 +1308,7 @@ pub async fn handle_wallet_address(
     let user_credentials = bot_deps.auth.get_credentials(&username);
 
     if user_credentials.is_none() {
-        bot.send_message(msg.chat.id, "❌ User not found").await?;
+        send_message(msg, bot, "❌ User not found".to_string()).await?;
         return Ok(());
     }
 
@@ -1291,14 +1316,15 @@ pub async fn handle_wallet_address(
 
     let wallet_address = user_credentials.resource_account_address;
 
-    bot.send_message(
-        msg.chat.id,
+    send_html_message(
+        msg,
+        bot,
         format!(
             "💰 <b>Your Wallet Address</b>\n\n<code>{}</code>",
             wallet_address
-        ),
+        )
+        .to_string(),
     )
-    .parse_mode(ParseMode::Html)
     .await?;
 
     Ok(())
@@ -1310,29 +1336,24 @@ pub async fn handle_mod(bot: Bot, msg: Message, bot_deps: BotDependencies) -> An
         let sentinel_on = bot_deps.sentinel.get_sentinel(msg.chat.id.to_string());
 
         if sentinel_on {
-            bot.send_message(
-                msg.chat.id,
-                "🛡️ <b>Sentinel Mode Active</b>\n\n/report is disabled while sentinel is ON. All messages are being automatically moderated."
-            )
-            .parse_mode(ParseMode::Html)
-            .await?;
+            send_html_message(msg, bot, "🛡️ <b>Sentinel Mode Active</b>\n\n/report is disabled while sentinel is ON. All messages are being automatically moderated.".to_string()).await?;
             return Ok(());
         }
     }
 
-    let group_credentials = bot_deps.group.get_credentials(msg.chat.id);
+    let group_credentials = bot_deps.group.get_credentials(msg.chat.id.clone());
 
     if group_credentials.is_none() {
-        bot.send_message(msg.chat.id, "❌ Group not found").await?;
+        send_message(msg, bot, "❌ Group not found".to_string()).await?;
         return Ok(());
     }
 
     // Check if the command is used in reply to a message
-    if let Some(reply_to_msg) = msg.reply_to_message() {
+    if let Some(reply_to_msg) = msg.clone().reply_to_message() {
         let user = reply_to_msg.from.clone();
 
         if user.is_none() {
-            bot.send_message(msg.chat.id, "❌ User not found").await?;
+            send_message(msg, bot, "❌ User not found".to_string()).await?;
             return Ok(());
         }
 
@@ -1343,12 +1364,7 @@ pub async fn handle_mod(bot: Bot, msg: Message, bot_deps: BotDependencies) -> An
             .unwrap_or_default();
 
         if message_text.is_empty() {
-            bot.send_message(
-                msg.chat.id,
-                format!("⚠️ <b>No Text Found</b>\n\n📝 Message ID: <code>{}</code>\n\n❌ The replied message contains no text to moderate.", reply_to_msg.id)
-            )
-            .parse_mode(ParseMode::Html)
-            .await?;
+            send_html_message(msg, bot, format!("⚠️ <b>No Text Found</b>\n\n📝 Message ID: <code>{}</code>\n\n❌ The replied message contains no text to moderate.", reply_to_msg.id).to_string()).await?;
             return Ok(());
         }
 
@@ -1459,18 +1475,17 @@ pub async fn handle_mod(bot: Bot, msg: Message, bot_deps: BotDependencies) -> An
                         };
 
                         // Send the flagged message response
-                        bot.send_message(
-                            msg.chat.id,
-                            format!(
+                        send_markdown_message(
+                            bot.clone(),
+                            msg.clone(),
+                            KeyboardMarkupType::InlineKeyboardType(keyboard),
+                            &format!(
                                 "🛡️ <b>Content Flagged & User Muted</b>\n\n📝 Message ID: <code>{}</code>\n\n❌ Status: <b>FLAGGED</b> 🔴\n🔇 User has been muted\n👤 <b>User:</b> {}\n\n💬 <i>Flagged message:</i>\n<blockquote><span class=\"tg-spoiler\">{}</span></blockquote>",
                                 reply_to_msg.id,
                                 user_mention,
                                 teloxide::utils::html::escape(message_text)
-                            )
-                        )
-                        .parse_mode(ParseMode::Html)
-                        .reply_markup(keyboard)
-                        .await?;
+                            ),
+                        ).await?;
                         // Immediately remove the offending message from the chat
                         if let Err(e) = bot.delete_message(msg.chat.id, reply_to_msg.id).await {
                             log::warn!(
@@ -1481,16 +1496,7 @@ pub async fn handle_mod(bot: Bot, msg: Message, bot_deps: BotDependencies) -> An
                         }
                     } else {
                         // Fallback if no user found in the replied message
-                        bot.send_message(
-                            msg.chat.id,
-                            format!(
-                                "🛡️ <b>Content Flagged</b>\n\n📝 Message ID: <code>{}</code>\n\n❌ Status: <b>FLAGGED</b> 🔴\n⚠️ Could not identify user to mute\n\n💬 <i>Flagged message:</i>\n<blockquote><span class=\"tg-spoiler\">{}</span></blockquote>",
-                                reply_to_msg.id,
-                                teloxide::utils::html::escape(message_text)
-                            )
-                        )
-                        .parse_mode(ParseMode::Html)
-                        .await?;
+                        send_html_message(msg.clone(), bot.clone(), format!("🛡️ <b>Content Flagged</b>\n\n📝 Message ID: <code>{}</code>\n\n❌ Status: <b>FLAGGED</b> 🔴\n⚠️ Could not identify user to mute\n\n💬 <i>Flagged message:</i>\n<blockquote><span class=\"tg-spoiler\">{}</span></blockquote>", reply_to_msg.id, teloxide::utils::html::escape(message_text)).to_string()).await?;
                         // Remove the offending message regardless
                         if let Err(e) = bot.delete_message(msg.chat.id, reply_to_msg.id).await {
                             log::warn!(
@@ -1505,26 +1511,12 @@ pub async fn handle_mod(bot: Bot, msg: Message, bot_deps: BotDependencies) -> An
             }
             Err(e) => {
                 log::error!("Moderation failed: {}", e);
-                bot.send_message(
-                    msg.chat.id,
-                    format!(
-                        "🛡️ <b>Moderation Error</b>\n\n📝 Message ID: <code>{}</code>\n\n❌ <b>Error:</b> Failed to analyze message. Please try again later.\n\n🔧 <i>Technical details:</i> {}",
-                        reply_to_msg.id,
-                        e
-                    )
-                )
-                .parse_mode(ParseMode::Html)
-                .await?;
+                send_html_message(msg, bot, format!("🛡️ <b>Moderation Error</b>\n\n📝 Message ID: <code>{}</code>\n\n❌ <b>Error:</b> Failed to analyze message. Please try again later.\n\n🔧 <i>Technical details:</i> {}", reply_to_msg.id, e).to_string()).await?;
             }
         }
     } else {
         // Not a reply to a message, show usage instructions
-        bot.send_message(
-            msg.chat.id,
-            "❌ <b>Invalid Usage</b>\n\n📝 The <code>/report</code> command must be used in reply to a message.\n\n💡 <b>How to use:</b>\n1. Find the message you want to moderate\n2. Reply to that message with <code>/report</code>\n\n🛡️ This will analyze the content of the replied message for violations."
-        )
-        .parse_mode(ParseMode::Html)
-        .await?;
+        send_html_message(msg, bot, "❌ <b>Invalid Usage</b>\n\n📝 The <code>/report</code> command must be used in reply to a message.\n\n💡 <b>How to use:</b>\n1. Find the message you want to moderate\n2. Reply to that message with <code>/report</code>\n\n🛡️ This will analyze the content of the replied message for violations.".to_string()).await?;
     }
     Ok(())
 }

@@ -2,14 +2,14 @@ use std::env;
 
 use chrono::Utc;
 use reqwest::Url;
-use teloxide::{Bot, prelude::*, types::{ChatId, InlineKeyboardButton, InlineKeyboardMarkup, ParseMode}};
+use teloxide::{Bot, types::{ChatId, InlineKeyboardButton, InlineKeyboardMarkup}};
 use tokio_cron_scheduler::Job;
 use aptos_rust_sdk_types::api_types::view::ViewRequest;
 
 use crate::{
     dao::{dao::Dao, dto::ProposalEntry},
     panora::handler::Panora,
-    utils::format_timestamp,
+    utils::{format_timestamp, send_scheduled_message, send_scheduled_message_with_keyboard},
     welcome::welcome_service::WelcomeService,
 };
 use quark_core::helpers::dto::CoinVersion;
@@ -226,10 +226,13 @@ pub fn job_active_daos(dao: Dao, bot: Bot) -> Job {
                     log::info!("Sending active proposals notification for: {}", proposal_entry.proposal_id);
 
                     // Send message with error handling
-                    match bot.send_message(chat_group_id, message_text)
-                        .reply_markup(keyboard)
-                        .await
-                    {
+                    match send_scheduled_message_with_keyboard(
+                        &bot,
+                        chat_group_id,
+                        &message_text,
+                        proposal_entry.thread_id,
+                        keyboard,
+                    ).await {
                         Ok(_) => {
                             log::info!("Successfully sent active proposals notification for: {}", proposal_entry.proposal_id);
                         }
@@ -452,9 +455,12 @@ async fn fetch_and_send_dao_results(
             }
         
             // Send the results message with error handling
-            match bot.send_message(chat_group_id, results_text)
-                .parse_mode(ParseMode::MarkdownV2)
-                .await
+            match send_scheduled_message(
+                bot,
+                chat_group_id,
+                &results_text,
+                proposal_entry.thread_id,
+            ).await
             {
                 Ok(_) => {
                     log::info!("Sent DAO results for {} to group {}", proposal_entry.proposal_id, group_id);
@@ -467,14 +473,24 @@ async fn fetch_and_send_dao_results(
         } else {
             log::warn!("No DAO data found in response for DAO: {}", proposal_entry.proposal_id);
             // Send a simple completion message with error handling
-            if let Err(e) = bot.send_message(chat_group_id, format!("🏛️ DAO \"{}\" has ended.", proposal_entry.name)).await {
+            if let Err(e) = send_scheduled_message(
+                bot,
+                chat_group_id,
+                &format!("🏛️ DAO \"{}\" has ended.", proposal_entry.name),
+                proposal_entry.thread_id,
+            ).await {
                 log::error!("Failed to send fallback message for DAO {}: {}", proposal_entry.proposal_id, e);
             }
         }
     } else {
         log::warn!("No data returned from smart contract for DAO: {}", proposal_entry.proposal_id);
         // Send a simple completion message with error handling
-        if let Err(e) = bot.send_message(chat_group_id, format!("🏛️ DAO \"{}\" has ended.", proposal_entry.name)).await {
+        if let Err(e) = send_scheduled_message(
+            bot,
+            chat_group_id,
+            &format!("🏛️ DAO \"{}\" has ended.", proposal_entry.name),
+            proposal_entry.thread_id,
+        ).await {
             log::error!("Failed to send fallback message for DAO {}: {}", proposal_entry.proposal_id, e);
         }
     }

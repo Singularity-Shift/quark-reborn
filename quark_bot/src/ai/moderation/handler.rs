@@ -5,7 +5,10 @@ use teloxide::{
     types::{Message, ParseMode},
 };
 
-use crate::{ai::moderation::dto::ModerationSettings, dependencies::BotDependencies};
+use crate::{
+    ai::moderation::dto::ModerationSettings, dependencies::BotDependencies,
+    utils::send_html_message,
+};
 
 pub async fn handle_message_moderation(
     bot: &Bot,
@@ -118,9 +121,7 @@ pub async fn handle_message_moderation(
                     if allowed.is_empty() && disallowed.is_empty() {
                         summary.push_str("\n\n<i>No custom rules recorded. Default moderation rules remain fully in effect.</i>");
                     }
-                    bot.send_message(msg.chat.id, summary)
-                        .parse_mode(ParseMode::Html)
-                        .await?;
+                    send_html_message(msg.clone(), bot.clone(), summary).await?;
                     return Ok(true);
                 }
             }

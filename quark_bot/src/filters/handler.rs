@@ -10,7 +10,7 @@ use crate::filters::dto::{
     FilterError, MatchType, PendingFilterStep, PendingFilterWizardState, ResponseType,
 };
 use crate::filters::helpers::{parse_triggers, replace_filter_placeholders};
-use crate::utils;
+use crate::utils::{self, KeyboardMarkupType, send_markdown_message};
 
 pub async fn handle_filters_callback(
     bot: Bot,
@@ -732,10 +732,13 @@ pub async fn handle_message_filters(
                     teloxide::types::InlineKeyboardButton::callback("❌ Cancel", "filters_cancel"),
                 ]]);
 
-                bot.send_message(msg.chat.id, summary)
-                    .parse_mode(ParseMode::Html)
-                    .reply_markup(keyboard)
-                    .await?;
+                send_markdown_message(
+                    bot.clone(),
+                    msg,
+                    KeyboardMarkupType::InlineKeyboardType(keyboard),
+                    &summary,
+                )
+                .await?;
                 return Ok(true);
             }
             crate::filters::dto::PendingFilterStep::AwaitingConfirm => {
