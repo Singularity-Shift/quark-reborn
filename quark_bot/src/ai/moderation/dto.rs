@@ -28,3 +28,30 @@ pub struct ModerationState {
     #[serde(default)]
     pub started_by_user_id: Option<i64>,
 }
+
+impl From<(String, Option<Vec<String>>, Option<i64>)> for ModerationState {
+    fn from(value: (String, Option<Vec<String>>, Option<i64>)) -> Self {
+        let (step, allowed_items, message_id) = value;
+        Self { step, allowed_items, message_id, started_by_user_id: None }
+    }
+}
+
+impl From<(String, Option<Vec<String>>, Option<i64>, i64)> for ModerationState {
+    fn from(value: (String, Option<Vec<String>>, Option<i64>, i64)) -> Self {
+        let (step, allowed_items, message_id, started_by_user_id) = value;
+        Self { step, allowed_items, message_id, started_by_user_id: Some(started_by_user_id) }
+    }
+}
+
+impl From<(Vec<String>, Vec<String>, i64, i64)> for ModerationSettings {
+    fn from(value: (Vec<String>, Vec<String>, i64, i64)) -> Self {
+        let (allowed_items, disallowed_items, updated_by_user_id, updated_at_unix_ms) = value;
+
+        Self {
+            allowed_items,
+            disallowed_items,
+            updated_by_user_id,
+            updated_at_unix_ms,
+        }
+    }
+}

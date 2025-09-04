@@ -5,7 +5,11 @@ use teloxide::{
     types::{Message, ParseMode},
 };
 
-use crate::{ai::moderation::ModerationSettings, dependencies::BotDependencies, utils};
+use crate::{
+    ai::moderation::dto::ModerationSettings,
+    dependencies::BotDependencies,
+    utils,
+};
 
 pub async fn handle_message_moderation(
     bot: &Bot,
@@ -90,31 +94,26 @@ pub async fn handle_message_moderation(
                     };
                     let allowed = moderation_state.allowed_items.unwrap_or_default();
                     // Save to moderation_settings tree
-                    let settings = ModerationSettings {
-                        allowed_items: allowed.clone(),
-                        disallowed_items: disallowed.clone(),
-                        updated_by_user_id: user.id.0 as i64,
-                        updated_at_unix_ms: chrono::Utc::now().timestamp_millis(),
-                    };
-                    if let Err(e) = bot_deps
+                    let settings = ModerationSettings::from((
+                        allowed.clone(),
+                        disallowed.clone(),
+                        user.id.0 as i64,
+                        chrono::Utc::now().timestamp_millis(),
+                    ));
+                    bot_deps
                         .moderation
                         .set_or_update_moderation_settings(chat_id.clone(), settings)
-                    {
-                        log::error!("Failed to save moderation settings: {}", e);
-                        return Ok(false);
-                    }
+                        .unwrap();
                     // Clear wizard and remove last prompt if present
                     if let Some(mid) = moderation_state.message_id {
                         let _ = bot
                             .delete_message(msg.chat.id, teloxide::types::MessageId(mid as i32))
                             .await;
                     }
-                    if let Err(e) = bot_deps
+                    bot_deps
                         .moderation
                         .remove_moderation_state(chat_id.clone())
-                    {
-                        log::warn!("Failed to clear moderation state: {}", e);
-                    }
+                        .unwrap();
                     let allowed_list = if allowed.is_empty() {
                         "<i>(none)</i>".to_string()
                     } else {
