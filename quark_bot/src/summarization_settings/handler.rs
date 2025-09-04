@@ -123,6 +123,10 @@ async fn show_user_settings_menu(bot: Bot, query: CallbackQuery) -> Result<()> {
                 "open_payment_settings",
             )],
             vec![InlineKeyboardButton::callback(
+                "📁 Document Library",
+                "open_document_library",
+            )],
+            vec![InlineKeyboardButton::callback(
                 "📋 View My Settings",
                 "open_my_settings",
             )],

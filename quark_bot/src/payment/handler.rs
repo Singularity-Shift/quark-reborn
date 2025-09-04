@@ -295,6 +295,10 @@ async fn handle_payment_selection(
                         "open_payment_settings",
                     )],
                     vec![InlineKeyboardButton::callback(
+                        "📁 Document Library",
+                        "open_document_library",
+                    )],
+                    vec![InlineKeyboardButton::callback(
                         "📋 View My Settings",
                         "open_my_settings",
                     )],

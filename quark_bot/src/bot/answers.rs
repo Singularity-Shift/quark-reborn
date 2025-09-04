@@ -173,28 +173,32 @@ pub async fn answers(
                 )
                 .await?;
             } else {
-                let kb = InlineKeyboardMarkup::new(vec![
-                    vec![InlineKeyboardButton::callback(
-                        "🧠 Select Model",
-                        "open_select_model",
-                    )],
-                    vec![InlineKeyboardButton::callback(
-                        "💳 Payment Settings",
-                        "open_payment_settings",
-                    )],
-                    vec![InlineKeyboardButton::callback(
-                        "📋 View My Settings",
-                        "open_my_settings",
-                    )],
-                    vec![InlineKeyboardButton::callback(
-                        "🧾 Summarization Settings",
-                        "open_summarization_settings",
-                    )],
-                    vec![InlineKeyboardButton::callback(
-                        "↩️ Close",
-                        "user_settings_close",
-                    )],
-                ]);
+            let kb = InlineKeyboardMarkup::new(vec![
+                vec![InlineKeyboardButton::callback(
+                    "🧠 Select Model",
+                    "open_select_model",
+                )],
+                vec![InlineKeyboardButton::callback(
+                    "💳 Payment Settings",
+                    "open_payment_settings",
+                )],
+                vec![InlineKeyboardButton::callback(
+                    "📁 Document Library",
+                    "open_document_library",
+                )],
+                vec![InlineKeyboardButton::callback(
+                    "📋 View My Settings",
+                    "open_my_settings",
+                )],
+                vec![InlineKeyboardButton::callback(
+                    "🧾 Summarization Settings",
+                    "open_summarization_settings",
+                )],
+                vec![InlineKeyboardButton::callback(
+                    "↩️ Close",
+                    "user_settings_close",
+                )],
+            ]);
                 send_markdown_message(
                     bot,
                     msg,

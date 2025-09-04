@@ -411,6 +411,108 @@ pub async fn handle_callback_query(
                     .await?;
                 }
             }
+        } else if data == "open_document_library" {
+            // Open the user's Document Library within /usersettings (DM context)
+            let user_id = query.from.id.0 as i64;
+
+            match list_user_files_with_names(user_id, bot_deps.clone()) {
+                Ok(files) => {
+                    use teloxide::types::{InlineKeyboardButton, InlineKeyboardMarkup};
+
+                    let (text, keyboard) = if files.is_empty() {
+                        let kb = InlineKeyboardMarkup::new(vec![
+                            vec![InlineKeyboardButton::callback(
+                                "📎 Upload Files",
+                                "upload_files_prompt",
+                            )],
+                            vec![InlineKeyboardButton::callback(
+                                "↩️ Back",
+                                "back_to_user_settings",
+                            )],
+                        ]);
+                        (
+                            "📁 <b>Your Document Library</b>\n\n<i>No files uploaded yet</i>\n\n💡 Use the button below to upload your first documents.".to_string(),
+                            kb,
+                        )
+                    } else {
+                        let file_list = files
+                            .iter()
+                            .map(|file| {
+                                let icon = utils::get_file_icon(&file.name);
+                                let clean_name = utils::clean_filename(&file.name);
+                                format!("{}  <b>{}</b>", icon, clean_name)
+                            })
+                            .collect::<Vec<_>>()
+                            .join("\n");
+                        let response = format!(
+                            "🗂️ <b>Your Document Library</b> ({} files)\n\n{}\n\n💡 <i>Tap any button below to manage your files</i>",
+                            files.len(),
+                            file_list
+                        );
+                        let mut keyboard_rows = Vec::new();
+                        for file in &files {
+                            let clean_name = utils::clean_filename(&file.name);
+                            let button_text = if clean_name.len() > 25 {
+                                format!("🗑️ {}", &clean_name[..22].trim_end())
+                            } else {
+                                format!("🗑️ {}", clean_name)
+                            };
+                            let delete_button = InlineKeyboardButton::callback(
+                                button_text,
+                                format!("delete_file:{}", file.id),
+                            );
+                            keyboard_rows.push(vec![delete_button]);
+                        }
+                        if files.len() > 1 {
+                            let clear_all_button = InlineKeyboardButton::callback(
+                                "🗑️ Clear All Files",
+                                "clear_all_files",
+                            );
+                            keyboard_rows.push(vec![clear_all_button]);
+                        }
+                        // Upload + Back controls
+                        keyboard_rows.push(vec![InlineKeyboardButton::callback(
+                            "📎 Upload Files",
+                            "upload_files_prompt",
+                        )]);
+                        keyboard_rows.push(vec![InlineKeyboardButton::callback(
+                            "↩️ Back",
+                            "back_to_user_settings",
+                        )]);
+                        (
+                            response,
+                            InlineKeyboardMarkup::new(keyboard_rows),
+                        )
+                    };
+
+                    if let Some(MaybeInaccessibleMessage::Regular(message)) = &query.message {
+                        bot.edit_message_text(message.chat.id, message.id, text)
+                            .parse_mode(ParseMode::Html)
+                            .reply_markup(keyboard)
+                            .await?;
+                    }
+                }
+                Err(e) => {
+                    log::error!("Failed to open document library: {}", e);
+                    bot.answer_callback_query(query.id)
+                        .text("❌ Error loading Document Library")
+                        .await?;
+                }
+            }
+        } else if data == "upload_files_prompt" {
+            if let Some(MaybeInaccessibleMessage::Regular(message)) = &query.message {
+                use teloxide::types::{InlineKeyboardButton, InlineKeyboardMarkup};
+                let kb = InlineKeyboardMarkup::new(vec![
+                    vec![InlineKeyboardButton::callback("↩️ Back", "open_document_library")],
+                ]);
+                bot.edit_message_text(
+                    message.chat.id,
+                    message.id,
+                    "📎 Please attach the files you wish to upload in your next message.\n\n✅ Supported: Documents, Photos, Videos, Audio files\n💡 You can send multiple files in one message!",
+                )
+                .reply_markup(kb)
+                .await?;
+            }
         } else if data == "back_to_user_settings" {
             if let Some(message) = &query.message {
                 if let MaybeInaccessibleMessage::Regular(m) = message {
@@ -422,6 +524,10 @@ pub async fn handle_callback_query(
                         vec![InlineKeyboardButton::callback(
                             "💳 Payment Settings",
                             "open_payment_settings",
+                        )],
+                        vec![InlineKeyboardButton::callback(
+                            "📁 Document Library",
+                            "open_document_library",
                         )],
                         vec![InlineKeyboardButton::callback(
                             "📋 View My Settings",
