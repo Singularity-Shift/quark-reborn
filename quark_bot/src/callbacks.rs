@@ -16,7 +16,7 @@ use crate::welcome::handler::handle_welcome_settings_callback;
 use anyhow::Result;
 use teloxide::{
     prelude::*,
-    types::{InlineKeyboardButton, InlineKeyboardMarkup, ParseMode},
+    types::{InlineKeyboardButton, InlineKeyboardMarkup, MaybeInaccessibleMessage, ParseMode},
 };
 
 pub async fn handle_callback_query(
@@ -52,7 +52,7 @@ pub async fn handle_callback_query(
                             Ok(files) => {
                                 if files.is_empty() {
                                     if let Some(
-                                        teloxide::types::MaybeInaccessibleMessage::Regular(message),
+                                        MaybeInaccessibleMessage::Regular(message),
                                     ) = &query.message
                                     {
                                         bot.edit_message_text(message.chat.id, message.id, "✅ <b>File deleted successfully!</b>\n\n📁 <i>Your document library is now empty</i>\n\n💡 Use /add_files to upload new documents")
@@ -99,7 +99,7 @@ pub async fn handle_callback_query(
                                     let keyboard = InlineKeyboardMarkup::new(keyboard_rows);
 
                                     if let Some(
-                                        teloxide::types::MaybeInaccessibleMessage::Regular(message),
+                                        MaybeInaccessibleMessage::Regular(message),
                                     ) = &query.message
                                     {
                                         bot.edit_message_text(
@@ -146,7 +146,7 @@ pub async fn handle_callback_query(
             match delete_vector_store(user_id, bot_deps.clone()).await {
                 Ok(_) => {
                     bot.answer_callback_query(query.id).await?;
-                    if let Some(teloxide::types::MaybeInaccessibleMessage::Regular(message)) =
+                    if let Some(MaybeInaccessibleMessage::Regular(message)) =
                         &query.message
                     {
                         bot.edit_message_text(message.chat.id, message.id, "✅ <b>All files cleared successfully!</b>\n\n🗑️ <i>Your entire document library has been deleted</i>\n\n💡 Use /add_files to start building your library again")
@@ -167,7 +167,7 @@ pub async fn handle_callback_query(
             let user_id_str = data.strip_prefix("unmute:").unwrap();
             let target_user_id: i64 = user_id_str.parse().unwrap_or(0);
 
-            if let Some(teloxide::types::MaybeInaccessibleMessage::Regular(message)) =
+            if let Some(MaybeInaccessibleMessage::Regular(message)) =
                 &query.message
             {
                 // Check if the user clicking the button is an admin
@@ -225,7 +225,7 @@ pub async fn handle_callback_query(
             }
             let target_user_id: i64 = parts[1].parse().unwrap_or(0);
 
-            if let Some(teloxide::types::MaybeInaccessibleMessage::Regular(message)) =
+            if let Some(MaybeInaccessibleMessage::Regular(message)) =
                 &query.message
             {
                 // Check if the user clicking the button is an admin
@@ -288,7 +288,7 @@ pub async fn handle_callback_query(
         } else if data == "open_select_model" {
             // Start the same workflow as /selectmodel: show chat model options
             if let Some(message) = &query.message {
-                if let teloxide::types::MaybeInaccessibleMessage::Regular(m) = message {
+                if let MaybeInaccessibleMessage::Regular(m) = message {
                     let keyboard = InlineKeyboardMarkup::new(vec![
                         vec![InlineKeyboardButton::callback(
                             "GPT-5 (💸 Smart & Creative)",
@@ -316,7 +316,7 @@ pub async fn handle_callback_query(
         } else if data == "open_my_settings" {
             // Render user's current settings using existing logic
             if let Some(message) = &query.message {
-                if let teloxide::types::MaybeInaccessibleMessage::Regular(m) = message {
+                if let MaybeInaccessibleMessage::Regular(m) = message {
                     // Build comprehensive settings view: Model, Mode, Verbosity, Token selected
                     let user = query.from.username.clone();
                     let id = query.from.id;
@@ -372,7 +372,7 @@ pub async fn handle_callback_query(
         } else if data == "open_payment_settings" {
             // Show submenu with the choose token action and the default currency
             if let Some(message) = &query.message {
-                if let teloxide::types::MaybeInaccessibleMessage::Regular(m) = message {
+                if let MaybeInaccessibleMessage::Regular(m) = message {
                     let mut default_currency = bot_deps.default_payment_prefs.label.clone();
 
                     let prefs = bot_deps
@@ -410,7 +410,7 @@ pub async fn handle_callback_query(
             }
         } else if data == "back_to_user_settings" {
             if let Some(message) = &query.message {
-                if let teloxide::types::MaybeInaccessibleMessage::Regular(m) = message {
+                if let MaybeInaccessibleMessage::Regular(m) = message {
                     let kb = InlineKeyboardMarkup::new(vec![
                         vec![InlineKeyboardButton::callback(
                             "🧠 Select Model",
@@ -437,7 +437,7 @@ pub async fn handle_callback_query(
             }
         } else if data == "user_settings_close" {
             if let Some(message) = &query.message {
-                if let teloxide::types::MaybeInaccessibleMessage::Regular(m) = message {
+                if let MaybeInaccessibleMessage::Regular(m) = message {
                     let _ = bot.edit_message_reply_markup(m.chat.id, m.id).await;
                     bot.answer_callback_query(query.id).text("Closed").await?;
                 }
@@ -445,7 +445,7 @@ pub async fn handle_callback_query(
         } else if data == "open_group_payment_settings" {
             // Show group payment settings submenu
             if let Some(message) = &query.message {
-                if let teloxide::types::MaybeInaccessibleMessage::Regular(m) = message {
+                if let MaybeInaccessibleMessage::Regular(m) = message {
                     let is_admin = utils::is_admin(&bot, m.chat.id, query.from.id).await;
 
                     if !is_admin {
@@ -492,7 +492,7 @@ pub async fn handle_callback_query(
         } else if data == "open_dao_preferences" {
             // Open DAO preferences menu
             if let Some(message) = &query.message {
-                if let teloxide::types::MaybeInaccessibleMessage::Regular(m) = message {
+                if let MaybeInaccessibleMessage::Regular(m) = message {
                     // Check if user is admin
                     let admins = bot.get_chat_administrators(m.chat.id).await?;
                     let requester_id = query.from.id;
@@ -596,7 +596,7 @@ pub async fn handle_callback_query(
         } else if data == "open_migrate_group_id" {
             // Handle group ID migration
             if let Some(message) = &query.message {
-                if let teloxide::types::MaybeInaccessibleMessage::Regular(m) = message {
+                if let MaybeInaccessibleMessage::Regular(m) = message {
                     // Check if user is admin
                     let admins = bot.get_chat_administrators(m.chat.id).await?;
                     let requester_id = query.from.id;
@@ -761,7 +761,7 @@ pub async fn handle_callback_query(
             }
         } else if data == "group_settings_close" {
             if let Some(message) = &query.message {
-                if let teloxide::types::MaybeInaccessibleMessage::Regular(m) = message {
+                if let MaybeInaccessibleMessage::Regular(m) = message {
                     let is_admin = utils::is_admin(&bot, m.chat.id, query.from.id).await;
 
                     if !is_admin {
@@ -928,7 +928,7 @@ pub async fn handle_callback_query(
         } else if data == "open_moderation_settings" {
             // Open Moderation submenu inside Group Settings
             if let Some(message) = &query.message {
-                if let teloxide::types::MaybeInaccessibleMessage::Regular(m) = message {
+                if let MaybeInaccessibleMessage::Regular(m) = message {
                     // Admin check
                     let is_admin = utils::is_admin(&bot, m.chat.id, query.from.id).await;
                     if !is_admin {
@@ -1008,7 +1008,7 @@ pub async fn handle_callback_query(
         } else if data == "mod_toggle_sentinel_on" || data == "mod_toggle_sentinel_off" {
             // Toggle sentinel ON/OFF
             if let Some(message) = &query.message {
-                if let teloxide::types::MaybeInaccessibleMessage::Regular(m) = message {
+                if let MaybeInaccessibleMessage::Regular(m) = message {
                     let is_admin = utils::is_admin(&bot, m.chat.id, query.from.id).await;
                     if !is_admin {
                         bot.answer_callback_query(query.id)
@@ -1380,7 +1380,7 @@ pub async fn handle_payment_callback(
 
         // Edit the message to remove buttons
         if let Some(message) = &query.message {
-            if let teloxide::types::MaybeInaccessibleMessage::Regular(msg) = message {
+            if let MaybeInaccessibleMessage::Regular(msg) = message {
                 if let Err(e) = bot.edit_message_reply_markup(msg.chat.id, msg.id).await {
                     log::warn!("Failed to clear reply markup: {}", e);
                 }
@@ -1421,7 +1421,7 @@ pub async fn handle_payment_callback(
 
         // Edit the message to show expiration
         if let Some(message) = &query.message {
-            if let teloxide::types::MaybeInaccessibleMessage::Regular(msg) = message {
+            if let MaybeInaccessibleMessage::Regular(msg) = message {
                 let recipients_text = if pending_transaction.original_usernames.len() == 1 {
                     format!("@{}", pending_transaction.original_usernames[0])
                 } else {
@@ -1507,7 +1507,7 @@ pub async fn handle_payment_callback(
 
                     // Edit the original message
                     if let Some(message) = &query.message {
-                        if let teloxide::types::MaybeInaccessibleMessage::Regular(msg) = message {
+                        if let MaybeInaccessibleMessage::Regular(msg) = message {
                             bot.edit_message_text(msg.chat.id, msg.id, success_message)
                                 .parse_mode(ParseMode::Html)
                                 .await?;
@@ -1523,7 +1523,7 @@ pub async fn handle_payment_callback(
 
                     // Edit the original message
                     if let Some(message) = &query.message {
-                        if let teloxide::types::MaybeInaccessibleMessage::Regular(msg) = message {
+                        if let MaybeInaccessibleMessage::Regular(msg) = message {
                             bot.edit_message_text(msg.chat.id, msg.id, error_message)
                                 .parse_mode(ParseMode::Html)
                                 .await?;
@@ -1566,7 +1566,7 @@ pub async fn handle_payment_callback(
 
             // Edit the original message
             if let Some(message) = &query.message {
-                if let teloxide::types::MaybeInaccessibleMessage::Regular(msg) = message {
+                if let MaybeInaccessibleMessage::Regular(msg) = message {
                     bot.edit_message_text(msg.chat.id, msg.id, cancel_message)
                         .parse_mode(ParseMode::Html)
                         .await?;
