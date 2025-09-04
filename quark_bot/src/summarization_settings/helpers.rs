@@ -1,11 +1,22 @@
 use super::dto::EffectiveSummarizationPrefs;
 use teloxide::types::{InlineKeyboardButton, InlineKeyboardMarkup};
 
-pub fn build_summarization_keyboard(prefs: &EffectiveSummarizationPrefs) -> InlineKeyboardMarkup {
+pub fn build_summarization_keyboard_with_context(
+    prefs: &EffectiveSummarizationPrefs,
+    is_group_context: bool,
+) -> InlineKeyboardMarkup {
     // Create toggle button based on current state
-    let toggle_text = if prefs.enabled { "❌ Disable" } else { "✅ Enable" };
-    let toggle_callback = if prefs.enabled { "toggle_summarizer:off" } else { "toggle_summarizer:on" };
-    
+    let toggle_text = if prefs.enabled {
+        "❌ Disable"
+    } else {
+        "✅ Enable"
+    };
+    let toggle_callback = if prefs.enabled {
+        "toggle_summarizer:off"
+    } else {
+        "toggle_summarizer:on"
+    };
+
     // Create token threshold buttons with current selection highlighted
     let token_buttons = vec![16000, 18000, 20000, 24000, 26000]
         .into_iter()
@@ -18,7 +29,7 @@ pub fn build_summarization_keyboard(prefs: &EffectiveSummarizationPrefs) -> Inli
             InlineKeyboardButton::callback(text, format!("set_summarizer_threshold:{}", threshold))
         })
         .collect::<Vec<_>>();
-    
+
     InlineKeyboardMarkup::new(vec![
         // Single toggle button
         vec![InlineKeyboardButton::callback(toggle_text, toggle_callback)],
@@ -28,18 +39,26 @@ pub fn build_summarization_keyboard(prefs: &EffectiveSummarizationPrefs) -> Inli
         vec![token_buttons[2].clone()], // 20k
         vec![token_buttons[3].clone()], // 24k
         vec![token_buttons[4].clone()], // 26k
-        // Back button
+        // Back button - different based on context
         vec![InlineKeyboardButton::callback(
             "↩️ Back",
-            "summarization_back_to_usersettings",
+            if is_group_context {
+                "summarization_back_to_groupsettings"
+            } else {
+                "summarization_back_to_usersettings"
+            },
         )],
     ])
 }
 
 pub fn format_summarization_status(prefs: &EffectiveSummarizationPrefs) -> String {
-    let status = if prefs.enabled { "<b>On</b>" } else { "<b>Off</b>" };
+    let status = if prefs.enabled {
+        "<b>On</b>"
+    } else {
+        "<b>Off</b>"
+    };
     let threshold = format!("<code>{}</code>", prefs.token_limit);
-    
+
     format!(
         "⚙️ <b>Summarization Settings</b>\n\nStatus: {}\nThreshold: {} tokens\n\n💡 Summarization automatically condenses long conversations when they exceed your chosen token threshold.",
         status, threshold

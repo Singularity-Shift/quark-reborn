@@ -1,21 +1,22 @@
-use open_ai_rust_responses_by_sshift::{Client as OAIClient, Model, Request, Verbosity, ReasoningEffort};
 use crate::ai::summarizer::dto::SummarizationResult;
+use open_ai_rust_responses_by_sshift::{
+    Client as OAIClient, Model, ReasoningEffort, Request, Verbosity,
+};
 
-pub fn build_summarization_prompt(
-    latest_user_input: &str,
-    latest_assistant_reply: &str,
-) -> String {
+pub fn build_summarization_prompt(latest_user_input: &str, latest_assistant_reply: &str) -> String {
     let prompt = format!(
         "Summarize the conversation so far for future context. Include key facts, decisions, named entities, constraints, and unresolved items. Keep it concise (< 200 words). Avoid pleasantries and repetitive details.\n\nLatest user input: {}\n\nLatest assistant reply: {}\n\nNew summary:",
-        latest_user_input,
-        latest_assistant_reply
+        latest_user_input, latest_assistant_reply
     );
 
     prompt
 }
 
-pub fn get_conversation_summary_key(user_id: i64) -> String {
-    format!("user:{}", user_id)
+pub fn get_conversation_summary_key(user_id: &str, group_id: Option<String>) -> String {
+    match group_id {
+        Some(gid) => format!("group:{}", gid),
+        None => format!("user:{}", user_id),
+    }
 }
 
 pub fn should_summarize(total_tokens: u32, token_limit: u32) -> bool {
@@ -41,17 +42,16 @@ pub async fn generate_summary(
 
     let response = openai_client.responses.create(request).await?;
     let summary = response.output_text().trim().to_string();
-    let total_tokens = response
-        .usage
-        .as_ref()
-        .map(|u| u.total_tokens)
-        .unwrap_or(0);
+    let total_tokens = response.usage.as_ref().map(|u| u.total_tokens).unwrap_or(0);
 
     if summary.is_empty() {
         return Err(anyhow::anyhow!("Generated summary is empty"));
     }
 
-    Ok(SummarizationResult { summary, total_tokens })
+    Ok(SummarizationResult {
+        summary,
+        total_tokens,
+    })
 }
 
 #[cfg(test)]
@@ -60,11 +60,8 @@ mod tests {
 
     #[test]
     fn test_build_summarization_prompt() {
-        let prompt = build_summarization_prompt(
-            "User input",
-            "Assistant reply"
-        );
-        
+        let prompt = build_summarization_prompt("User input", "Assistant reply");
+
         assert!(prompt.contains("User input"));
         assert!(prompt.contains("Assistant reply"));
         assert!(prompt.contains("New summary:"));
@@ -73,8 +70,13 @@ mod tests {
 
     #[test]
     fn test_get_conversation_summary_key() {
-        let key = get_conversation_summary_key(12345);
+        // Test user-only key
+        let key = get_conversation_summary_key("12345", None);
         assert_eq!(key, "user:12345");
+
+        // Test group key (user_id is ignored when group_id is provided)
+        let key = get_conversation_summary_key("12345", Some("67890".to_string()));
+        assert_eq!(key, "group:67890");
     }
 
     #[test]

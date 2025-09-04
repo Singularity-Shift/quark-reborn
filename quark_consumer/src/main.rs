@@ -244,6 +244,7 @@ async fn main() -> ConsumerResult<()> {
                             }
                             Err(e) => {
                                 eprintln!("Failed to process message: {}", e);
+                                tokio::time::sleep(Duration::from_secs(5)).await;
                                 // Don't return here, continue the loop
                             }
                         }
