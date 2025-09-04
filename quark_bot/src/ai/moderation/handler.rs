@@ -2,7 +2,7 @@ use anyhow::Result;
 use teloxide::{
     Bot,
     prelude::*,
-    types::{Message, ParseMode},
+    types::{InlineKeyboardButton, InlineKeyboardMarkup, Message, ParseMode},
 };
 
 use crate::{
@@ -57,12 +57,8 @@ pub async fn handle_message_moderation(
                         .collect::<Vec<_>>()
                 };
                 if moderation_state.step == "AwaitingAllowed" {
-                    let is_skip = text.eq_ignore_ascii_case("na");
-                    let items = if is_skip {
-                        Vec::new()
-                    } else {
-                        parse_items(&text)
-                    };
+                    // 'na' no longer skips; use the explicit Skip button
+                    let items = parse_items(&text);
                     moderation_state.allowed_items = Some(items);
                     moderation_state.step = "AwaitingDisallowed".to_string();
                     // Remove previous prompt (Step 1) if present
@@ -74,9 +70,15 @@ pub async fn handle_message_moderation(
                     let sent = bot
                         .send_message(
                             msg.chat.id,
-                            "🛡️ <b>Moderation Settings — Step 2/2</b>\n\n<b>Now send DISALLOWED items</b> for this group.\n\n<b>Be specific</b>: include concrete phrases, patterns, and examples you want flagged.\n\n<b>Cancel anytime</b>: Tap <b>Back</b> or <b>Close</b> in the Moderation menu — this prompt will be removed.\n\n<b>Format</b>:\n- Send them in a <b>single message</b>\n- Separate each item with <code>;</code>\n- To skip this section, send <code>na</code>\n\n<b>Examples (community standards)</b>:\n<code>harassment, insults, or personal attacks; hate speech or slurs (racism, homophobia, etc.); doxxing or sharing private information; NSFW/explicit content; graphic violence/gore; off-topic spam or mass mentions; repeated flooding/emoji spam; political or religious debates (off-topic); promotion of unrelated/non-affiliated projects; misinformation/FUD targeting members</code>\n\n<i>Notes:</i> \n- Avoid duplicating default scam rules (phishing links, wallet approvals, DM requests, giveaways) — those are already enforced by Default Rules.\n- <b>Group Disallowed</b> > <b>Group Allowed</b> > <b>Default Rules</b> (strict priority).\n- If any Group Disallowed item matches, the message will be flagged.",
+                            "🛡️ <b>Moderation Settings — Step 2/2</b>\n\n<b>Now send DISALLOWED items</b> for this group.\n\n<b>Be specific</b>: include concrete phrases, patterns, and examples you want flagged.\n\n<b>Cancel anytime</b>: Tap <b>Back</b> or <b>Close</b> in the Moderation menu — this prompt will be removed.\n\n<b>Format</b>:\n- Send them in a <b>single message</b>\n- Separate each item with <code>;</code>\n\n<b>Examples (community standards)</b>:\n<code>harassment, insults, or personal attacks; hate speech or slurs (racism, homophobia, etc.); doxxing or sharing private information; NSFW/explicit content; graphic violence/gore; off-topic spam or mass mentions; repeated flooding/emoji spam; political or religious debates (off-topic); promotion of unrelated/non-affiliated projects; misinformation/FUD targeting members</code>\n\n<i>Notes:</i> \n- Avoid duplicating default scam rules (phishing links, wallet approvals, DM requests, giveaways) — those are already enforced by Default Rules.\n- <b>Group Disallowed</b> > <b>Group Allowed</b> > <b>Default Rules</b> (strict priority).\n- If any Group Disallowed item matches, the message will be flagged.\n\nWhen ready, send your list now — or use the button below to skip.",
                         )
                         .parse_mode(ParseMode::Html)
+                        .reply_markup(InlineKeyboardMarkup::new(vec![
+                            vec![InlineKeyboardButton::callback(
+                                "⏭️ Skip Disallowed",
+                                "mod_skip_disallowed",
+                            )],
+                        ]))
                         .await?;
                     // Track Step 2 prompt for cleanup
                     moderation_state.message_id = Some(sent.id.0 as i64);
@@ -86,12 +88,7 @@ pub async fn handle_message_moderation(
                         .unwrap();
                     return Ok(true);
                 } else if moderation_state.step == "AwaitingDisallowed" {
-                    let is_skip = text.eq_ignore_ascii_case("na");
-                    let disallowed = if is_skip {
-                        Vec::new()
-                    } else {
-                        parse_items(&text)
-                    };
+                    let disallowed = parse_items(&text);
                     let allowed = moderation_state.allowed_items.unwrap_or_default();
                     // Save to moderation_settings tree
                     let settings = ModerationSettings::from((

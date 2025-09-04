@@ -1111,12 +1111,19 @@ pub async fn handle_callback_query(
                         query.from.id.0 as i64,
                     ));
                     // Prompt Step 1/2 in chat
-                    let sent = bot.send_message(
-                        m.chat.id,
-                        "🛡️ <b>Moderation Settings — Step 1/2</b>\n\n<b>Send ALLOWED items</b> for this group.\n\n<b>Be specific</b>: include concrete phrases and examples.\n\n<b>Cancel anytime</b>: Tap <b>Back</b> or <b>Close</b> in the Moderation menu — this prompt will be removed.\n\n<b>Warning</b>: Allowed items can reduce moderation strictness; we've included a <b>copy & paste</b> template below to safely allow discussion of your token. To skip this step, send <code>na</code>.\n\n<b>Format</b>:\n- Send them in a <b>single message</b>\n- Separate each item with <code>;</code>\n\n<b>Example</b>:\n<b>discussion of APT token and ecosystem; official project links and documentation; community updates and announcements</b>\n\n<b>Quick template (copy/paste) to allow your own token</b>:\n<code>discussion of [YOUR_TOKEN] and ecosystem; official project links and documentation; community updates and announcements</code>\n\n<i>Note:</i> Default rules still protect against scams, phishing, and inappropriate content.\n\nWhen ready, send your list now.\n\n<i>Tip:</i> Use <b>Reset Custom Rules</b> in the Moderation menu anytime to clear custom rules.",
-                    )
-                    .parse_mode(ParseMode::Html)
-                    .await?;
+                    let sent = bot
+                        .send_message(
+                            m.chat.id,
+                            "🛡️ <b>Moderation Settings — Step 1/2</b>\n\n<b>Send ALLOWED items</b> for this group.\n\n<b>Be specific</b>: include concrete phrases and examples.\n\n<b>Cancel anytime</b>: Tap <b>Back</b> or <b>Close</b> in the Moderation menu — this prompt will be removed.\n\n<b>Warning</b>: Allowed items can reduce moderation strictness; we've included a <b>copy & paste</b> template below to safely allow discussion of your token.\n\n<b>Format</b>:\n- Send them in a <b>single message</b>\n- Separate each item with <code>;</code>\n\n<b>Example</b>:\n<b>discussion of APT token and ecosystem; official project links and documentation; community updates and announcements</b>\n\n<b>Quick template (copy/paste) to allow your own token</b>:\n<code>discussion of [YOUR_TOKEN] and ecosystem; official project links and documentation; community updates and announcements</code>\n\n<i>Note:</i> Default rules still protect against scams, phishing, and inappropriate content.\n\nWhen ready, send your list now — or use the button below to skip.",
+                        )
+                        .parse_mode(ParseMode::Html)
+                        .reply_markup(InlineKeyboardMarkup::new(vec![
+                            vec![InlineKeyboardButton::callback(
+                                "⏭️ Skip Allowed",
+                                "mod_skip_allowed",
+                            )],
+                        ]))
+                        .await?;
 
                     state.message_id = Some(sent.id.0 as i64);
                     bot_deps
@@ -1125,6 +1132,152 @@ pub async fn handle_callback_query(
                     bot.answer_callback_query(query.id)
                         .text("📝 Wizard started")
                         .await?;
+                }
+            }
+        } else if data == "mod_skip_allowed" {
+            // Skip Step 1 (Allowed) and move to Step 2
+            if let Some(message) = &query.message {
+                if let teloxide::types::MaybeInaccessibleMessage::Regular(m) = message {
+                    // Verify there's an active wizard and the caller is the owner
+                    if let Ok(mut state) = bot_deps
+                        .moderation
+                        .get_moderation_state(m.chat.id.to_string())
+                    {
+                        // Ensure only the admin who started the wizard can skip
+                        if let Some(owner) = state.started_by_user_id {
+                            if owner != query.from.id.0 as i64 {
+                                bot.answer_callback_query(query.id)
+                                    .text("❌ Only the admin who started the wizard can skip this step")
+                                    .await?;
+                                return Ok(());
+                            }
+                        }
+
+                        if state.step != "AwaitingAllowed" {
+                            bot.answer_callback_query(query.id)
+                                .text("❌ Wizard is not waiting for Allowed items")
+                                .await?;
+                            return Ok(());
+                        }
+
+                        // Remove previous prompt if present
+                        if let Some(mid) = state.message_id {
+                            let _ = bot
+                                .delete_message(m.chat.id, teloxide::types::MessageId(mid as i32))
+                                .await;
+                        }
+
+                        // Advance to Step 2 (Disallowed)
+                        state.allowed_items = Some(vec![]);
+                        state.step = "AwaitingDisallowed".to_string();
+
+                        let sent = bot
+                            .send_message(
+                                m.chat.id,
+                                "🛡️ <b>Moderation Settings — Step 2/2</b>\n\n<b>Now send DISALLOWED items</b> for this group.\n\n<b>Be specific</b>: include concrete phrases, patterns, and examples you want flagged.\n\n<b>Cancel anytime</b>: Tap <b>Back</b> or <b>Close</b> in the Moderation menu — this prompt will be removed.\n\n<b>Format</b>:\n- Send them in a <b>single message</b>\n- Separate each item with <code>;</code>\n\n<b>Examples (community standards)</b>:\n<code>harassment, insults, or personal attacks; hate speech or slurs (racism, homophobia, etc.); doxxing or sharing private information; NSFW/explicit content; graphic violence/gore; off-topic spam or mass mentions; repeated flooding/emoji spam; political or religious debates (off-topic); promotion of unrelated/non-affiliated projects; misinformation/FUD targeting members</code>\n\n<i>Notes:</i> \n- Avoid duplicating default scam rules (phishing links, wallet approvals, DM requests, giveaways) — those are already enforced by Default Rules.\n- <b>Group Disallowed</b> > <b>Group Allowed</b> > <b>Default Rules</b> (strict priority).\n- If any Group Disallowed item matches, the message will be flagged.\n\nWhen ready, send your list now — or use the button below to skip.",
+                            )
+                            .parse_mode(ParseMode::Html)
+                            .reply_markup(InlineKeyboardMarkup::new(vec![
+                                vec![InlineKeyboardButton::callback(
+                                    "⏭️ Skip Disallowed",
+                                    "mod_skip_disallowed",
+                                )],
+                            ]))
+                            .await?;
+
+                        state.message_id = Some(sent.id.0 as i64);
+                        bot_deps
+                            .moderation
+                            .set_moderation_state(m.chat.id.to_string(), state)?;
+
+                        bot.answer_callback_query(query.id)
+                            .text("⏭️ Skipped Allowed. Now send DISALLOWED items.")
+                            .await?;
+                    } else {
+                        bot.answer_callback_query(query.id)
+                            .text("❌ No active moderation wizard")
+                            .await?;
+                    }
+                }
+            }
+        } else if data == "mod_skip_disallowed" {
+            // Finish wizard with empty Disallowed
+            if let Some(message) = &query.message {
+                if let teloxide::types::MaybeInaccessibleMessage::Regular(m) = message {
+                    if let Ok(state) = bot_deps
+                        .moderation
+                        .get_moderation_state(m.chat.id.to_string())
+                    {
+                        if state.step != "AwaitingDisallowed" {
+                            bot.answer_callback_query(query.id)
+                                .text("❌ Wizard is not waiting for Disallowed items")
+                                .await?;
+                            return Ok(());
+                        }
+                        if let Some(owner) = state.started_by_user_id {
+                            if owner != query.from.id.0 as i64 {
+                                bot.answer_callback_query(query.id)
+                                    .text("❌ Only the admin who started the wizard can skip this step")
+                                    .await?;
+                                return Ok(());
+                            }
+                        }
+
+                        // Remove current prompt if present
+                        if let Some(mid) = state.message_id {
+                            let _ = bot
+                                .delete_message(m.chat.id, teloxide::types::MessageId(mid as i32))
+                                .await;
+                        }
+
+                        let allowed = state.allowed_items.unwrap_or_default();
+                        let disallowed: Vec<String> = vec![];
+
+                        let settings = ModerationSettings::from((
+                            allowed.clone(),
+                            disallowed.clone(),
+                            query.from.id.0 as i64,
+                            chrono::Utc::now().timestamp_millis(),
+                        ));
+                        bot_deps
+                            .moderation
+                            .set_or_update_moderation_settings(m.chat.id.to_string(), settings)?;
+                        bot_deps
+                            .moderation
+                            .remove_moderation_state(m.chat.id.to_string())?;
+
+                        let allowed_list = if allowed.is_empty() {
+                            "<i>(none)</i>".to_string()
+                        } else {
+                            allowed
+                                .iter()
+                                .map(|x| format!("• {}", teloxide::utils::html::escape(x)))
+                                .collect::<Vec<_>>()
+                                .join("\n")
+                        };
+                        let disallowed_list = "<i>(none)</i>".to_string();
+
+                        let mut summary = format!(
+                            "✅ <b>Custom moderation rules saved.</b>\n\n<b>Allowed ({})</b>:\n{}\n\n<b>Disallowed ({})</b>:\n{}",
+                            allowed.len(),
+                            allowed_list,
+                            0,
+                            disallowed_list,
+                        );
+                        if allowed.is_empty() {
+                            summary.push_str("\n\n<i>No custom rules recorded. Default moderation rules remain fully in effect.</i>");
+                        }
+                        bot.send_message(m.chat.id, summary)
+                            .parse_mode(ParseMode::Html)
+                            .await?;
+                        bot.answer_callback_query(query.id)
+                            .text("⏭️ Skipped Disallowed and saved.")
+                            .await?;
+                    } else {
+                        bot.answer_callback_query(query.id)
+                            .text("❌ No active moderation wizard")
+                            .await?;
+                    }
                 }
             }
         } else if data == "mod_reset" {
