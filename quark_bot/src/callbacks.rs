@@ -16,7 +16,7 @@ use crate::welcome::handler::handle_welcome_settings_callback;
 use anyhow::Result;
 use teloxide::{
     prelude::*,
-    types::{InlineKeyboardButton, InlineKeyboardMarkup},
+    types::{InlineKeyboardButton, InlineKeyboardMarkup, ParseMode},
 };
 
 pub async fn handle_callback_query(
@@ -56,7 +56,7 @@ pub async fn handle_callback_query(
                                     ) = &query.message
                                     {
                                         bot.edit_message_text(message.chat.id, message.id, "✅ <b>File deleted successfully!</b>\n\n📁 <i>Your document library is now empty</i>\n\n💡 Use /add_files to upload new documents")
-                                            .parse_mode(teloxide::types::ParseMode::Html)
+                                            .parse_mode(ParseMode::Html)
                                             .reply_markup(InlineKeyboardMarkup::new(vec![] as Vec<Vec<InlineKeyboardButton>>))
                                             .await?;
                                     }
@@ -107,7 +107,7 @@ pub async fn handle_callback_query(
                                             message.id,
                                             response,
                                         )
-                                        .parse_mode(teloxide::types::ParseMode::Html)
+                                        .parse_mode(ParseMode::Html)
                                         .reply_markup(keyboard)
                                         .await?;
                                     }
@@ -309,7 +309,7 @@ pub async fn handle_callback_query(
                         "🤖 <b>Select your chat model:</b>\n\nChoose which model to use for regular chat commands (/c):",
                     )
                     .reply_markup(keyboard)
-                    .parse_mode(teloxide::types::ParseMode::Html)
+                    .parse_mode(ParseMode::Html)
                     .await?;
                 }
             }
@@ -359,7 +359,7 @@ pub async fn handle_callback_query(
                             )]]);
 
                         bot.edit_message_text(m.chat.id, m.id, text)
-                            .parse_mode(teloxide::types::ParseMode::Html)
+                            .parse_mode(ParseMode::Html)
                             .reply_markup(keyboard)
                             .await?;
                     } else {
@@ -403,7 +403,7 @@ pub async fn handle_callback_query(
                             default_currency
                         ),
                     )
-                    .parse_mode(teloxide::types::ParseMode::Html)
+                    .parse_mode(ParseMode::Html)
                     .reply_markup(kb)
                     .await?;
                 }
@@ -430,7 +430,7 @@ pub async fn handle_callback_query(
                         )],
                     ]);
                     bot.edit_message_text(m.chat.id, m.id, "⚙️ <b>User Settings</b>\n\n• Manage your model, view current settings, and configure payment.\n\n💡 If no payment token is selected, the on-chain default will be used.")
-                        .parse_mode(teloxide::types::ParseMode::Html)
+                        .parse_mode(ParseMode::Html)
                         .reply_markup(kb)
                         .await?;
                 }
@@ -484,7 +484,7 @@ pub async fn handle_callback_query(
                             default_currency
                         ),
                     )
-                    .parse_mode(teloxide::types::ParseMode::Html)
+                    .parse_mode(ParseMode::Html)
                     .reply_markup(kb)
                     .await?;
                 }
@@ -588,7 +588,7 @@ pub async fn handle_callback_query(
                         m.id,
                         "🏛️ <b>DAO Preferences</b>\n\nConfigure group DAO settings:",
                     )
-                    .parse_mode(teloxide::types::ParseMode::Html)
+                    .parse_mode(ParseMode::Html)
                     .reply_markup(keyboard)
                     .await?;
                 }
@@ -668,7 +668,7 @@ pub async fn handle_callback_query(
                                 m.id,
                                 "⚙️ <b>Group Settings</b>\n\n• Configure payment token, DAO preferences, moderation, sponsor settings, welcome settings, filters, and group migration.\n\n💡 Only group administrators can access these settings."
                             )
-                            .parse_mode(teloxide::types::ParseMode::Html)
+                            .parse_mode(ParseMode::Html)
                             .reply_markup(kb)
                             .await?;
                         }
@@ -754,7 +754,7 @@ pub async fn handle_callback_query(
                         )],
                     ]);
                     bot.edit_message_text(m.chat.id, m.id, "⚙️ <b>Group Settings</b>\n\n• Configure payment token, DAO preferences, moderation, sponsor settings, command settings, filters, and group migration.\n\n💡 Only group administrators can access these settings.")
-                        .parse_mode(teloxide::types::ParseMode::Html)
+                        .parse_mode(ParseMode::Html)
                         .reply_markup(kb)
                         .await?;
                 }
@@ -1087,7 +1087,7 @@ pub async fn handle_callback_query(
                         )],
                     ]);
                     bot.edit_message_text(m.chat.id, m.id, text)
-                        .parse_mode(teloxide::types::ParseMode::Html)
+                        .parse_mode(ParseMode::Html)
                         .reply_markup(kb)
                         .await?;
                 }
@@ -1115,7 +1115,7 @@ pub async fn handle_callback_query(
                         m.chat.id,
                         "🛡️ <b>Moderation Settings — Step 1/2</b>\n\n<b>Send ALLOWED items</b> for this group.\n\n<b>Be specific</b>: include concrete phrases and examples.\n\n<b>Cancel anytime</b>: Tap <b>Back</b> or <b>Close</b> in the Moderation menu — this prompt will be removed.\n\n<b>Warning</b>: Allowed items can reduce moderation strictness; we've included a <b>copy & paste</b> template below to safely allow discussion of your token. To skip this step, send <code>na</code>.\n\n<b>Format</b>:\n- Send them in a <b>single message</b>\n- Separate each item with <code>;</code>\n\n<b>Example</b>:\n<b>discussion of APT token and ecosystem; official project links and documentation; community updates and announcements</b>\n\n<b>Quick template (copy/paste) to allow your own token</b>:\n<code>discussion of [YOUR_TOKEN] and ecosystem; official project links and documentation; community updates and announcements</code>\n\n<i>Note:</i> Default rules still protect against scams, phishing, and inappropriate content.\n\nWhen ready, send your list now.\n\n<i>Tip:</i> Use <b>Reset Custom Rules</b> in the Moderation menu anytime to clear custom rules.",
                     )
-                    .parse_mode(teloxide::types::ParseMode::Html)
+                    .parse_mode(ParseMode::Html)
                     .await?;
 
                     state.message_id = Some(sent.id.0 as i64);
@@ -1202,7 +1202,7 @@ pub async fn handle_callback_query(
                         )],
                     ]);
                     bot.edit_message_text(m.chat.id, m.id, text)
-                        .parse_mode(teloxide::types::ParseMode::Html)
+                        .parse_mode(ParseMode::Html)
                         .reply_markup(kb)
                         .await?;
                 }
@@ -1240,7 +1240,7 @@ To avoid being muted or banned, please follow these rules:
 If you have questions, ask an admin before posting.
 "#;
                     bot.send_message(m.chat.id, rules)
-                        .parse_mode(teloxide::types::ParseMode::Html)
+                        .parse_mode(ParseMode::Html)
                         .await?;
                     bot.answer_callback_query(query.id)
                         .text("📜 Default rules sent")
@@ -1273,7 +1273,7 @@ If you have questions, ask an admin before posting.
                     };
 
                     bot.send_message(m.chat.id, format!("{title}\n\n{body}", title = title, body = body))
-                        .parse_mode(teloxide::types::ParseMode::Html)
+                        .parse_mode(ParseMode::Html)
                         .await?;
                     bot.answer_callback_query(query.id)
                         .text("✅ Sent")
@@ -1442,7 +1442,7 @@ pub async fn handle_payment_callback(
                 );
 
                 bot.edit_message_text(msg.chat.id, msg.id, expired_message)
-                    .parse_mode(teloxide::types::ParseMode::Html)
+                    .parse_mode(ParseMode::Html)
                     .await?;
             }
         }
@@ -1509,7 +1509,7 @@ pub async fn handle_payment_callback(
                     if let Some(message) = &query.message {
                         if let teloxide::types::MaybeInaccessibleMessage::Regular(msg) = message {
                             bot.edit_message_text(msg.chat.id, msg.id, success_message)
-                                .parse_mode(teloxide::types::ParseMode::Html)
+                                .parse_mode(ParseMode::Html)
                                 .await?;
                         }
                     }
@@ -1525,7 +1525,7 @@ pub async fn handle_payment_callback(
                     if let Some(message) = &query.message {
                         if let teloxide::types::MaybeInaccessibleMessage::Regular(msg) = message {
                             bot.edit_message_text(msg.chat.id, msg.id, error_message)
-                                .parse_mode(teloxide::types::ParseMode::Html)
+                                .parse_mode(ParseMode::Html)
                                 .await?;
                         }
                     }
@@ -1568,7 +1568,7 @@ pub async fn handle_payment_callback(
             if let Some(message) = &query.message {
                 if let teloxide::types::MaybeInaccessibleMessage::Regular(msg) = message {
                     bot.edit_message_text(msg.chat.id, msg.id, cancel_message)
-                        .parse_mode(teloxide::types::ParseMode::Html)
+                        .parse_mode(ParseMode::Html)
                         .await?;
                 }
             }
