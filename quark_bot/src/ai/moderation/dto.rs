@@ -28,5 +28,3 @@ pub struct ModerationState {
     #[serde(default)]
     pub started_by_user_id: Option<i64>,
 }
-
-// Implementations intentionally omitted to keep dto.rs data-only
