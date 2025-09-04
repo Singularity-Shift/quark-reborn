@@ -25,17 +25,21 @@ pub struct ModerationState {
     pub step: String,
     pub allowed_items: Option<Vec<String>>,
     pub message_id: Option<i64>,
+    #[serde(default)]
+    pub started_by_user_id: Option<i64>,
 }
 
 impl From<(String, Option<Vec<String>>, Option<i64>)> for ModerationState {
     fn from(value: (String, Option<Vec<String>>, Option<i64>)) -> Self {
         let (step, allowed_items, message_id) = value;
+        Self { step, allowed_items, message_id, started_by_user_id: None }
+    }
+}
 
-        Self {
-            step,
-            allowed_items,
-            message_id,
-        }
+impl From<(String, Option<Vec<String>>, Option<i64>, i64)> for ModerationState {
+    fn from(value: (String, Option<Vec<String>>, Option<i64>, i64)) -> Self {
+        let (step, allowed_items, message_id, started_by_user_id) = value;
+        Self { step, allowed_items, message_id, started_by_user_id: Some(started_by_user_id) }
     }
 }
 

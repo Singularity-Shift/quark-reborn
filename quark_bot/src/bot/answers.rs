@@ -8,7 +8,7 @@ use teloxide::{
 
 use super::handler::{
     handle_add_files, handle_chat, handle_help, handle_list_files, handle_login_group,
-    handle_login_user, handle_mod, handle_moderation_rules, handle_new_chat, handle_prices,
+    handle_login_user, handle_mod, handle_new_chat, handle_prices, handle_rules,
 };
 use crate::utils::{self, KeyboardMarkupType, send_markdown_message};
 use crate::yield_ai::handler as yield_ai_handler;
@@ -153,8 +153,8 @@ pub async fn answers(
         Command::Report => {
             handle_mod(bot, msg, bot_deps.clone()).await?;
         }
-        Command::ModerationRules => {
-            handle_moderation_rules(bot, msg).await?;
+        Command::Rules => {
+            handle_rules(bot, msg, bot_deps.clone()).await?;
         }
 
         Command::PromptExamples => {
