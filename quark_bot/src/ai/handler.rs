@@ -234,8 +234,10 @@ impl AI {
 
         // Check if we need to clear the thread from a previous summarization
         // But do this AFTER we get the current response, so AI can see its previous response
-        let should_clear_thread = if let Ok(should_clear) =
-            bot_deps.summarizer.check_and_clear_pending_thread(user_id)
+        let user_id_str = user_id.to_string();
+        let should_clear_thread = if let Ok(should_clear) = bot_deps
+            .summarizer
+            .check_and_clear_pending_thread(&user_id_str, group_id.clone())
         {
             if should_clear {
                 log::info!(
@@ -291,12 +293,14 @@ impl AI {
         let system_prompt = format!("Entity {}: {}", user, self.system_prompt);
 
         // Inject conversation summary if it exists
-        let final_system_prompt =
-            if let Some(summary) = bot_deps.summarizer.get_summary_for_instructions(user_id) {
-                format!("{}\n\nSummary so far:\n{}", system_prompt, summary)
-            } else {
-                system_prompt
-            };
+        let final_system_prompt = if let Some(summary) = bot_deps
+            .summarizer
+            .get_summary_for_instructions(&user_id_str, group_id.clone())
+        {
+            format!("{}\n\nSummary so far:\n{}", system_prompt, summary)
+        } else {
+            system_prompt
+        };
 
         let mut request_builder = Request::builder()
             .model(model.clone())
@@ -311,16 +315,17 @@ impl AI {
         // Apply user preferences based on model family
         if let Some(username) = msg.from.as_ref().and_then(|u| u.username.clone()) {
             let prefs = bot_deps.user_model_prefs.get_preferences(&username);
-            
+
             match model {
                 Model::GPT5 | Model::GPT5Mini => {
                     // GPT-5: apply verbosity and reasoning from user preferences
                     let verbosity = prefs.verbosity.to_openai_verbosity();
                     request_builder = request_builder.verbosity(verbosity);
-                    
+
                     // Apply reasoning if enabled (always low effort)
                     if prefs.reasoning_enabled {
-                        request_builder = request_builder.reasoning_effort(ReasoningEffort::Minimal);
+                        request_builder =
+                            request_builder.reasoning_effort(ReasoningEffort::Minimal);
                     }
                 }
                 // O-series and others: reasoning passed via ReasoningParams below when provided
@@ -589,7 +594,9 @@ impl AI {
         }
 
         // Check if summarization is needed and enabled using per-user preferences
-        let effective_prefs = bot_deps.summarization_settings.get_effective_prefs(user_id);
+        let effective_prefs = bot_deps
+            .summarization_settings
+            .get_effective_prefs(&user_id_str, group_id.clone());
 
         if effective_prefs.enabled {
             let token_limit = effective_prefs.token_limit;
@@ -598,7 +605,7 @@ impl AI {
             match bot_deps
                 .summarizer
                 .check_and_summarize(
-                    user_id,
+                    &user_id_str,
                     total_tokens_used,
                     token_limit,
                     input,
@@ -610,10 +617,17 @@ impl AI {
                 .await
             {
                 Ok(Some(_summary)) => {
-                    log::info!(
-                        "Conversation summarized for user {}, thread will be cleared on next request",
-                        user_id
-                    );
+                    if group_id.is_some() {
+                        log::info!(
+                            "Conversation summarized for group {}, thread will be cleared on next request",
+                            group_id.clone().unwrap()
+                        );
+                    } else {
+                        log::info!(
+                            "Conversation summarized for user {}, thread will be cleared on next request",
+                            user_id
+                        );
+                    }
                     // Don't clear response_id immediately - let the response stay visible
                     // The thread will be cleared on the next request
                 }
@@ -806,9 +820,10 @@ impl AI {
         let system_prompt = format!("Entity {}: {}", user_label, self.system_prompt);
 
         // Inject conversation summary if it exists (for scheduled prompts, use creator's summary)
+        let creator_user_id_str = creator_user_id.to_string();
         let final_system_prompt = if let Some(summary) = bot_deps
             .summarizer
-            .get_summary_for_instructions(creator_user_id)
+            .get_summary_for_instructions(&creator_user_id_str, Some(group_id.clone()))
         {
             format!("{}\n\nSummary so far:\n{}", system_prompt, summary)
         } else {
@@ -832,7 +847,7 @@ impl AI {
                 let prefs = bot_deps.user_model_prefs.get_preferences(&creator_username);
                 let verbosity = prefs.verbosity.to_openai_verbosity();
                 request_builder = request_builder.verbosity(verbosity);
-                
+
                 // Apply reasoning if enabled (always low effort)
                 if prefs.reasoning_enabled {
                     request_builder = request_builder.reasoning_effort(ReasoningEffort::Minimal);

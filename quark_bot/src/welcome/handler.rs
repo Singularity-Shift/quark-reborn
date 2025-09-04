@@ -445,6 +445,10 @@ async fn show_main_group_settings(bot: Bot, msg: &Message) -> Result<()> {
             "open_command_settings",
         )],
         vec![InlineKeyboardButton::callback(
+            "📋 Summarization Settings",
+            "open_group_summarization_settings",
+        )],
+        vec![InlineKeyboardButton::callback(
             "🔄 Migrate Group ID",
             "open_migrate_group_id",
         )],
@@ -457,7 +461,7 @@ async fn show_main_group_settings(bot: Bot, msg: &Message) -> Result<()> {
     bot.edit_message_text(
         msg.chat.id,
         msg.id,
-        "⚙️ <b>Group Settings</b>\n\n• Configure payment token, DAO preferences, moderation, sponsor settings, welcome protection, command settings, filters, and group migration.\n\n💡 Only group administrators can access these settings.",
+        "⚙️ <b>Group Settings</b>\n\n• Configure payment token, DAO preferences, moderation, sponsor settings, welcome protection, command settings, filters, summarization settings, and group migration.\n\n💡 Only group administrators can access these settings.",
     )
     .parse_mode(ParseMode::Html)
     .reply_markup(keyboard)

@@ -250,6 +250,10 @@ pub async fn answers(
                             "open_command_settings",
                         )],
                         vec![InlineKeyboardButton::callback(
+                            "📋 Summarization Settings",
+                            "open_group_summarization_settings",
+                        )],
+                        vec![InlineKeyboardButton::callback(
                             "🔄 Migrate Group ID",
                             "open_migrate_group_id",
                         )],

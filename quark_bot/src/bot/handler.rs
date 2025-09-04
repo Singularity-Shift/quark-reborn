@@ -988,12 +988,20 @@ pub async fn handle_chat(
 
 pub async fn handle_new_chat(bot: Bot, msg: Message, bot_deps: BotDependencies) -> AnyResult<()> {
     let user_id = msg.from.as_ref().map(|u| u.id.0).unwrap_or(0) as i64;
+    let user_id_str = user_id.to_string();
+
+    // Determine if this is a group chat
+    let group_id = if msg.chat.is_group() || msg.chat.is_supergroup() {
+        Some(msg.chat.id.to_string())
+    } else {
+        None
+    };
 
     // Clear conversation thread
     let convos_result = bot_deps.user_convos.clear_response_id(user_id);
 
     // Clear stored conversation summary
-    let summary_result = bot_deps.summarizer.clear_summary(user_id);
+    let summary_result = bot_deps.summarizer.clear_summary(&user_id_str, group_id);
 
     match (convos_result, summary_result) {
         (Ok(_), Ok(_)) => {

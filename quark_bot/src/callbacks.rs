@@ -338,8 +338,18 @@ pub async fn handle_callback_query(
 
                         // Get effective summarization preferences
                         let user_id = id.0 as i64;
-                        let sum_prefs =
-                            bot_deps.summarization_settings.get_effective_prefs(user_id);
+                        let user_id_str = user_id.to_string();
+
+                        // Determine if this is a group chat
+                        let group_id = if m.chat.is_group() || m.chat.is_supergroup() {
+                            Some(m.chat.id.to_string())
+                        } else {
+                            None
+                        };
+
+                        let sum_prefs = bot_deps
+                            .summarization_settings
+                            .get_effective_prefs(&user_id_str, group_id);
                         let sum_status = if sum_prefs.enabled { "On" } else { "Off" };
 
                         let text = format!(
@@ -745,6 +755,10 @@ pub async fn handle_callback_query(
                             "open_command_settings",
                         )],
                         vec![InlineKeyboardButton::callback(
+                            "📋 Summarization Settings",
+                            "open_group_summarization_settings",
+                        )],
+                        vec![InlineKeyboardButton::callback(
                             "🔄 Migrate Group ID",
                             "open_migrate_group_id",
                         )],
@@ -914,9 +928,11 @@ pub async fn handle_callback_query(
             // Handle welcome settings callbacks
             handle_welcome_settings_callback(bot, query, bot_deps).await?;
         } else if data == "open_summarization_settings"
+            || data == "open_group_summarization_settings"
             || data.starts_with("toggle_summarizer:")
             || data.starts_with("set_summarizer_threshold:")
             || data == "summarization_back_to_usersettings"
+            || data == "summarization_back_to_groupsettings"
         {
             // Handle summarization settings callbacks
             crate::summarization_settings::handler::handle_summarization_settings_callback(

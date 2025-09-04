@@ -480,6 +480,10 @@ async fn show_group_settings_menu(
             "open_command_settings",
         )],
         vec![InlineKeyboardButton::callback(
+            "📋 Summarization Settings",
+            "open_group_summarization_settings",
+        )],
+        vec![InlineKeyboardButton::callback(
             "🔄 Migrate Group ID",
             "open_migrate_group_id",
         )],
@@ -489,7 +493,7 @@ async fn show_group_settings_menu(
         )],
     ]);
 
-    let text = "⚙️ <b>Group Settings</b>\n\n• Configure payment token, DAO preferences, moderation, sponsor settings, command settings, filters, and group migration.\n\n💡 Only group administrators can access these settings.";
+    let text = "⚙️ <b>Group Settings</b>\n\n• Configure payment token, DAO preferences, moderation, sponsor settings, command settings, filters, summarization settings, and group migration.\n\n💡 Only group administrators can access these settings.";
 
     if let Some(teloxide::types::MaybeInaccessibleMessage::Regular(message)) = &query.message {
         bot.edit_message_text(message.chat.id, message.id, text)
