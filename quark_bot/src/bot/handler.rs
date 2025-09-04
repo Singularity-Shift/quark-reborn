@@ -25,7 +25,7 @@ use aptos_rust_sdk_types::api_types::view::ViewRequest;
 use serde_json::value;
 
 use crate::{
-    ai::{moderation::ModerationOverrides, vector_store::list_user_files_with_names},
+    ai::moderation::ModerationOverrides,
     user_model_preferences::handler::initialize_user_preferences,
 };
 
@@ -535,99 +535,7 @@ pub async fn handle_prices(bot: Bot, msg: Message) -> AnyResult<()> {
     Ok(())
 }
 
-pub async fn handle_add_files(bot: Bot, msg: Message) -> AnyResult<()> {
-    if !msg.chat.is_private() {
-        send_message(
-            msg,
-            bot,
-            "❌ Please DM the bot to upload files.".to_string(),
-        )
-        .await?;
-        return Ok(());
-    }
-    send_message(msg, bot, "📎 Please attach the files you wish to upload in your next message.\n\n✅ Supported: Documents, Photos, Videos, Audio files\n💡 You can send multiple files in one message!".to_string()).await?;
-    Ok(())
-}
-
-pub async fn handle_list_files(bot: Bot, msg: Message, bot_deps: BotDependencies) -> AnyResult<()> {
-    if !msg.chat.is_private() {
-        send_message(
-            msg,
-            bot,
-            "❌ Please DM the bot to list your files.".to_string(),
-        )
-        .await?;
-        return Ok(());
-    }
-    let user_id = msg.from.as_ref().map(|u| u.id.0).unwrap_or(0) as i64;
-    if let Some(_vector_store_id) = bot_deps.user_convos.get_vector_store_id(user_id) {
-        match list_user_files_with_names(user_id, bot_deps.clone()) {
-            Ok(files) => {
-                if files.is_empty() {
-                    send_html_message(msg, bot, "📁 <b>Your Document Library</b>\n\n<i>No files uploaded yet</i>\n\n💡 Use /add_files to start building your personal AI knowledge base!".to_string())
-                    .await?;
-                } else {
-                    let file_list = files
-                        .iter()
-                        .map(|file| {
-                            let icon = utils::get_file_icon(&file.name);
-                            let clean_name = utils::clean_filename(&file.name);
-                            format!("{}  <b>{}</b>", icon, clean_name)
-                        })
-                        .collect::<Vec<_>>()
-                        .join("\n");
-                    let response = format!(
-                        "🗂️ <b>Your Document Library</b> ({} files)\n\n{}\n\n💡 <i>Tap any button below to manage your files</i>",
-                        files.len(),
-                        file_list
-                    );
-                    use teloxide::types::{InlineKeyboardButton, InlineKeyboardMarkup};
-                    let mut keyboard_rows = Vec::new();
-                    for file in &files {
-                        let clean_name = utils::clean_filename(&file.name);
-                        let button_text = if clean_name.len() > 25 {
-                            format!("🗑️ {}", &clean_name[..22].trim_end())
-                        } else {
-                            format!("🗑️ {}", clean_name)
-                        };
-                        let delete_button = InlineKeyboardButton::callback(
-                            button_text,
-                            format!("delete_file:{}", file.id),
-                        );
-                        keyboard_rows.push(vec![delete_button]);
-                    }
-                    if files.len() > 1 {
-                        let clear_all_button =
-                            InlineKeyboardButton::callback("🗑️ Clear All Files", "clear_all_files");
-                        keyboard_rows.push(vec![clear_all_button]);
-                    }
-                    let keyboard = InlineKeyboardMarkup::new(keyboard_rows);
-                    send_markdown_message(
-                        bot,
-                        msg,
-                        KeyboardMarkupType::InlineKeyboardType(keyboard),
-                        &response,
-                    )
-                    .await?;
-                }
-            }
-            Err(e) => {
-                send_html_message(
-                    msg,
-                    bot,
-                    format!(
-                        "❌ <b>Error accessing your files</b>\n\n<i>Technical details:</i> {}",
-                        e
-                    ),
-                )
-                .await?;
-            }
-        }
-    } else {
-        send_html_message(msg, bot, "🆕 <b>Welcome to Your Document Library!</b>\n\n<i>No documents uploaded yet</i>\n\n💡 Use /add_files to upload your first files and start building your AI-powered knowledge base!".to_string()).await?;
-    }
-    Ok(())
-}
+// removed: handle_add_files and handle_list_files (flow moved under /usersettings → Document Library)
 
 pub async fn handle_chat(
     bot: Bot,

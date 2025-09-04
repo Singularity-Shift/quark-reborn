@@ -420,7 +420,7 @@ impl AI {
                     }
                     // Return a user-friendly error with suggestion to upload files
                     return Err(anyhow::anyhow!(
-                        "Your document library is no longer available (vector store deleted). Please upload files again using /add_files to create a new document library."
+                        "Your document library is no longer available (vector store deleted). Please upload files again via /usersettings → Document Library → Upload Files to create a new document library."
                     ));
                 }
 

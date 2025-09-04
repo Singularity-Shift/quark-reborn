@@ -175,7 +175,7 @@ pub async fn delete_file_from_vector_store(
                 user_convos.set_vector_store_id(user_id, "")?;
                 user_convos.clear_files(user_id)?;
                 return Err(anyhow::anyhow!(
-                    "Your document library is no longer available. Please upload files again using /add_files to create a new document library."
+                    "Your document library is no longer available. Please upload files again via /usersettings → Document Library → Upload Files to create a new document library."
                 ));
             }
             // Re-throw other errors

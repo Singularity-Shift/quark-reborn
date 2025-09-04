@@ -55,7 +55,7 @@ pub async fn handle_callback_query(
                                     if let Some(MaybeInaccessibleMessage::Regular(message)) =
                                         &query.message
                                     {
-                                        bot.edit_message_text(message.chat.id, message.id, "✅ <b>File deleted successfully!</b>\n\n📁 <i>Your document library is now empty</i>\n\n💡 Use /add_files to upload new documents")
+                                        bot.edit_message_text(message.chat.id, message.id, "✅ <b>File deleted successfully!</b>\n\n📁 <i>Your document library is now empty</i>\n\n💡 Use <b>Upload Files</b> to add new documents")
                                             .parse_mode(ParseMode::Html)
                                             .reply_markup(InlineKeyboardMarkup::new(vec![] as Vec<Vec<InlineKeyboardButton>>))
                                             .await?;
@@ -115,7 +115,7 @@ pub async fn handle_callback_query(
                             Err(e) => {
                                 log::error!("Failed to list files after deletion: {}", e);
                                 bot.answer_callback_query(query.id)
-                                    .text("❌ Error refreshing file list. Please try /list_files again.")
+                                    .text("❌ Error refreshing file list. Please reopen the Document Library.")
                                     .await?;
                             }
                         }
@@ -127,7 +127,7 @@ pub async fn handle_callback_query(
                         // Check if it's a vector store not found error
                         if error_msg.contains("document library is no longer available") {
                             bot.answer_callback_query(query.id)
-                                .text("📁 Your document library was removed. Use /add_files to create a new one!")
+                                .text("📁 Your document library was removed. Use <Upload Files> to create a new one!")
                                 .await?;
                         } else {
                             bot.answer_callback_query(query.id)
@@ -138,7 +138,7 @@ pub async fn handle_callback_query(
                 }
             } else {
                 bot.answer_callback_query(query.id)
-                    .text("❌ No document library found. Please try /list_files again.")
+                    .text("❌ No document library found. Please reopen the Document Library.")
                     .await?;
             }
         } else if data == "clear_all_files" {
@@ -146,7 +146,7 @@ pub async fn handle_callback_query(
                 Ok(_) => {
                     bot.answer_callback_query(query.id).await?;
                     if let Some(MaybeInaccessibleMessage::Regular(message)) = &query.message {
-                        bot.edit_message_text(message.chat.id, message.id, "✅ <b>All files cleared successfully!</b>\n\n🗑️ <i>Your entire document library has been deleted</i>\n\n💡 Use /add_files to start building your library again")
+                        bot.edit_message_text(message.chat.id, message.id, "✅ <b>All files cleared successfully!</b>\n\n🗑️ <i>Your entire document library has been deleted</i>\n\n💡 Open <b>User Settings → Document Library</b> and tap <b>Upload Files</b> to start building your library again")
                             .parse_mode(teloxide::types::ParseMode::Html)
                             .reply_markup(InlineKeyboardMarkup::new(vec![] as Vec<Vec<InlineKeyboardButton>>))
                             .await?;

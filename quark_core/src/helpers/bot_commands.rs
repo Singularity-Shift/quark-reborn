@@ -14,10 +14,6 @@ pub enum Command {
     LoginGroup,
     #[command(description = "Display this text.")]
     Help,
-    #[command(description = "Upload files to your vector store (DM only).")]
-    AddFiles,
-    #[command(description = "List files in your vector store (DM only).")]
-    ListFiles,
     #[command(description = "Start a new conversation thread.")]
     NewChat,
     #[command(description = "Send a prompt to the bot.")]
