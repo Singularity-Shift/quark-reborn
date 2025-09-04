@@ -1,6 +1,6 @@
 //! Callback query handlers for quark_bot.
 
-use crate::ai::moderation::dto::{ModerationSettings, ModerationState};
+use crate::ai::moderation::{ModerationSettings, ModerationState};
 use crate::ai::vector_store::{
     delete_file_from_vector_store, delete_vector_store, list_user_files_with_names,
 };
@@ -946,7 +946,12 @@ pub async fn handle_callback_query(
                     let settings = bot_deps
                         .moderation
                         .get_moderation_settings(m.chat.id.to_string())
-                        .unwrap_or(ModerationSettings::from((vec![], vec![], 0, 0)));
+                        .unwrap_or(ModerationSettings {
+                            allowed_items: vec![],
+                            disallowed_items: vec![],
+                            updated_by_user_id: 0,
+                            updated_at_unix_ms: 0,
+                        });
 
                     let text = format!(
                         concat!(
@@ -981,6 +986,14 @@ pub async fn handle_callback_query(
                         vec![InlineKeyboardButton::callback(
                             "🧹 Reset Custom Rules",
                             "mod_reset",
+                        )],
+                        vec![InlineKeyboardButton::callback(
+                            "✅ Show Allowed Rules",
+                            "mod_show_allowed",
+                        )],
+                        vec![InlineKeyboardButton::callback(
+                            "⛔ Show Disallowed Rules",
+                            "mod_show_disallowed",
                         )],
                         vec![InlineKeyboardButton::callback(
                             "📜 Show Default Rules",
@@ -1026,7 +1039,12 @@ pub async fn handle_callback_query(
                     let settings = bot_deps
                         .moderation
                         .get_moderation_settings(m.chat.id.to_string())
-                        .unwrap_or(ModerationSettings::from((vec![], vec![], 0, 0)));
+                        .unwrap_or(ModerationSettings {
+                            allowed_items: vec![],
+                            disallowed_items: vec![],
+                            updated_by_user_id: 0,
+                            updated_at_unix_ms: 0,
+                        });
 
                     let text = format!(
                         concat!(
@@ -1062,6 +1080,14 @@ pub async fn handle_callback_query(
                             "mod_reset",
                         )],
                         vec![InlineKeyboardButton::callback(
+                            "✅ Show Allowed Rules",
+                            "mod_show_allowed",
+                        )],
+                        vec![InlineKeyboardButton::callback(
+                            "⛔ Show Disallowed Rules",
+                            "mod_show_disallowed",
+                        )],
+                        vec![InlineKeyboardButton::callback(
                             "📜 Show Default Rules",
                             "mod_show_defaults",
                         )],
@@ -1088,8 +1114,12 @@ pub async fn handle_callback_query(
                         return Ok(());
                     }
 
-                    let mut state =
-                        ModerationState::from(("AwaitingAllowed".to_string(), None, None));
+                    let mut state = ModerationState {
+                        step: "AwaitingAllowed".to_string(),
+                        allowed_items: None,
+                        message_id: None,
+                        started_by_user_id: Some(query.from.id.0 as i64),
+                    };
                     // Prompt Step 1/2 in chat
                     let sent = bot.send_message(
                         m.chat.id,
@@ -1123,7 +1153,12 @@ pub async fn handle_callback_query(
                         .remove_moderation_state(m.chat.id.to_string())?;
                     bot_deps.moderation.set_or_update_moderation_settings(
                         m.chat.id.to_string(),
-                        ModerationSettings::from((vec![], vec![], 0, 0)),
+                        ModerationSettings {
+                            allowed_items: vec![],
+                            disallowed_items: vec![],
+                            updated_by_user_id: 0,
+                            updated_at_unix_ms: 0,
+                        },
                     )?;
                     bot.answer_callback_query(query.id)
                         .text("🧹 Custom rules reset")
@@ -1159,6 +1194,14 @@ pub async fn handle_callback_query(
                         vec![InlineKeyboardButton::callback(
                             "🧹 Reset Custom Rules",
                             "mod_reset",
+                        )],
+                        vec![InlineKeyboardButton::callback(
+                            "✅ Show Allowed Rules",
+                            "mod_show_allowed",
+                        )],
+                        vec![InlineKeyboardButton::callback(
+                            "⛔ Show Disallowed Rules",
+                            "mod_show_disallowed",
                         )],
                         vec![InlineKeyboardButton::callback(
                             "📜 Show Default Rules",
@@ -1216,6 +1259,44 @@ If you have questions, ask an admin before posting.
                         .await?;
                     bot.answer_callback_query(query.id)
                         .text("📜 Default rules sent")
+                        .await?;
+                }
+            }
+        } else if data == "mod_show_allowed" || data == "mod_show_disallowed" {
+            // Show current Allowed or Disallowed custom rules
+            if let Some(message) = &query.message {
+                if let teloxide::types::MaybeInaccessibleMessage::Regular(m) = message {
+                    let settings = bot_deps
+                        .moderation
+                        .get_moderation_settings(m.chat.id.to_string())
+                        .unwrap_or(ModerationSettings {
+                            allowed_items: vec![],
+                            disallowed_items: vec![],
+                            updated_by_user_id: 0,
+                            updated_at_unix_ms: 0,
+                        });
+
+                    let (title, items) = if data == "mod_show_allowed" {
+                        ("✅ <b>Allowed Rules</b>", settings.allowed_items)
+                    } else {
+                        ("⛔ <b>Disallowed Rules</b>", settings.disallowed_items)
+                    };
+
+                    let body = if items.is_empty() {
+                        "<i>No custom rules set.</i>".to_string()
+                    } else {
+                        items
+                            .iter()
+                            .map(|x| format!("• {}", x))
+                            .collect::<Vec<_>>()
+                            .join("\n")
+                    };
+
+                    bot.send_message(m.chat.id, format!("{title}\n\n{body}", title = title, body = body))
+                        .parse_mode(teloxide::types::ParseMode::Html)
+                        .await?;
+                    bot.answer_callback_query(query.id)
+                        .text("✅ Sent")
                         .await?;
                 }
             }

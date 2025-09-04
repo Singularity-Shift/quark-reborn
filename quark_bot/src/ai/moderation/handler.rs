@@ -5,7 +5,7 @@ use teloxide::{
     types::{Message, ParseMode},
 };
 
-use crate::{ai::moderation::dto::ModerationSettings, dependencies::BotDependencies};
+use crate::{ai::moderation::ModerationSettings, dependencies::BotDependencies, utils};
 
 pub async fn handle_message_moderation(
     bot: &Bot,
@@ -15,8 +15,28 @@ pub async fn handle_message_moderation(
 ) -> Result<bool> {
     if let Some(user) = &msg.from {
         // Only process moderation wizard if user is actually in wizard state
-        if let Ok(mut moderation_state) = bot_deps.moderation.get_moderation_state(chat_id.clone())
-        {
+        if let Ok(mut moderation_state) = bot_deps.moderation.get_moderation_state(chat_id.clone()) {
+            // Only the admin who started the wizard may respond
+            let responder_id = user.id.0 as i64;
+            match moderation_state.started_by_user_id {
+                Some(owner) => {
+                    if owner != responder_id {
+                        return Ok(false); // not the wizard owner; ignore
+                    }
+                }
+                None => {
+                    // Backward-compat: if unspecified, allow only admins and claim the wizard to first admin responder
+                    let is_admin = utils::is_admin(bot, msg.chat.id, user.id).await;
+                    if !is_admin {
+                        return Ok(false);
+                    }
+                    moderation_state.started_by_user_id = Some(responder_id);
+                    bot_deps
+                        .moderation
+                        .set_moderation_state(chat_id.clone(), moderation_state.clone())
+                        .unwrap();
+                }
+            }
             let text = msg
                 .text()
                 .or_else(|| msg.caption())
@@ -70,26 +90,31 @@ pub async fn handle_message_moderation(
                     };
                     let allowed = moderation_state.allowed_items.unwrap_or_default();
                     // Save to moderation_settings tree
-                    let settings = ModerationSettings::from((
-                        allowed.clone(),
-                        disallowed.clone(),
-                        user.id.0 as i64,
-                        chrono::Utc::now().timestamp_millis(),
-                    ));
-                    bot_deps
+                    let settings = ModerationSettings {
+                        allowed_items: allowed.clone(),
+                        disallowed_items: disallowed.clone(),
+                        updated_by_user_id: user.id.0 as i64,
+                        updated_at_unix_ms: chrono::Utc::now().timestamp_millis(),
+                    };
+                    if let Err(e) = bot_deps
                         .moderation
                         .set_or_update_moderation_settings(chat_id.clone(), settings)
-                        .unwrap();
+                    {
+                        log::error!("Failed to save moderation settings: {}", e);
+                        return Ok(false);
+                    }
                     // Clear wizard and remove last prompt if present
                     if let Some(mid) = moderation_state.message_id {
                         let _ = bot
                             .delete_message(msg.chat.id, teloxide::types::MessageId(mid as i32))
                             .await;
                     }
-                    bot_deps
+                    if let Err(e) = bot_deps
                         .moderation
                         .remove_moderation_state(chat_id.clone())
-                        .unwrap();
+                    {
+                        log::warn!("Failed to clear moderation state: {}", e);
+                    }
                     let allowed_list = if allowed.is_empty() {
                         "<i>(none)</i>".to_string()
                     } else {

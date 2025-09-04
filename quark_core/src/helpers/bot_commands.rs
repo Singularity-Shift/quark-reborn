@@ -33,8 +33,8 @@ pub enum Command {
         description = "Moderate content (reply to message) and send a report to the admin if content is found to be inappropriate, muting the user in this case."
     )]
     Report,
-    #[command(description = "Display the moderation rules to avoid getting muted.")]
-    ModerationRules,
+    #[command(description = "Show core and custom rules for this group.")]
+    Rules,
     #[command(description = "Get your wallet address.")]
     WalletAddress,
     #[command(description = "Get your balance of a token.")]

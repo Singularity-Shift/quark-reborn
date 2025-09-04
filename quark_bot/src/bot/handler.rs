@@ -30,7 +30,6 @@ use open_ai_rust_responses_by_sshift::Model;
 use quark_core::helpers::{bot_commands::Command, dto::CreateGroupRequest};
 use regex;
 use reqwest::Url;
-use serde::{Deserialize, Serialize};
 use std::env;
 use std::time::Duration;
 use teloxide::types::{
@@ -1349,26 +1348,15 @@ pub async fn handle_mod(bot: Bot, msg: Message, bot_deps: BotDependencies) -> An
 
         // Moderate the message
         // Load overrides
-        let formatted_group_id = format!("{}-{}", msg.chat.id.0, bot_deps.group.account_seed);
-        let settings_tree = bot_deps.db.open_tree("moderation_settings").unwrap();
-        let overrides = if let Ok(Some(raw)) = settings_tree.get(formatted_group_id.as_bytes()) {
-            #[derive(Serialize, Deserialize)]
-            struct ModerationSettings {
-                allowed_items: Vec<String>,
-                disallowed_items: Vec<String>,
-                updated_by_user_id: i64,
-                updated_at_unix_ms: i64,
-            }
-            if let Ok(ms) = serde_json::from_slice::<ModerationSettings>(&raw) {
-                Some(ModerationOverrides {
-                    allowed_items: ms.allowed_items,
-                    disallowed_items: ms.disallowed_items,
-                })
-            } else {
-                None
-            }
-        } else {
-            None
+        let overrides = match bot_deps
+            .moderation
+            .get_moderation_settings(msg.chat.id.to_string())
+        {
+            Ok(ms) => Some(ModerationOverrides {
+                allowed_items: ms.allowed_items,
+                disallowed_items: ms.disallowed_items,
+            }),
+            Err(_) => None,
         };
         match moderation_service
             .moderate_message(message_text, &bot, &msg, &reply_to_msg, overrides)
@@ -1766,9 +1754,21 @@ pub async fn handle_group_wallet_address(
     Ok(())
 }
 
-pub async fn handle_moderation_rules(bot: Bot, msg: Message) -> AnyResult<()> {
-    let rules = r#"
-<b>🛡️ Moderation Rules</b>
+// removed unused handle_moderation_rules (rules are provided elsewhere)
+
+pub async fn handle_rules(
+    bot: Bot,
+    msg: Message,
+    bot_deps: BotDependencies,
+) -> AnyResult<()> {
+    if !msg.chat.is_group() && !msg.chat.is_supergroup() {
+        bot.send_message(msg.chat.id, "❌ This command can only be used in a group")
+            .await?;
+        return Ok(());
+    }
+
+    let core = r#"
+<b>🛡️ Core Moderation Rules</b>
 
 To avoid being muted or banned, please follow these rules:
 
@@ -1785,17 +1785,50 @@ To avoid being muted or banned, please follow these rules:
 - Do not attempt to bypass public group discussion
 
 <b>Examples (not exhaustive):</b>
-- "I can offer you whitelist access"
-- "DM me for details"
-- "React and I'll message you"
-- "I'm a [title] and can help you"
-- "Send me your wallet address"
-- "Contact me privately"
-- "I'll send you the link"
-
-If you have questions, ask an admin before posting.
+- \"I can offer you whitelist access\"
+- \"DM me for details\"
+- \"React and I'll message you\"
+- \"I'm a [title] and can help you\"
+- \"Send me your wallet address\"
+- \"Contact me privately\"
+- \"I'll send you the link\"
 "#;
-    bot.send_message(msg.chat.id, rules)
+
+    let settings = bot_deps
+        .moderation
+        .get_moderation_settings(msg.chat.id.to_string())
+        .unwrap_or(crate::ai::moderation::ModerationSettings {
+            allowed_items: vec![],
+            disallowed_items: vec![],
+            updated_by_user_id: 0,
+            updated_at_unix_ms: 0,
+        });
+
+    let mut custom_section = String::new();
+    if settings.allowed_items.is_empty() && settings.disallowed_items.is_empty() {
+        custom_section.push_str("<b>📋 Custom Rules</b>\n<i>No custom rules set.</i>");
+    } else {
+        custom_section.push_str("<b>📋 Custom Rules</b>\n");
+        if !settings.allowed_items.is_empty() {
+            custom_section.push_str("\n<b>Allowed</b>:\n");
+            for item in settings.allowed_items.iter() {
+                custom_section.push_str(&format!("• {}\n", item));
+            }
+        }
+        if !settings.disallowed_items.is_empty() {
+            custom_section.push_str("\n<b>Disallowed</b>:\n");
+            for item in settings.disallowed_items.iter() {
+                custom_section.push_str(&format!("• {}\n", item));
+            }
+        }
+    }
+
+    let text = format!(
+        "{}\n\n{}\n\n<i>Ask an admin if unclear.</i>",
+        core, custom_section
+    );
+
+    bot.send_message(msg.chat.id, text)
         .parse_mode(ParseMode::Html)
         .await?;
     Ok(())

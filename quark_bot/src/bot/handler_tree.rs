@@ -177,7 +177,7 @@ pub fn handler_tree() -> Handler<'static, Result<()>, DpHandlerDescription> {
                             matches!(
                                 cmd,
                                 Command::G(_) | Command::Groupsettings
-                                    | Command::Report | Command::GroupBalance(_) | Command::GroupWalletAddress | Command::ModerationRules | Command::SchedulePrompt | Command::ListScheduled | Command::SchedulePayment | Command::ListScheduledPayments
+                                    | Command::Report | Command::GroupBalance(_) | Command::GroupWalletAddress | Command::Rules | Command::SchedulePrompt | Command::ListScheduled | Command::SchedulePayment | Command::ListScheduledPayments
                             )
                         })
                         .filter_async(|msg: Message, bot_deps: BotDependencies| async move {

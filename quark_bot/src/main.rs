@@ -226,8 +226,8 @@ async fn main() {
             "Moderate content (reply to message) and send a report to the admin if content is found to be inappropriate, muting the user in this case.",
         ),
         BotCommand::new(
-            "moderationrules",
-            "Display the moderation rules to avoid getting muted.",
+            "rules",
+            "Show core and custom rules for this group.",
         ),
         BotCommand::new("balance", "Get your balance of a token."),
         BotCommand::new("groupwalletaddress", "Get the group's wallet address."),
