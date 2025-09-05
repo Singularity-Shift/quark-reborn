@@ -166,6 +166,10 @@ async fn show_group_settings_menu(
         )],
         vec![InlineKeyboardButton::callback("🔍 Filters", "filters_main")],
         vec![InlineKeyboardButton::callback(
+            "📁 Group Document Library",
+            "open_group_document_library",
+        )],
+        vec![InlineKeyboardButton::callback(
             "⚙️ Command Settings",
             "open_command_settings",
         )],

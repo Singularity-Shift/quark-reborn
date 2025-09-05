@@ -1,6 +1,7 @@
 pub mod actions;
 pub mod dto;
 pub mod gcs;
+pub mod group_vector_store;
 pub mod handler;
 pub mod moderation;
 pub mod prompt;

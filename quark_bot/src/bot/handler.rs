@@ -25,7 +25,7 @@ use aptos_rust_sdk_types::api_types::view::ViewRequest;
 use serde_json::value;
 
 use crate::{
-    ai::{moderation::ModerationOverrides, vector_store::list_user_files_with_names},
+    ai::moderation::ModerationOverrides,
     user_model_preferences::handler::initialize_user_preferences,
 };
 
@@ -523,100 +523,6 @@ pub async fn handle_help(bot: Bot, msg: Message) -> AnyResult<()> {
 pub async fn handle_prices(bot: Bot, msg: Message) -> AnyResult<()> {
     let pricing_info = crate::ai::actions::execute_prices(&serde_json::json!({})).await;
     send_html_message(msg, bot, pricing_info).await?;
-    Ok(())
-}
-
-pub async fn handle_add_files(bot: Bot, msg: Message) -> AnyResult<()> {
-    if !msg.chat.is_private() {
-        send_message(
-            msg,
-            bot,
-            "❌ Please DM the bot to upload files.".to_string(),
-        )
-        .await?;
-        return Ok(());
-    }
-    send_message(msg, bot, "📎 Please attach the files you wish to upload in your next message.\n\n✅ Supported: Documents, Photos, Videos, Audio files\n💡 You can send multiple files in one message!".to_string()).await?;
-    Ok(())
-}
-
-pub async fn handle_list_files(bot: Bot, msg: Message, bot_deps: BotDependencies) -> AnyResult<()> {
-    if !msg.chat.is_private() {
-        send_message(
-            msg,
-            bot,
-            "❌ Please DM the bot to list your files.".to_string(),
-        )
-        .await?;
-        return Ok(());
-    }
-    let user_id = msg.from.as_ref().map(|u| u.id.0).unwrap_or(0) as i64;
-    if let Some(_vector_store_id) = bot_deps.user_convos.get_vector_store_id(user_id) {
-        match list_user_files_with_names(user_id, bot_deps.clone()) {
-            Ok(files) => {
-                if files.is_empty() {
-                    send_html_message(msg, bot, "📁 <b>Your Document Library</b>\n\n<i>No files uploaded yet</i>\n\n💡 Use /add_files to start building your personal AI knowledge base!".to_string())
-                    .await?;
-                } else {
-                    let file_list = files
-                        .iter()
-                        .map(|file| {
-                            let icon = utils::get_file_icon(&file.name);
-                            let clean_name = utils::clean_filename(&file.name);
-                            format!("{}  <b>{}</b>", icon, clean_name)
-                        })
-                        .collect::<Vec<_>>()
-                        .join("\n");
-                    let response = format!(
-                        "🗂️ <b>Your Document Library</b> ({} files)\n\n{}\n\n💡 <i>Tap any button below to manage your files</i>",
-                        files.len(),
-                        file_list
-                    );
-                    use teloxide::types::{InlineKeyboardButton, InlineKeyboardMarkup};
-                    let mut keyboard_rows = Vec::new();
-                    for file in &files {
-                        let clean_name = utils::clean_filename(&file.name);
-                        let button_text = if clean_name.len() > 25 {
-                            format!("🗑️ {}", &clean_name[..22].trim_end())
-                        } else {
-                            format!("🗑️ {}", clean_name)
-                        };
-                        let delete_button = InlineKeyboardButton::callback(
-                            button_text,
-                            format!("delete_file:{}", file.id),
-                        );
-                        keyboard_rows.push(vec![delete_button]);
-                    }
-                    if files.len() > 1 {
-                        let clear_all_button =
-                            InlineKeyboardButton::callback("🗑️ Clear All Files", "clear_all_files");
-                        keyboard_rows.push(vec![clear_all_button]);
-                    }
-                    let keyboard = InlineKeyboardMarkup::new(keyboard_rows);
-                    send_markdown_message_with_keyboard(
-                        bot,
-                        msg,
-                        KeyboardMarkupType::InlineKeyboardType(keyboard),
-                        &response,
-                    )
-                    .await?;
-                }
-            }
-            Err(e) => {
-                send_html_message(
-                    msg,
-                    bot,
-                    format!(
-                        "❌ <b>Error accessing your files</b>\n\n<i>Technical details:</i> {}",
-                        e
-                    ),
-                )
-                .await?;
-            }
-        }
-    } else {
-        send_html_message(msg, bot, "🆕 <b>Welcome to Your Document Library!</b>\n\n<i>No documents uploaded yet</i>\n\n💡 Use /add_files to upload your first files and start building your AI-powered knowledge base!".to_string()).await?;
-    }
     Ok(())
 }
 
@@ -1264,13 +1170,22 @@ pub async fn handle_message(bot: Bot, msg: Message, bot_deps: BotDependencies) -
         return Ok(());
     }
 
-    if msg.caption().is_none()
-        && msg.chat.is_private()
-        && (msg.document().is_some()
-            || msg.photo().is_some()
-            || msg.video().is_some()
-            || msg.audio().is_some())
+    // Handle group file uploads when group is awaiting files (documents only)
+    if !msg.chat.is_private()
+        && msg.caption().is_none()
+        && msg.document().is_some()
+        && bot_deps
+            .group_file_upload_state
+            .is_awaiting(msg.chat.id.to_string())
+            .await
     {
+        use crate::assets::handler::handle_group_file_upload;
+        handle_group_file_upload(bot, msg, bot_deps.clone()).await?;
+        return Ok(());
+    }
+
+    // Handle private user file uploads (documents only)
+    if msg.caption().is_none() && msg.chat.is_private() && msg.document().is_some() {
         handle_file_upload(bot, msg, bot_deps.clone()).await?;
     }
     Ok(())

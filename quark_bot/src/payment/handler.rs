@@ -295,8 +295,16 @@ async fn handle_payment_selection(
                         "open_payment_settings",
                     )],
                     vec![InlineKeyboardButton::callback(
+                        "📁 Document Library",
+                        "open_document_library",
+                    )],
+                    vec![InlineKeyboardButton::callback(
                         "📋 View My Settings",
                         "open_my_settings",
+                    )],
+                    vec![InlineKeyboardButton::callback(
+                        "🧾 Summarization Settings",
+                        "open_summarization_settings",
                     )],
                     vec![InlineKeyboardButton::callback(
                         "↩️ Close",
@@ -353,6 +361,10 @@ async fn handle_payment_selection(
                         "welcome_settings",
                     )],
                     vec![InlineKeyboardButton::callback("🔍 Filters", "filters_main")],
+                    vec![InlineKeyboardButton::callback(
+                        "📁 Group Document Library",
+                        "open_group_document_library",
+                    )],
                     vec![InlineKeyboardButton::callback(
                         "⚙️ Command Settings",
                         "open_command_settings",

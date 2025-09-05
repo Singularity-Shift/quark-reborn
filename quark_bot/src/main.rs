@@ -149,6 +149,8 @@ async fn main() {
 
     let user_convos = UserConversations::new(&db).unwrap();
     let user_model_prefs = UserModelPreferences::new(&db).unwrap();
+    let group_docs = group::document_library::GroupDocuments::new(&db).unwrap();
+    let group_file_upload_state = assets::group_file_upload_state::GroupFileUploadState::new();
     let pending_transactions = PendingTransactions::new(&db).unwrap();
     let yield_ai = YieldAI::new();
     let welcome_service = welcome::welcome_service::WelcomeService::new(db.clone());
@@ -193,8 +195,6 @@ async fn main() {
         BotCommand::new("help", "Display this text."),
         BotCommand::new("loginuser", "Log in as a user (DM only)."),
         BotCommand::new("logingroup", "Group login (under development)."),
-        BotCommand::new("addfiles", "Upload files to your vector store (DM only)."),
-        BotCommand::new("listfiles", "List files in your vector store (DM only)."),
         BotCommand::new("newchat", "Start a new conversation thread."),
         BotCommand::new("c", "prompt to chat AI with the bot."),
         BotCommand::new(
@@ -264,6 +264,8 @@ async fn main() {
         cmd_collector,
         panora: panora_for_dispatcher,
         group,
+        group_docs,
+        group_file_upload_state,
         dao,
         filters,
         command_settings,

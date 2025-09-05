@@ -7,8 +7,8 @@ use teloxide::{
 };
 
 use super::handler::{
-    handle_add_files, handle_chat, handle_help, handle_list_files, handle_login_group,
-    handle_login_user, handle_mod, handle_new_chat, handle_prices, handle_rules,
+    handle_chat, handle_help, handle_login_group, handle_login_user, handle_mod, handle_new_chat,
+    handle_prices, handle_rules,
 };
 use crate::utils::{self, KeyboardMarkupType, send_markdown_message_with_keyboard};
 use crate::yield_ai::handler as yield_ai_handler;
@@ -46,8 +46,6 @@ pub async fn answers(
         Command::Prices => handle_prices(bot, msg).await?,
         Command::LoginUser => handle_login_user(bot, msg).await?,
         Command::LoginGroup => handle_login_group(bot, msg, bot_deps.clone()).await?,
-        Command::AddFiles => handle_add_files(bot, msg).await?,
-        Command::ListFiles => handle_list_files(bot, msg, bot_deps.clone()).await?,
         Command::NewChat => handle_new_chat(bot, msg, bot_deps.clone()).await?,
         Command::C(prompt) => {
             // Check if chat commands are enabled for this group (skip check for private chats)
@@ -183,6 +181,10 @@ pub async fn answers(
                         "open_payment_settings",
                     )],
                     vec![InlineKeyboardButton::callback(
+                        "📁 Document Library",
+                        "open_document_library",
+                    )],
+                    vec![InlineKeyboardButton::callback(
                         "📋 View My Settings",
                         "open_my_settings",
                     )],
@@ -266,6 +268,10 @@ pub async fn answers(
                             "welcome_settings",
                         )],
                         vec![InlineKeyboardButton::callback("🔍 Filters", "filters_main")],
+                        vec![InlineKeyboardButton::callback(
+                            "📁 Group Document Library",
+                            "open_group_document_library",
+                        )],
                         vec![InlineKeyboardButton::callback(
                             "⚙️ Command Settings",
                             "open_command_settings",

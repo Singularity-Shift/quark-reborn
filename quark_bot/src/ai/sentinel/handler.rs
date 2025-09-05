@@ -27,6 +27,15 @@ pub async fn handle_message_sentinel(bot: Bot, msg: Message, bot_deps: BotDepend
             let admins = bot.get_chat_administrators(msg.chat.id).await?;
             let is_admin = admins.iter().any(|member| member.user.id == user.id);
             if is_admin {
+                // Special case: if group is awaiting file uploads and this is a document-only message,
+                // let it pass through to the group file upload handler instead of stopping here
+                let is_awaiting_files = bot_deps.group_file_upload_state.is_awaiting(chat_id.clone()).await;
+                let is_document_only = msg.document().is_some() && msg.text().is_none() && msg.caption().is_none();
+                
+                if is_awaiting_files && is_document_only {
+                    return Ok(false); // Let other handlers process this message
+                }
+                
                 return Ok(true);
             }
         } 
@@ -249,5 +258,5 @@ pub async fn handle_message_sentinel(bot: Bot, msg: Message, bot_deps: BotDepend
         return Ok(true);
     }
 
-    Ok(true)
+    Ok(false)
 }
