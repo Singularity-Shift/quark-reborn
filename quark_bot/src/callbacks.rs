@@ -1,9 +1,9 @@
 //! Callback query handlers for quark_bot.
 
-use crate::ai::moderation::dto::{ModerationSettings, ModerationState};
 use crate::ai::group_vector_store::{
     delete_file_from_group_vector_store, delete_group_vector_store, list_group_files_with_names,
 };
+use crate::ai::moderation::dto::{ModerationSettings, ModerationState};
 use crate::ai::vector_store::{
     delete_file_from_vector_store, delete_vector_store, list_user_files_with_names,
 };
@@ -502,10 +502,7 @@ pub async fn handle_callback_query(
                             "↩️ Back",
                             "back_to_user_settings",
                         )]);
-                        (
-                            response,
-                            InlineKeyboardMarkup::new(keyboard_rows),
-                        )
+                        (response, InlineKeyboardMarkup::new(keyboard_rows))
                     };
 
                     if let Some(MaybeInaccessibleMessage::Regular(message)) = &query.message {
@@ -525,9 +522,10 @@ pub async fn handle_callback_query(
         } else if data == "upload_files_prompt" {
             if let Some(MaybeInaccessibleMessage::Regular(message)) = &query.message {
                 use teloxide::types::{InlineKeyboardButton, InlineKeyboardMarkup};
-                let kb = InlineKeyboardMarkup::new(vec![
-                    vec![InlineKeyboardButton::callback("↩️ Back", "open_document_library")],
-                ]);
+                let kb = InlineKeyboardMarkup::new(vec![vec![InlineKeyboardButton::callback(
+                    "↩️ Back",
+                    "open_document_library",
+                )]]);
                 bot.edit_message_text(
                     message.chat.id,
                     message.id,
@@ -657,10 +655,7 @@ pub async fn handle_callback_query(
                                     "↩️ Back",
                                     "back_to_group_settings",
                                 )]);
-                                (
-                                    response,
-                                    InlineKeyboardMarkup::new(keyboard_rows),
-                                )
+                                (response, InlineKeyboardMarkup::new(keyboard_rows))
                             };
 
                             bot.edit_message_text(m.chat.id, m.id, text)
@@ -679,7 +674,7 @@ pub async fn handle_callback_query(
             }
         } else if data.starts_with("group_delete_file:") {
             let file_id = data.strip_prefix("group_delete_file:").unwrap();
-            
+
             if let Some(message) = &query.message {
                 if let MaybeInaccessibleMessage::Regular(m) = message {
                     let is_admin = utils::is_admin(&bot, m.chat.id, query.from.id).await;
@@ -691,12 +686,11 @@ pub async fn handle_callback_query(
                     }
 
                     let group_id = m.chat.id.to_string();
-                    
-                    // Get group vector store ID
-                    use crate::group::document_library::GroupDocuments;
-                    let group_docs = GroupDocuments::new(&bot_deps.db)?;
-                    
-                    if let Some(vector_store_id) = group_docs.get_group_vector_store_id(group_id.clone()) {
+
+                    if let Some(vector_store_id) = bot_deps
+                        .group_docs
+                        .get_group_vector_store_id(group_id.clone())
+                    {
                         match delete_file_from_group_vector_store(
                             group_id.clone(),
                             bot_deps.clone(),
@@ -708,7 +702,10 @@ pub async fn handle_callback_query(
                             Ok(_) => {
                                 bot.answer_callback_query(query.id.clone()).await?;
 
-                                match list_group_files_with_names(group_id.clone(), bot_deps.clone()) {
+                                match list_group_files_with_names(
+                                    group_id.clone(),
+                                    bot_deps.clone(),
+                                ) {
                                     Ok(files) => {
                                         if files.is_empty() {
                                             bot.edit_message_text(m.chat.id, m.id, "✅ <b>File deleted successfully!</b>\n\n📁 <i>Your group document library is now empty</i>\n\n💡 Use <b>Upload Files</b> to add new documents")
@@ -729,7 +726,8 @@ pub async fn handle_callback_query(
                                                 .iter()
                                                 .map(|file| {
                                                     let icon = utils::get_file_icon(&file.name);
-                                                    let clean_name = utils::clean_filename(&file.name);
+                                                    let clean_name =
+                                                        utils::clean_filename(&file.name);
                                                     format!("{}  <b>{}</b>", icon, clean_name)
                                                 })
                                                 .collect::<Vec<_>>()
@@ -754,20 +752,25 @@ pub async fn handle_callback_query(
                                                 keyboard_rows.push(vec![delete_button]);
                                             }
                                             if files.len() > 1 {
-                                                let clear_all_button = InlineKeyboardButton::callback(
-                                                    "🗑️ Clear All Files",
-                                                    "group_clear_all_files",
-                                                );
+                                                let clear_all_button =
+                                                    InlineKeyboardButton::callback(
+                                                        "🗑️ Clear All Files",
+                                                        "group_clear_all_files",
+                                                    );
                                                 keyboard_rows.push(vec![clear_all_button]);
                                             }
-                                            keyboard_rows.push(vec![InlineKeyboardButton::callback(
-                                                "📎 Upload Files",
-                                                "group_upload_files_prompt",
-                                            )]);
-                                            keyboard_rows.push(vec![InlineKeyboardButton::callback(
-                                                "↩️ Back",
-                                                "back_to_group_settings",
-                                            )]);
+                                            keyboard_rows.push(vec![
+                                                InlineKeyboardButton::callback(
+                                                    "📎 Upload Files",
+                                                    "group_upload_files_prompt",
+                                                ),
+                                            ]);
+                                            keyboard_rows.push(vec![
+                                                InlineKeyboardButton::callback(
+                                                    "↩️ Back",
+                                                    "back_to_group_settings",
+                                                ),
+                                            ]);
                                             let keyboard = InlineKeyboardMarkup::new(keyboard_rows);
 
                                             bot.edit_message_text(m.chat.id, m.id, response)
@@ -788,7 +791,9 @@ pub async fn handle_callback_query(
                                 log::error!("Group file deletion failed: {}", e);
                                 let error_msg = e.to_string();
 
-                                if error_msg.contains("group document library is no longer available") {
+                                if error_msg
+                                    .contains("group document library is no longer available")
+                                {
                                     bot.answer_callback_query(query.id)
                                         .text("📁 Your group document library was removed. Use <Upload Files> to create a new one!")
                                         .await?;
@@ -818,7 +823,7 @@ pub async fn handle_callback_query(
                     }
 
                     let group_id = m.chat.id.to_string();
-                    
+
                     match delete_group_vector_store(group_id.clone(), bot_deps.clone()).await {
                         Ok(_) => {
                             bot.answer_callback_query(query.id).await?;
@@ -857,13 +862,17 @@ pub async fn handle_callback_query(
                     }
 
                     use teloxide::types::{InlineKeyboardButton, InlineKeyboardMarkup};
-                    let kb = InlineKeyboardMarkup::new(vec![
-                        vec![InlineKeyboardButton::callback("↩️ Back", "open_group_document_library")],
-                    ]);
+                    let kb = InlineKeyboardMarkup::new(vec![vec![InlineKeyboardButton::callback(
+                        "↩️ Back",
+                        "open_group_document_library",
+                    )]]);
                     // Set the group as awaiting files
                     let group_id = m.chat.id.to_string();
-                    bot_deps.group_file_upload_state.set_awaiting(group_id).await;
-                    
+                    bot_deps
+                        .group_file_upload_state
+                        .set_awaiting(group_id)
+                        .await;
+
                     bot.edit_message_text(
                         m.chat.id,
                         m.id,

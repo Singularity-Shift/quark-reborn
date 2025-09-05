@@ -6,7 +6,9 @@ use crate::{
         schedule_guard::schedule_guard_service::ScheduleGuardService,
         sentinel::sentinel::SentinelService, summarizer::handler::SummarizerService,
     },
-    assets::{group_file_upload_state::GroupFileUploadState, media_aggregator::MediaGroupAggregator},
+    assets::{
+        group_file_upload_state::GroupFileUploadState, media_aggregator::MediaGroupAggregator,
+    },
     command_settings::CommandSettingsManager,
     credentials::handler::Auth,
     dao::dao::Dao,

@@ -261,10 +261,10 @@ impl AI {
         // Strict separation: group vs user vector stores
         let vector_store_id = if group_id.is_some() {
             // For /g commands: ONLY use group vector store, NO fallback to user
-            use crate::group::document_library::GroupDocuments;
-            let group_docs = GroupDocuments::new(&bot_deps.db)?;
             let group_id_str = group_id.as_ref().unwrap();
-            group_docs.get_group_vector_store_id(group_id_str.clone())
+            bot_deps
+                .group_docs
+                .get_group_vector_store_id(group_id_str.clone())
         } else {
             // For /c commands: ONLY use user vector store
             user_convos.get_vector_store_id(user_id)
@@ -427,10 +427,14 @@ impl AI {
                             "Group vector store not found, clearing orphaned reference for group {}",
                             group_id_str
                         );
-                        use crate::group::document_library::GroupDocuments;
-                        let group_docs = GroupDocuments::new(&bot_deps.db)?;
-                        if let Err(clear_err) = group_docs.cleanup_orphaned_group_vector_store(group_id_str.clone()) {
-                            log::error!("Failed to clean up orphaned group vector store: {}", clear_err);
+                        if let Err(clear_err) = bot_deps
+                            .group_docs
+                            .cleanup_orphaned_group_vector_store(group_id_str.clone())
+                        {
+                            log::error!(
+                                "Failed to clean up orphaned group vector store: {}",
+                                clear_err
+                            );
                         }
                         return Err(anyhow::anyhow!(
                             "Your group document library is no longer available (vector store deleted). Please upload files again via Group Settings → Document Library → Upload Files to create a new document library."

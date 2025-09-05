@@ -3,7 +3,7 @@ use crate::{
     ai::{
         moderation::handler::handle_message_moderation, sentinel::handler::handle_message_sentinel,
     },
-    assets::handler::handle_file_upload,
+    assets::handler::{handle_file_upload, handle_group_file_upload},
     bot::hooks::{fund_account_hook, pay_users_hook, withdraw_funds_hook},
     credentials::dto::CredentialsPayload,
     dao::handler::handle_message_dao,
@@ -1179,7 +1179,6 @@ pub async fn handle_message(bot: Bot, msg: Message, bot_deps: BotDependencies) -
             .is_awaiting(msg.chat.id.to_string())
             .await
     {
-        use crate::assets::handler::handle_group_file_upload;
         handle_group_file_upload(bot, msg, bot_deps.clone()).await?;
         return Ok(());
     }

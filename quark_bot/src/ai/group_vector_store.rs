@@ -1,5 +1,4 @@
 use crate::dependencies::BotDependencies;
-use crate::group::document_library::GroupDocuments;
 use crate::user_conversation::dto::FileInfo;
 use open_ai_rust_responses_by_sshift::files::FilePurpose;
 use open_ai_rust_responses_by_sshift::vector_stores::{
@@ -11,14 +10,16 @@ pub async fn upload_files_to_group_vector_store(
     bot_deps: BotDependencies,
     file_paths: Vec<String>,
 ) -> Result<String, anyhow::Error> {
-    let group_docs = GroupDocuments::new(&bot_deps.db)?;
     let mut file_ids = Vec::new();
 
     // Check if group has invalid vector store ID and clear stale data upfront
-    if let Some(existing_vs_id) = group_docs.get_group_vector_store_id(group_id.clone()) {
+    if let Some(existing_vs_id) = bot_deps
+        .group_docs
+        .get_group_vector_store_id(group_id.clone())
+    {
         if existing_vs_id.is_empty() || !existing_vs_id.starts_with("vs_") {
             // Clear stale file tracking before adding new files
-            group_docs.clear_group_files(group_id.clone())?;
+            bot_deps.group_docs.clear_group_files(group_id.clone())?;
         }
     }
 
@@ -37,11 +38,16 @@ pub async fn upload_files_to_group_vector_store(
             .and_then(|n| n.to_str())
             .unwrap_or("unknown_file")
             .to_string();
-        group_docs.add_group_file(group_id.clone(), &file.id, &filename)?;
+        bot_deps
+            .group_docs
+            .add_group_file(group_id.clone(), &file.id, &filename)?;
     }
 
     // Check if group already has a vector store
-    let vector_store_id = if let Some(existing_vs_id) = group_docs.get_group_vector_store_id(group_id.clone()) {
+    let vector_store_id = if let Some(existing_vs_id) = bot_deps
+        .group_docs
+        .get_group_vector_store_id(group_id.clone())
+    {
         // Check if the vector store ID is valid (not empty and starts with 'vs_')
         if existing_vs_id.is_empty() || !existing_vs_id.starts_with("vs_") {
             // Invalid vector store ID, create a new one
@@ -52,7 +58,9 @@ pub async fn upload_files_to_group_vector_store(
 
             let new_vector_store = client.vector_stores.create(vs_request).await?;
             let new_vs_id = new_vector_store.id;
-            group_docs.set_group_vector_store_id(group_id.clone(), &new_vs_id)?;
+            bot_deps
+                .group_docs
+                .set_group_vector_store_id(group_id.clone(), &new_vs_id)?;
 
             new_vs_id
         } else {
@@ -86,8 +94,10 @@ pub async fn upload_files_to_group_vector_store(
                             );
 
                             // Clear the orphaned vector store reference
-                            group_docs.set_group_vector_store_id(group_id.clone(), "")?;
-                            group_docs.clear_group_files(group_id.clone())?;
+                            bot_deps
+                                .group_docs
+                                .set_group_vector_store_id(group_id.clone(), "")?;
+                            bot_deps.group_docs.clear_group_files(group_id.clone())?;
 
                             // Create a new vector store with all files
                             let vs_request = CreateVectorStoreRequest {
@@ -97,7 +107,9 @@ pub async fn upload_files_to_group_vector_store(
 
                             let new_vector_store = client.vector_stores.create(vs_request).await?;
                             let new_vs_id = new_vector_store.id;
-                            group_docs.set_group_vector_store_id(group_id.clone(), &new_vs_id)?;
+                            bot_deps
+                                .group_docs
+                                .set_group_vector_store_id(group_id.clone(), &new_vs_id)?;
 
                             return Ok(new_vs_id);
                         } else {
@@ -118,7 +130,9 @@ pub async fn upload_files_to_group_vector_store(
 
         let new_vector_store = client.vector_stores.create(vs_request).await?;
         let new_vs_id = new_vector_store.id;
-        group_docs.set_group_vector_store_id(group_id.clone(), &new_vs_id)?;
+        bot_deps
+            .group_docs
+            .set_group_vector_store_id(group_id.clone(), &new_vs_id)?;
 
         new_vs_id
     };
@@ -139,8 +153,7 @@ pub fn list_group_files_with_names(
     group_id: String,
     bot_deps: BotDependencies,
 ) -> Result<Vec<FileInfo>, anyhow::Error> {
-    let group_docs = GroupDocuments::new(&bot_deps.db)?;
-    let files = group_docs.get_group_files(group_id);
+    let files = bot_deps.group_docs.get_group_files(group_id);
     Ok(files)
 }
 
@@ -154,7 +167,6 @@ pub async fn delete_file_from_group_vector_store(
     file_id: &str,
 ) -> Result<(), anyhow::Error> {
     let client = bot_deps.ai.get_client();
-    let group_docs = GroupDocuments::new(&bot_deps.db)?;
 
     // Remove file from vector store - now returns VectorStoreFileDeleteResponse
     match client
@@ -178,8 +190,10 @@ pub async fn delete_file_from_group_vector_store(
                     vector_store_id,
                     group_id
                 );
-                group_docs.set_group_vector_store_id(group_id.clone(), "")?;
-                group_docs.clear_group_files(group_id.clone())?;
+                bot_deps
+                    .group_docs
+                    .set_group_vector_store_id(group_id.clone(), "")?;
+                bot_deps.group_docs.clear_group_files(group_id.clone())?;
                 return Err(anyhow::anyhow!(
                     "Your group document library is no longer available. Please upload files again via Group Settings → Document Library → Upload Files to create a new document library."
                 ));
@@ -190,7 +204,9 @@ pub async fn delete_file_from_group_vector_store(
     }
 
     // Remove file ID from local tracking
-    group_docs.remove_group_file_id(group_id, file_id)?;
+    bot_deps
+        .group_docs
+        .remove_group_file_id(group_id, file_id)?;
 
     Ok(())
 }
@@ -202,11 +218,13 @@ pub async fn delete_group_vector_store(
     group_id: String,
     bot_deps: BotDependencies,
 ) -> Result<(), anyhow::Error> {
-    let group_docs = GroupDocuments::new(&bot_deps.db)?;
     let client = bot_deps.ai.get_client();
 
     // Get the group's vector store ID
-    if let Some(vector_store_id) = group_docs.get_group_vector_store_id(group_id.clone()) {
+    if let Some(vector_store_id) = bot_deps
+        .group_docs
+        .get_group_vector_store_id(group_id.clone())
+    {
         // Only try to delete if vector store ID is not empty
         if !vector_store_id.is_empty() {
             match client.vector_stores.delete(&vector_store_id).await {
@@ -239,10 +257,12 @@ pub async fn delete_group_vector_store(
         }
 
         // Clear the vector store ID from group's record
-        group_docs.set_group_vector_store_id(group_id.clone(), "")?;
+        bot_deps
+            .group_docs
+            .set_group_vector_store_id(group_id.clone(), "")?;
 
         // Clear all file IDs from local tracking
-        group_docs.clear_group_files(group_id)?;
+        bot_deps.group_docs.clear_group_files(group_id)?;
     }
 
     Ok(())
