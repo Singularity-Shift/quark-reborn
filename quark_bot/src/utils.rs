@@ -103,33 +103,6 @@ pub fn clean_filename(filename: &str) -> String {
     }
 }
 
-/// Escape HTML entities but preserve valid Telegram HTML tags
-fn escape_html_preserve_tags(input: &str) -> String {
-    // First, fully escape all HTML
-    let escaped = teloxide::utils::html::escape(input);
-    
-    // Then restore valid Telegram HTML tags by converting escaped versions back
-    // Valid Telegram HTML tags: <b>, <i>, <u>, <s>, <code>, <pre>, <a href="...">
-    let escaped = escaped
-        .replace("&lt;b&gt;", "<b>")
-        .replace("&lt;/b&gt;", "</b>")
-        .replace("&lt;i&gt;", "<i>")
-        .replace("&lt;/i&gt;", "</i>")
-        .replace("&lt;u&gt;", "<u>")
-        .replace("&lt;/u&gt;", "</u>")
-        .replace("&lt;s&gt;", "<s>")
-        .replace("&lt;/s&gt;", "</s>")
-        .replace("&lt;code&gt;", "<code>")
-        .replace("&lt;/code&gt;", "</code>")
-        .replace("&lt;pre&gt;", "<pre>")
-        .replace("&lt;/pre&gt;", "</pre>");
-    
-    // Restore <a href="..."> tags (more complex regex needed)
-    let re_a_tag = Regex::new(r#"&lt;a href=&quot;([^&]+)&quot;&gt;([^&]+)&lt;/a&gt;"#).unwrap();
-    let escaped = re_a_tag.replace_all(&escaped, r#"<a href="$1">$2</a>"#);
-    
-    escaped.to_string()
-}
 
 // Enhanced markdown to Telegram-HTML converter supporting triple backtick fences and Markdown links
 pub fn markdown_to_html(input: &str) -> String {
@@ -163,8 +136,8 @@ pub fn markdown_to_html(input: &str) -> String {
             html.push_str(&teloxide::utils::html::escape(line));
             html.push('\n');
         } else {
-            // Escape HTML entities but preserve intentional HTML tags like <a href>, <b>, <i>, etc.
-            html.push_str(&escape_html_preserve_tags(line));
+            // Outside code blocks, preserve the line as-is (may contain HTML)
+            html.push_str(line);
             html.push('\n');
         }
     }
