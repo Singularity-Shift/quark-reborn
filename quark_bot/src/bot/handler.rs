@@ -1179,7 +1179,7 @@ pub async fn handle_message(bot: Bot, msg: Message, bot_deps: BotDependencies) -
         && msg.document().is_some()
         && bot_deps.group_file_upload_state.is_awaiting(msg.chat.id.to_string()).await
     {
-        use crate::assets::group_file_handler::handle_group_file_upload;
+        use crate::assets::handler::handle_group_file_upload;
         handle_group_file_upload(bot, msg, bot_deps.clone()).await?;
         return Ok(());
     }

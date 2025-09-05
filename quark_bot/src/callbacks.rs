@@ -58,9 +58,19 @@ pub async fn handle_callback_query(
                                     if let Some(MaybeInaccessibleMessage::Regular(message)) =
                                         &query.message
                                     {
-                                        bot.edit_message_text(message.chat.id, message.id, "✅ <b>File deleted successfully!</b>\n\n📁 <i>Your document library is now empty</i>\n\n💡 Use <b>Upload Files</b> to add new documents")
+                                        let kb = InlineKeyboardMarkup::new(vec![
+                                            vec![InlineKeyboardButton::callback(
+                                                "📎 Upload Files",
+                                                "upload_files_prompt",
+                                            )],
+                                            vec![InlineKeyboardButton::callback(
+                                                "↩️ Back",
+                                                "back_to_user_settings",
+                                            )],
+                                        ]);
+                                        bot.edit_message_text(message.chat.id, message.id, "✅ <b>File deleted successfully!</b>\n\n📁 <i>Your document library is now empty</i>\n\n💡 Use the button below to add new documents")
                                             .parse_mode(ParseMode::Html)
-                                            .reply_markup(InlineKeyboardMarkup::new(vec![] as Vec<Vec<InlineKeyboardButton>>))
+                                            .reply_markup(kb)
                                             .await?;
                                     }
                                 } else {
@@ -149,9 +159,19 @@ pub async fn handle_callback_query(
                 Ok(_) => {
                     bot.answer_callback_query(query.id).await?;
                     if let Some(MaybeInaccessibleMessage::Regular(message)) = &query.message {
-                        bot.edit_message_text(message.chat.id, message.id, "✅ <b>All files cleared successfully!</b>\n\n🗑️ <i>Your entire document library has been deleted</i>\n\n💡 Open <b>User Settings → Document Library</b> and tap <b>Upload Files</b> to start building your library again")
+                        let kb = InlineKeyboardMarkup::new(vec![
+                            vec![InlineKeyboardButton::callback(
+                                "📎 Upload Files",
+                                "upload_files_prompt",
+                            )],
+                            vec![InlineKeyboardButton::callback(
+                                "↩️ Back",
+                                "back_to_user_settings",
+                            )],
+                        ]);
+                        bot.edit_message_text(message.chat.id, message.id, "✅ <b>All files cleared successfully!</b>\n\n📁 <i>Your document library is now empty</i>\n\n💡 Use the button below to add new documents")
                             .parse_mode(teloxide::types::ParseMode::Html)
-                            .reply_markup(InlineKeyboardMarkup::new(vec![] as Vec<Vec<InlineKeyboardButton>>))
+                            .reply_markup(kb)
                             .await?;
                     }
                 }
@@ -572,6 +592,7 @@ pub async fn handle_callback_query(
 
                     let group_id = m.chat.id.to_string();
 
+                    // Use reusable function but edit existing message instead of sending new one
                     match list_group_files_with_names(group_id.clone(), bot_deps.clone()) {
                         Ok(files) => {
                             use teloxide::types::{InlineKeyboardButton, InlineKeyboardMarkup};

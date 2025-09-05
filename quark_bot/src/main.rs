@@ -150,7 +150,7 @@ async fn main() {
     let user_convos = UserConversations::new(&db).unwrap();
     let user_model_prefs = UserModelPreferences::new(&db).unwrap();
     let group_docs = group::document_library::GroupDocuments::new(&db).unwrap();
-    let group_file_upload_state = assets::group_file_handler::GroupFileUploadState::new();
+    let group_file_upload_state = assets::group_file_upload_state::GroupFileUploadState::new();
     let pending_transactions = PendingTransactions::new(&db).unwrap();
     let yield_ai = YieldAI::new();
     let welcome_service = welcome::welcome_service::WelcomeService::new(db.clone());
