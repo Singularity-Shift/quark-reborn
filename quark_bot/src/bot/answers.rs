@@ -10,7 +10,7 @@ use super::handler::{
     handle_add_files, handle_chat, handle_help, handle_list_files, handle_login_group,
     handle_login_user, handle_mod, handle_new_chat, handle_prices, handle_rules,
 };
-use crate::utils::{self, KeyboardMarkupType, send_markdown_message};
+use crate::utils::{self, KeyboardMarkupType, send_markdown_message_with_keyboard};
 use crate::yield_ai::handler as yield_ai_handler;
 use crate::{announcement::handle_announcement, utils::send_message};
 
@@ -195,7 +195,7 @@ pub async fn answers(
                         "user_settings_close",
                     )],
                 ]);
-                send_markdown_message(
+                send_markdown_message_with_keyboard(
                     bot,
                     msg,
                     KeyboardMarkupType::InlineKeyboardType(kb),
@@ -283,7 +283,7 @@ pub async fn answers(
                             "group_settings_close",
                         )],
                     ]);
-                    send_markdown_message(
+                    send_markdown_message_with_keyboard(
                         bot,
                         msg,
                         KeyboardMarkupType::InlineKeyboardType(kb),

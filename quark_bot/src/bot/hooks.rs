@@ -1,5 +1,6 @@
 use crate::utils::{
-    KeyboardMarkupType, send_markdown_message, send_markdown_message_with_reply, send_message,
+    KeyboardMarkupType, send_markdown_message_with_keyboard,
+    send_markdown_message_with_keyboard_with_reply, send_message,
 };
 use anyhow::Result;
 use quark_core::helpers::utils::extract_url_from_markdown;
@@ -32,7 +33,7 @@ pub async fn withdraw_funds_hook(bot: Bot, msg: Message, text: String) -> Result
 
     let withdraw_funds_markup = InlineKeyboardMarkup::new(vec![vec![withdraw_funds_button]]);
 
-    send_markdown_message(
+    send_markdown_message_with_keyboard(
         bot,
         msg,
         KeyboardMarkupType::InlineKeyboardType(withdraw_funds_markup),
@@ -66,7 +67,7 @@ pub async fn fund_account_hook(bot: Bot, msg: Message, text: String) -> Result<(
 
     let fund_account_markup = InlineKeyboardMarkup::new(vec![vec![fund_account_button]]);
 
-    send_markdown_message(
+    send_markdown_message_with_keyboard(
         bot,
         msg,
         KeyboardMarkupType::InlineKeyboardType(fund_account_markup),
@@ -106,7 +107,7 @@ pub async fn pay_users_hook(
     let markup = InlineKeyboardMarkup::new(vec![vec![accept_btn, reject_btn]]);
 
     // Send the message with buttons and capture the sent message
-    let sent_message = send_markdown_message_with_reply(
+    let sent_message = send_markdown_message_with_keyboard_with_reply(
         bot.clone(),
         msg.clone(),
         KeyboardMarkupType::InlineKeyboardType(markup),

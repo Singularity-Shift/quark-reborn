@@ -16,7 +16,7 @@ use crate::{
     user_model_preferences::dto::ModelPreferences,
     utils::{
         self, KeyboardMarkupType, create_purchase_request, send_html_message,
-        send_markdown_message, send_message,
+        send_markdown_message_with_keyboard, send_message,
     },
     welcome::handler::handle_welcome_message,
 };
@@ -305,7 +305,7 @@ async fn send_pre_block(bot: &Bot, chat_id: ChatId, title: &str, content: &str) 
 }
 
 /// Send a potentially long message, splitting it into multiple messages if necessary
-async fn send_long_message(bot: &Bot, chat_id: ChatId, text: &str) -> AnyResult<()> {
+async fn send_long_message(msg: Message, bot: &Bot, text: &str) -> AnyResult<()> {
     // Convert markdown (including ``` code fences) to Telegram-compatible HTML
     let html_text = utils::markdown_to_html(text);
     // Normalize image anchor to point to the public GCS URL when present
@@ -318,11 +318,7 @@ async fn send_long_message(bot: &Bot, chat_id: ChatId, text: &str) -> AnyResult<
             sleep(Duration::from_millis(100)).await;
         }
 
-        match bot
-            .send_message(chat_id, chunk)
-            .parse_mode(ParseMode::Html)
-            .await
-        {
+        match send_html_message(msg.clone(), bot.clone(), chunk.to_string()).await {
             Ok(_) => {}
             Err(e) => {
                 let err_text = e.to_string();
@@ -330,12 +326,7 @@ async fn send_long_message(bot: &Bot, chat_id: ChatId, text: &str) -> AnyResult<
                 if err_text.contains("can't parse entities")
                     || err_text.contains("Unsupported start tag")
                 {
-                    let _ = bot
-                        .send_message(
-                            chat_id,
-                            "Sorry — I made an error in my output. Please try again or start a /newchat.",
-                        )
-                        .await;
+                    send_message(msg.clone(), bot.clone(), "Sorry — I made an error in my output. Please try again or start a /newchat.".to_string()).await?;
                     return Ok(());
                 }
                 return Err(e.into());
@@ -363,7 +354,7 @@ pub async fn handle_aptos_connect(bot: Bot, msg: Message) -> AnyResult<()> {
 
     let aptos_connect_button = InlineKeyboardButton::web_app("Open Aptos Connect", web_app_info);
 
-    send_markdown_message(
+    send_markdown_message_with_keyboard(
         bot,
         msg,
         KeyboardMarkupType::InlineKeyboardType(InlineKeyboardMarkup::new(vec![vec![
@@ -417,7 +408,7 @@ pub async fn handle_login_user(bot: Bot, msg: Message) -> AnyResult<()> {
 
     let login_markup = KeyboardMarkup::new(vec![vec![login_button]]);
 
-    send_markdown_message(
+    send_markdown_message_with_keyboard(
         bot,
         msg,
         KeyboardMarkupType::KeyboardType(login_markup),
@@ -602,7 +593,7 @@ pub async fn handle_list_files(bot: Bot, msg: Message, bot_deps: BotDependencies
                         keyboard_rows.push(vec![clear_all_button]);
                     }
                     let keyboard = InlineKeyboardMarkup::new(keyboard_rows);
-                    send_markdown_message(
+                    send_markdown_message_with_keyboard(
                         bot,
                         msg,
                         KeyboardMarkupType::InlineKeyboardType(keyboard),
@@ -645,11 +636,19 @@ pub async fn handle_chat(
     let profile = env::var("PROFILE").unwrap_or("prod".to_string());
     let typing_indicator_handle = tokio::spawn(async move {
         loop {
-            if let Err(e) = bot_clone
-                .send_chat_action(msg.chat.id, ChatAction::Typing)
-                .await
-            {
-                log::warn!("Failed to send typing action: {}", e);
+            let typing = bot_clone.send_chat_action(msg.chat.id, ChatAction::Typing);
+
+            let type_result = if let Some(thread_id) = msg.thread_id {
+                typing.message_thread_id(thread_id).await
+            } else {
+                typing.await
+            };
+
+            if type_result.is_err() {
+                log::warn!(
+                    "Failed to send typing action: {}",
+                    type_result.err().unwrap()
+                );
                 break;
             }
             sleep(Duration::from_secs(5)).await;
@@ -930,7 +929,7 @@ pub async fn handle_chat(
                 }
                 // If the text_without_pre is longer than 1024, send the remainder
                 if text_without_pre.len() > 1024 {
-                    send_long_message(&bot, msg.chat.id, &text_without_pre[1024..]).await?;
+                    send_long_message(msg, &bot, &text_without_pre[1024..]).await?;
                 }
             } else if let Some(ref tool_calls) = ai_response.tool_calls {
                 if tool_calls
@@ -952,7 +951,7 @@ pub async fn handle_chat(
                         user.id.0 as i64
                     } else {
                         log::warn!("Unable to get user ID for pay_users_hook");
-                        send_long_message(&bot, msg.chat.id, &ai_response.text).await?;
+                        send_long_message(msg.clone(), &bot, &ai_response.text).await?;
                         return Ok(());
                     };
 
@@ -979,13 +978,13 @@ pub async fn handle_chat(
                             user_id,
                             group_id_i64
                         );
-                        send_long_message(&bot, msg.chat.id, &ai_response.text).await?;
+                        send_long_message(msg.clone(), &bot, &ai_response.text).await?;
                     }
                 } else {
-                    send_long_message(&bot, msg.chat.id, &ai_response.text).await?;
+                    send_long_message(msg.clone(), &bot, &ai_response.text).await?;
                 }
             } else {
-                send_long_message(&bot, msg.chat.id, &ai_response.text).await?;
+                send_long_message(msg, &bot, &ai_response.text).await?;
             }
 
             // Log tool calls if any
@@ -1114,6 +1113,10 @@ pub async fn handle_message(bot: Bot, msg: Message, bot_deps: BotDependencies) -
         let chat_id = msg.chat.id;
         let user = msg.from.clone();
 
+        let sentinel_executed =
+            handle_message_sentinel(bot.clone(), msg.clone(), bot_deps.clone(), group_id.clone())
+                .await?;
+
         if user.is_none() {
             return Ok(());
         }
@@ -1240,10 +1243,6 @@ pub async fn handle_message(bot: Bot, msg: Message, bot_deps: BotDependencies) -
         if filter_matches_processed {
             return Ok(());
         }
-
-        let sentinel_executed =
-            handle_message_sentinel(bot.clone(), msg.clone(), bot_deps.clone(), group_id.clone())
-                .await?;
 
         if sentinel_executed {
             return Ok(());
@@ -1475,7 +1474,7 @@ pub async fn handle_mod(bot: Bot, msg: Message, bot_deps: BotDependencies) -> An
                         };
 
                         // Send the flagged message response
-                        send_markdown_message(
+                        send_markdown_message_with_keyboard(
                             bot.clone(),
                             msg.clone(),
                             KeyboardMarkupType::InlineKeyboardType(keyboard),
@@ -1527,10 +1526,10 @@ pub async fn handle_balance(
     symbol: &str,
     bot_deps: BotDependencies,
 ) -> AnyResult<()> {
-    let user = msg.from;
+    let user = msg.from.clone();
 
     if user.is_none() {
-        bot.send_message(msg.chat.id, "❌ User not found").await?;
+        send_message(msg, bot, "❌ User not found".to_string()).await?;
         return Ok(());
     }
 
@@ -1540,8 +1539,7 @@ pub async fn handle_balance(
 
     if username.is_none() {
         log::error!("❌ Username not found");
-        bot.send_message(msg.chat.id, "❌ Username not found")
-            .await?;
+        send_message(msg, bot, "❌ Username not found".to_string()).await?;
         return Ok(());
     }
 
@@ -1551,7 +1549,7 @@ pub async fn handle_balance(
 
     if user_credentials.is_none() {
         log::error!("❌ User not found");
-        bot.send_message(msg.chat.id, "❌ User not found").await?;
+        send_message(msg, bot, "❌ User not found".to_string()).await?;
         return Ok(());
     }
 
@@ -1567,8 +1565,7 @@ pub async fn handle_balance(
 
             if token.is_err() {
                 log::error!("❌ Error getting token: {}", token.as_ref().err().unwrap());
-                bot.send_message(msg.chat.id, "❌ Error getting token")
-                    .await?;
+                send_message(msg, bot, "❌ Error getting token".to_string()).await?;
                 return Ok(());
             }
 
@@ -1600,8 +1597,7 @@ pub async fn handle_balance(
             "❌ Error getting balance: {}",
             balance.as_ref().err().unwrap()
         );
-        bot.send_message(msg.chat.id, "❌ Error getting balance")
-            .await?;
+        send_message(msg, bot, "❌ Error getting balance".to_string()).await?;
         return Ok(());
     }
 
@@ -1611,8 +1607,7 @@ pub async fn handle_balance(
 
     if balance_i64.is_none() {
         log::error!("❌ Balance not found");
-        bot.send_message(msg.chat.id, "❌ Balance not found")
-            .await?;
+        send_message(msg, bot, "❌ Balance not found".to_string()).await?;
         return Ok(());
     }
 
@@ -1626,11 +1621,11 @@ pub async fn handle_balance(
         raw_balance, human_balance
     );
 
-    bot.send_message(
-        msg.chat.id,
-        format!("💰 <b>Balance</b>: {:.6} {}", human_balance, token_symbol),
+    send_html_message(
+        msg,
+        bot,
+        format!("💰 <b>Balance</b>: {:.2} {}", human_balance, token_symbol).to_string(),
     )
-    .parse_mode(ParseMode::Html)
     .await?;
 
     Ok(())
@@ -1643,15 +1638,19 @@ pub async fn handle_group_balance(
     symbol: &str,
 ) -> AnyResult<()> {
     if !msg.chat.is_group() && !msg.chat.is_supergroup() {
-        bot.send_message(msg.chat.id, "❌ This command can only be used in a group")
-            .await?;
+        send_message(
+            msg,
+            bot,
+            "❌ This command can only be used in a group".to_string(),
+        )
+        .await?;
         return Ok(());
     }
 
     let group_credentials = bot_deps.group.get_credentials(msg.chat.id);
 
     if group_credentials.is_none() {
-        bot.send_message(msg.chat.id, "❌ Group not found").await?;
+        send_message(msg, bot, "❌ Group not found".to_string()).await?;
         return Ok(());
     }
 
@@ -1669,8 +1668,7 @@ pub async fn handle_group_balance(
 
             if tokens.is_err() {
                 log::error!("❌ Error getting token: {}", tokens.as_ref().err().unwrap());
-                bot.send_message(msg.chat.id, "❌ Error getting token")
-                    .await?;
+                send_message(msg, bot, "❌ Error getting token".to_string()).await?;
                 return Ok(());
             }
 
@@ -1700,8 +1698,7 @@ pub async fn handle_group_balance(
             "❌ Error getting balance: {}",
             balance.as_ref().err().unwrap()
         );
-        bot.send_message(msg.chat.id, "❌ Error getting balance")
-            .await?;
+        send_message(msg, bot, "❌ Error getting balance".to_string()).await?;
         return Ok(());
     }
 
@@ -1711,8 +1708,7 @@ pub async fn handle_group_balance(
 
     if balance_i64.is_none() {
         log::error!("❌ Balance not found");
-        bot.send_message(msg.chat.id, "❌ Balance not found")
-            .await?;
+        send_message(msg, bot, "❌ Balance not found".to_string()).await?;
         return Ok(());
     }
 
@@ -1721,11 +1717,11 @@ pub async fn handle_group_balance(
     // Convert raw balance to human readable format using decimals
     let human_balance = raw_balance as f64 / 10_f64.powi(decimals as i32);
 
-    bot.send_message(
-        msg.chat.id,
-        format!("💰 <b>Balance</b>: {:.6} {}", human_balance, token_symbol),
+    send_html_message(
+        msg,
+        bot,
+        format!("💰 <b>Balance</b>: {:.2} {}", human_balance, token_symbol).to_string(),
     )
-    .parse_mode(ParseMode::Html)
     .await?;
 
     Ok(())
@@ -1737,8 +1733,12 @@ pub async fn handle_group_wallet_address(
     bot_deps: BotDependencies,
 ) -> AnyResult<()> {
     if !msg.chat.is_group() && !msg.chat.is_supergroup() {
-        bot.send_message(msg.chat.id, "❌ This command can only be used in a group")
-            .await?;
+        send_message(
+            msg,
+            bot,
+            "❌ This command can only be used in a group".to_string(),
+        )
+        .await?;
         return Ok(());
     }
 
@@ -1747,20 +1747,21 @@ pub async fn handle_group_wallet_address(
     log::info!("Group id: {:?}", msg.chat.id);
 
     if group_credentials.is_none() {
-        bot.send_message(msg.chat.id, "❌ Group not found").await?;
+        send_message(msg, bot, "❌ Group not found".to_string()).await?;
         return Ok(());
     }
 
     let group_credentials = group_credentials.unwrap();
 
-    bot.send_message(
-        msg.chat.id,
+    send_html_message(
+        msg,
+        bot,
         format!(
             "💰 <b>Group Wallet Address</b>\n\n<code>{}</code>",
             group_credentials.resource_account_address
-        ),
+        )
+        .to_string(),
     )
-    .parse_mode(ParseMode::Html)
     .await?;
 
     Ok(())
@@ -1768,14 +1769,14 @@ pub async fn handle_group_wallet_address(
 
 // Removed unused function handle_moderation_rules
 
-pub async fn handle_rules(
-    bot: Bot,
-    msg: Message,
-    bot_deps: BotDependencies,
-) -> AnyResult<()> {
+pub async fn handle_rules(bot: Bot, msg: Message, bot_deps: BotDependencies) -> AnyResult<()> {
     if !msg.chat.is_group() && !msg.chat.is_supergroup() {
-        bot.send_message(msg.chat.id, "❌ This command can only be used in a group")
-            .await?;
+        send_message(
+            msg,
+            bot,
+            "❌ This command can only be used in a group".to_string(),
+        )
+        .await?;
         return Ok(());
     }
 
@@ -1840,9 +1841,7 @@ To avoid being muted or banned, please follow these rules:
         core, custom_section
     );
 
-    bot.send_message(msg.chat.id, text)
-        .parse_mode(ParseMode::Html)
-        .await?;
+    send_html_message(msg, bot, text).await?;
     Ok(())
 }
 
@@ -1917,9 +1916,10 @@ async fn check_group_resource_account_address(
     }
 
     // All retries failed
-    bot.send_message(
-        msg.chat.id,
-        "❌ Error getting resource account address after multiple attempts",
+    send_message(
+        msg,
+        bot.clone(),
+        "❌ Error getting resource account address after multiple attempts".to_string(),
     )
     .await?;
     return Err(anyhow::anyhow!(

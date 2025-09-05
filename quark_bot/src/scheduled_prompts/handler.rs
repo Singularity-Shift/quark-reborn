@@ -3,7 +3,7 @@ use chrono::Utc;
 use open_ai_rust_responses_by_sshift::Model;
 use teloxide::{
     prelude::*,
-    types::{InlineKeyboardMarkup, Message, ParseMode, User},
+    types::{InlineKeyboardMarkup, Message, User},
 };
 use uuid::Uuid;
 
@@ -14,7 +14,10 @@ use crate::{
         helpers::{build_hours_keyboard, summarize},
         runner::{register_all_schedules, register_schedule},
     },
-    utils::{KeyboardMarkupType, create_purchase_request, send_markdown_message, send_message},
+    utils::{
+        KeyboardMarkupType, create_purchase_request, send_html_message,
+        send_markdown_message_with_keyboard, send_message,
+    },
 };
 
 pub async fn bootstrap_scheduled_prompts(bot: Bot, bot_deps: BotDependencies) -> Result<()> {
@@ -88,14 +91,14 @@ pub async fn handle_scheduleprompt_command(
 
     let note = "\n\nℹ️ Note about tools for scheduled prompts:\n\n• Unavailable: any tool that requires user confirmation or performs transactions (e.g., pay users, withdrawals, funding, creating proposals or other interactive flows).\n\nTip: Schedule informational queries, summaries, monitoring, or analytics. Avoid actions that need real-time human approval.";
 
-    bot.send_message(
-        msg.chat.id,
+    send_html_message(
+        msg,
+        bot,
         format!(
             "📝 Send the prompt you want to schedule — you can <b>reply to this message</b> or just <b>send it as your next message</b>.{}\n\nIf your prompt is rejected for using a forbidden action, <b>try again</b> with a safer prompt.",
             note
         ),
     )
-    .parse_mode(ParseMode::Html)
     .await?;
     Ok(())
 }
@@ -168,7 +171,7 @@ pub async fn handle_listscheduled_command(
                 "❌ Cancel".to_string(),
                 format!("sched_cancel:{}", rec.id),
             )]]);
-        send_markdown_message(
+        send_markdown_message_with_keyboard(
             bot.clone(),
             msg.clone(),
             KeyboardMarkupType::InlineKeyboardType(kb),
@@ -181,6 +184,7 @@ pub async fn handle_listscheduled_command(
 }
 
 pub async fn finalize_and_register(
+    msg: Message,
     bot: Bot,
     bot_deps: BotDependencies,
     state: PendingWizardState,
@@ -191,9 +195,10 @@ pub async fn finalize_and_register(
         .list_schedules_for_group(state.group_id)
         .len();
     if active_count >= 10 {
-        bot.send_message(
-            ChatId(state.group_id as i64),
-            "❌ You already have 10 active scheduled prompts in this group.\n\nPlease cancel one with /listscheduled before adding a new schedule.",
+        send_message(
+            msg.clone(),
+            bot.clone(),
+            "❌ You already have 10 active scheduled prompts in this group.\n\nPlease cancel one with /listscheduled before adding a new schedule.".to_string(),
         )
         .await?;
         return Ok(());
@@ -224,8 +229,9 @@ pub async fn finalize_and_register(
     register_schedule(bot.clone(), bot_deps.clone(), &mut rec).await?;
     bot_deps.scheduled_storage.put_schedule(&rec)?;
 
-    bot.send_message(
-        ChatId(rec.group_id as i64),
+    send_html_message(
+        msg.clone(),
+        bot.clone(),
         format!(
             "✅ Scheduled created!\n\n{}",
             summarize(&PendingWizardState {
@@ -241,7 +247,6 @@ pub async fn finalize_and_register(
             })
         ),
     )
-    .parse_mode(ParseMode::Html)
     .await?;
 
     Ok(())
@@ -321,7 +326,7 @@ pub async fn handle_message_scheduled_prompts(
                     return Ok(true);
                 }
                 let kb = build_hours_keyboard();
-                send_markdown_message(
+                send_markdown_message_with_keyboard(
                     bot,
                     msg,
                     KeyboardMarkupType::InlineKeyboardType(kb),

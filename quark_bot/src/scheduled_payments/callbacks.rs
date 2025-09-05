@@ -96,8 +96,13 @@ pub async fn handle_scheduled_payments_callback(
                 return Ok(());
             }
             bot_deps.scheduled_payments.delete_pending(key)?;
-            super::handler::finalize_and_register_payment(bot.clone(), bot_deps.clone(), st)
-                .await?;
+            super::handler::finalize_and_register_payment(
+                *message.clone(),
+                bot.clone(),
+                bot_deps.clone(),
+                st,
+            )
+            .await?;
             bot.answer_callback_query(query.id).await?;
         } else {
             // No pending payment exists - still respond to prevent UI hang

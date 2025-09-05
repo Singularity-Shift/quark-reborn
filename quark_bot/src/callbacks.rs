@@ -1193,6 +1193,7 @@ pub async fn handle_callback_query(
                                     "mod_skip_disallowed",
                                 )],
                             ]))
+                            .reply_to(m.id)
                             .await?;
 
                         state.message_id = Some(sent.id.0 as i64);
@@ -1277,9 +1278,7 @@ pub async fn handle_callback_query(
                         if allowed.is_empty() {
                             summary.push_str("\n\n<i>No custom rules recorded. Default moderation rules remain fully in effect.</i>");
                         }
-                        bot.send_message(m.chat.id, summary)
-                            .parse_mode(ParseMode::Html)
-                            .await?;
+                        send_html_message(*m.clone(), bot.clone(), summary).await?;
                         bot.answer_callback_query(query.id)
                             .text("⏭️ Skipped Disallowed and saved.")
                             .await?;
@@ -1433,11 +1432,11 @@ If you have questions, ask an admin before posting.
                             .join("\n")
                     };
 
-                    bot.send_message(
-                        m.chat.id,
+                    send_html_message(
+                        *m.clone(),
+                        bot.clone(),
                         format!("{title}\n\n{body}", title = title, body = body),
                     )
-                    .parse_mode(ParseMode::Html)
                     .await?;
                     bot.answer_callback_query(query.id).text("✅ Sent").await?;
                 }

@@ -92,7 +92,7 @@ pub async fn handle_scheduled_prompts_callback(
     } else if data == "sched_confirm" {
         if let Some(st) = bot_deps.scheduled_storage.get_pending(key) {
             bot_deps.scheduled_storage.delete_pending(key)?;
-            finalize_and_register(bot.clone(), bot_deps.clone(), st).await?;
+            finalize_and_register(*message.clone(), bot.clone(), bot_deps.clone(), st).await?;
             bot.answer_callback_query(query.id).await?;
         }
     } else if data.starts_with("sched_cancel:") {

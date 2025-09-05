@@ -324,6 +324,24 @@ pub async fn send_html_message(msg: Message, bot: Bot, text: String) -> Result<(
     Ok(())
 }
 
+pub async fn send_markdown_message(
+    msg: Message,
+    bot: Bot,
+    text: String,
+) -> Result<(), anyhow::Error> {
+    if msg.chat.is_group() || msg.chat.is_supergroup() {
+        bot.send_message(msg.chat.id, text)
+            .parse_mode(ParseMode::MarkdownV2)
+            .reply_to(msg.id)
+            .await?;
+    } else {
+        bot.send_message(msg.chat.id, text)
+            .parse_mode(ParseMode::MarkdownV2)
+            .await?;
+    }
+    Ok(())
+}
+
 pub async fn send_scheduled_message(
     bot: &Bot,
     chat_id: ChatId,
@@ -340,7 +358,7 @@ pub async fn send_scheduled_message(
     request.await
 }
 
-pub async fn send_markdown_message(
+pub async fn send_markdown_message_with_keyboard(
     bot: Bot,
     msg: Message,
     keyboard_markup_type: KeyboardMarkupType,
@@ -399,7 +417,7 @@ pub async fn reply_inline_markup(
     Ok(())
 }
 
-pub async fn send_markdown_message_with_reply(
+pub async fn send_markdown_message_with_keyboard_with_reply(
     bot: Bot,
     msg: Message,
     keyboard_markup: KeyboardMarkupType,

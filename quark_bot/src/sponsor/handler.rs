@@ -2,7 +2,9 @@ use crate::dependencies::BotDependencies;
 use crate::sponsor::dto::{
     SponsorCooldown, SponsorInterval, SponsorRequest, SponsorState, SponsorStep,
 };
-use crate::utils;
+use crate::utils::{
+    self, KeyboardMarkupType, send_html_message, send_markdown_message_with_keyboard, send_message,
+};
 use anyhow::Result;
 use teloxide::types::MessageId;
 use teloxide::{
@@ -628,9 +630,10 @@ pub async fn handle_sponsor_message(
                             Ok(limit) => {
                                 // Validate the limit
                                 if limit == 0 {
-                                    bot.send_message(
-                                                msg.chat.id,
-                                                "❌ Request limit cannot be 0. Please enter a number greater than 0."
+                                    send_message(
+                                                msg.clone(),
+                                                bot.clone(),
+                                                "❌ Request limit cannot be 0. Please enter a number greater than 0.".to_string(),
                                             )
                                             .await?;
                                     return Ok(true);
@@ -646,9 +649,11 @@ pub async fn handle_sponsor_message(
                                     current_group_id.clone(),
                                     settings.clone(),
                                 ) {
-                                    bot.send_message(
-                                        msg.chat.id,
-                                        format!("❌ Failed to update request limit: {}", e),
+                                    send_message(
+                                        msg.clone(),
+                                        bot.clone(),
+                                        format!("❌ Failed to update request limit: {}", e)
+                                            .to_string(),
                                     )
                                     .await?;
                                     return Ok(true);
@@ -679,14 +684,14 @@ pub async fn handle_sponsor_message(
                                 }
 
                                 // Send success message
-                                bot.send_message(
-                                    msg.chat.id,
+                                send_html_message(
+                                    msg.clone(),
+                                    bot.clone(),
                                     format!(
                                         "✅ <b>Request limit updated to {} per interval</b>",
                                         limit
                                     ),
                                 )
-                                .parse_mode(teloxide::types::ParseMode::Html)
                                 .await?;
 
                                 // Get updated settings to show correct interface
@@ -775,17 +780,21 @@ pub async fn handle_sponsor_message(
                                     ])
                                 };
 
-                                bot.send_message(group_id, text)
-                                    .parse_mode(teloxide::types::ParseMode::Html)
-                                    .reply_markup(kb)
-                                    .await?;
+                                send_markdown_message_with_keyboard(
+                                    bot.clone(),
+                                    msg.clone(),
+                                    KeyboardMarkupType::InlineKeyboardType(kb),
+                                    &text,
+                                )
+                                .await?;
 
                                 return Ok(true);
                             }
                             Err(_) => {
-                                bot.send_message(
-                                            msg.chat.id,
-                                            "❌ Invalid input. Please enter a valid number (e.g., 5, 10, 25, 100)."
+                                send_message(
+                                            msg.clone(),
+                                            bot.clone(),
+                                            "❌ Invalid input. Please enter a valid number (e.g., 5, 10, 25, 100).".to_string(),
                                         )
                                         .await?;
                                 return Ok(true);
@@ -800,25 +809,32 @@ pub async fn handle_sponsor_message(
                         {
                             log::warn!("Failed to remove sponsor state: {}", e);
                         }
-                        bot.send_message(msg.chat.id, "❌ Unknown input step. Please try again.")
-                            .await?;
+                        send_message(
+                            msg.clone(),
+                            bot.clone(),
+                            "❌ Unknown input step. Please try again.".to_string(),
+                        )
+                        .await?;
                         return Ok(true);
                     }
                 }
             } else {
                 // Empty text, ask for valid input
-                bot.send_message(
-                    msg.chat.id,
-                    "❌ Please enter a valid number for the request limit.",
+
+                send_message(
+                    msg.clone(),
+                    bot.clone(),
+                    "❌ Please enter a valid number for the request limit.".to_string(),
                 )
                 .await?;
                 return Ok(true);
             }
         } else {
             // No text, ask for valid input
-            bot.send_message(
-                msg.chat.id,
-                "❌ Please send a text message with the number for the request limit.",
+            send_message(
+                msg.clone(),
+                bot.clone(),
+                "❌ Please send a text message with the number for the request limit.".to_string(),
             )
             .await?;
             return Ok(true);

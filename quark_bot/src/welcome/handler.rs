@@ -7,7 +7,7 @@ use teloxide::{
 
 use crate::{
     dependencies::BotDependencies,
-    utils,
+    utils::{self, send_html_message, send_message},
     welcome::{helpers::format_timeout_display, welcome_service::WelcomeService},
 };
 
@@ -510,8 +510,12 @@ pub async fn handle_welcome_message(
                 if text == "/cancel" {
                     // Cancel the custom message input
                     bot_deps.welcome_service.clear_input_state(group_id)?;
-                    bot.send_message(msg.chat.id, "❌ Custom message input cancelled.")
-                        .await?;
+                    send_message(
+                        msg.clone(),
+                        bot,
+                        "❌ Custom message input cancelled.".to_string(),
+                    )
+                    .await?;
                     return Ok(true);
                 }
 
@@ -535,8 +539,9 @@ pub async fn handle_welcome_message(
                     .welcome_service
                     .save_settings(msg.chat.id, settings)
                 {
-                    bot.send_message(
-                        msg.chat.id,
+                    send_message(
+                        msg.clone(),
+                        bot,
                         format!("❌ Failed to save custom message: {}", e),
                     )
                     .await?;
@@ -547,20 +552,21 @@ pub async fn handle_welcome_message(
                 bot_deps.welcome_service.clear_input_state(group_id)?;
 
                 // Send success message
-                bot.send_message(
-                    msg.chat.id,
+                send_html_message(
+                    msg.clone(),
+                    bot,
                     "✅ <b>Custom welcome message updated successfully!</b>\n\n\
-                    New members will now see your custom message with placeholders replaced and markdown formatting preserved!",
+                    New members will now see your custom message with placeholders replaced and markdown formatting preserved!".to_string(),
                 )
-                .parse_mode(teloxide::types::ParseMode::Html)
                 .await?;
 
                 return Ok(true);
             } else {
                 // Empty text, ask for valid input
-                bot.send_message(
-                    msg.chat.id,
-                    "❌ Please enter a valid welcome message. Use /cancel to cancel.",
+                send_message(
+                    msg.clone(),
+                    bot,
+                    "❌ Please enter a valid welcome message. Use /cancel to cancel.".to_string(),
                 )
                 .await?;
                 return Ok(true);
