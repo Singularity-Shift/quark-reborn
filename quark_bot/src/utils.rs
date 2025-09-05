@@ -64,13 +64,21 @@ pub fn get_file_icon(filename: &str) -> &'static str {
 
 /// Smart filename cleaning and truncation
 pub fn clean_filename(filename: &str) -> String {
-    // Remove timestamp prefixes like "1030814179_"
+    // Remove prefixes like "1030814179_" or "group_-1002587813217_"
     let cleaned = if let Some(underscore_pos) = filename.find('_') {
         if filename[..underscore_pos]
             .chars()
             .all(|c| c.is_ascii_digit())
         {
+            // Handle user file prefix: "1030814179_filename.pdf" → "filename.pdf"
             &filename[underscore_pos + 1..]
+        } else if filename.starts_with("group_") {
+            // Handle group file prefix: "group_-1002587813217_filename.pdf" → "filename.pdf"
+            if let Some(second_underscore) = filename[6..].find('_') {
+                &filename[6 + second_underscore + 1..]
+            } else {
+                filename
+            }
         } else {
             filename
         }
@@ -93,6 +101,34 @@ pub fn clean_filename(filename: &str) -> String {
     } else {
         cleaned.to_string()
     }
+}
+
+/// Escape HTML entities but preserve valid Telegram HTML tags
+fn escape_html_preserve_tags(input: &str) -> String {
+    // First, fully escape all HTML
+    let escaped = teloxide::utils::html::escape(input);
+    
+    // Then restore valid Telegram HTML tags by converting escaped versions back
+    // Valid Telegram HTML tags: <b>, <i>, <u>, <s>, <code>, <pre>, <a href="...">
+    let escaped = escaped
+        .replace("&lt;b&gt;", "<b>")
+        .replace("&lt;/b&gt;", "</b>")
+        .replace("&lt;i&gt;", "<i>")
+        .replace("&lt;/i&gt;", "</i>")
+        .replace("&lt;u&gt;", "<u>")
+        .replace("&lt;/u&gt;", "</u>")
+        .replace("&lt;s&gt;", "<s>")
+        .replace("&lt;/s&gt;", "</s>")
+        .replace("&lt;code&gt;", "<code>")
+        .replace("&lt;/code&gt;", "</code>")
+        .replace("&lt;pre&gt;", "<pre>")
+        .replace("&lt;/pre&gt;", "</pre>");
+    
+    // Restore <a href="..."> tags (more complex regex needed)
+    let re_a_tag = Regex::new(r#"&lt;a href=&quot;([^&]+)&quot;&gt;([^&]+)&lt;/a&gt;"#).unwrap();
+    let escaped = re_a_tag.replace_all(&escaped, r#"<a href="$1">$2</a>"#);
+    
+    escaped.to_string()
 }
 
 // Enhanced markdown to Telegram-HTML converter supporting triple backtick fences and Markdown links
@@ -127,8 +163,8 @@ pub fn markdown_to_html(input: &str) -> String {
             html.push_str(&teloxide::utils::html::escape(line));
             html.push('\n');
         } else {
-            // Preserve non-code content as-is so valid Telegram-HTML (e.g., <a href=...>) remains clickable
-            html.push_str(line);
+            // Escape HTML entities but preserve intentional HTML tags like <a href>, <b>, <i>, etc.
+            html.push_str(&escape_html_preserve_tags(line));
             html.push('\n');
         }
     }

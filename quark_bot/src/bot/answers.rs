@@ -269,6 +269,10 @@ pub async fn answers(
                         )],
                         vec![InlineKeyboardButton::callback("🔍 Filters", "filters_main")],
                         vec![InlineKeyboardButton::callback(
+                            "📁 Group Document Library",
+                            "open_group_document_library",
+                        )],
+                        vec![InlineKeyboardButton::callback(
                             "⚙️ Command Settings",
                             "open_command_settings",
                         )],

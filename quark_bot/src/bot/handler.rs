@@ -1173,12 +1173,21 @@ pub async fn handle_message(bot: Bot, msg: Message, bot_deps: BotDependencies) -
         return Ok(());
     }
 
+    // Handle group file uploads when group is awaiting files (documents only)
+    if !msg.chat.is_private()
+        && msg.caption().is_none()
+        && msg.document().is_some()
+        && bot_deps.group_file_upload_state.is_awaiting(msg.chat.id.to_string()).await
+    {
+        use crate::assets::group_file_handler::handle_group_file_upload;
+        handle_group_file_upload(bot, msg, bot_deps.clone()).await?;
+        return Ok(());
+    }
+
+    // Handle private user file uploads (documents only)
     if msg.caption().is_none()
         && msg.chat.is_private()
-        && (msg.document().is_some()
-            || msg.photo().is_some()
-            || msg.video().is_some()
-            || msg.audio().is_some())
+        && msg.document().is_some()
     {
         handle_file_upload(bot, msg, bot_deps.clone()).await?;
     }

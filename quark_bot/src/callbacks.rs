@@ -1,6 +1,9 @@
 //! Callback query handlers for quark_bot.
 
 use crate::ai::moderation::dto::{ModerationSettings, ModerationState};
+use crate::ai::group_vector_store::{
+    delete_file_from_group_vector_store, delete_group_vector_store, list_group_files_with_names,
+};
 use crate::ai::vector_store::{
     delete_file_from_vector_store, delete_vector_store, list_user_files_with_names,
 };
@@ -508,7 +511,7 @@ pub async fn handle_callback_query(
                 bot.edit_message_text(
                     message.chat.id,
                     message.id,
-                    "📎 Please attach the files you wish to upload in your next message.\n\n✅ Supported: Documents, Photos, Videos, Audio files\n💡 You can send multiple files in one message!",
+                    "📎 Please attach the documents you wish to upload in your next message.\n\n✅ Supported: Documents (.txt, .md, .py, .js, .pdf, .docx, etc.)\n💡 You can send multiple documents in one message!",
                 )
                 .reply_markup(kb)
                 .await?;
@@ -534,6 +537,10 @@ pub async fn handle_callback_query(
                             "open_my_settings",
                         )],
                         vec![InlineKeyboardButton::callback(
+                            "🧾 Summarization Settings",
+                            "open_summarization_settings",
+                        )],
+                        vec![InlineKeyboardButton::callback(
                             "↩️ Close",
                             "user_settings_close",
                         )],
@@ -549,6 +556,300 @@ pub async fn handle_callback_query(
                 if let MaybeInaccessibleMessage::Regular(m) = message {
                     let _ = bot.edit_message_reply_markup(m.chat.id, m.id).await;
                     bot.answer_callback_query(query.id).text("Closed").await?;
+                }
+            }
+        } else if data == "open_group_document_library" {
+            // Open the group's Document Library within /groupsettings (admin only)
+            if let Some(message) = &query.message {
+                if let MaybeInaccessibleMessage::Regular(m) = message {
+                    let is_admin = utils::is_admin(&bot, m.chat.id, query.from.id).await;
+                    if !is_admin {
+                        bot.answer_callback_query(query.id)
+                            .text("❌ Only administrators can manage group documents")
+                            .await?;
+                        return Ok(());
+                    }
+
+                    let group_id = m.chat.id.to_string();
+
+                    match list_group_files_with_names(group_id.clone(), bot_deps.clone()) {
+                        Ok(files) => {
+                            use teloxide::types::{InlineKeyboardButton, InlineKeyboardMarkup};
+
+                            let (text, keyboard) = if files.is_empty() {
+                                let kb = InlineKeyboardMarkup::new(vec![
+                                    vec![InlineKeyboardButton::callback(
+                                        "📎 Upload Files",
+                                        "group_upload_files_prompt",
+                                    )],
+                                    vec![InlineKeyboardButton::callback(
+                                        "↩️ Back",
+                                        "back_to_group_settings",
+                                    )],
+                                ]);
+                                (
+                                    "📁 <b>Group Document Library</b>\n\n<i>No files uploaded yet</i>\n\n💡 Use the button below to upload your first documents for /g commands.".to_string(),
+                                    kb,
+                                )
+                            } else {
+                                let file_list = files
+                                    .iter()
+                                    .map(|file| {
+                                        let icon = utils::get_file_icon(&file.name);
+                                        let clean_name = utils::clean_filename(&file.name);
+                                        format!("{}  <b>{}</b>", icon, clean_name)
+                                    })
+                                    .collect::<Vec<_>>()
+                                    .join("\n");
+                                let response = format!(
+                                    "🗂️ <b>Group Document Library</b> ({} files)\n\n{}\n\n💡 <i>Tap any button below to manage your files</i>",
+                                    files.len(),
+                                    file_list
+                                );
+                                let mut keyboard_rows = Vec::new();
+                                for file in &files {
+                                    let clean_name = utils::clean_filename(&file.name);
+                                    let button_text = if clean_name.len() > 25 {
+                                        format!("🗑️ {}", &clean_name[..22].trim_end())
+                                    } else {
+                                        format!("🗑️ {}", clean_name)
+                                    };
+                                    let delete_button = InlineKeyboardButton::callback(
+                                        button_text,
+                                        format!("group_delete_file:{}", file.id),
+                                    );
+                                    keyboard_rows.push(vec![delete_button]);
+                                }
+                                if files.len() > 1 {
+                                    let clear_all_button = InlineKeyboardButton::callback(
+                                        "🗑️ Clear All Files",
+                                        "group_clear_all_files",
+                                    );
+                                    keyboard_rows.push(vec![clear_all_button]);
+                                }
+                                // Upload + Back controls
+                                keyboard_rows.push(vec![InlineKeyboardButton::callback(
+                                    "📎 Upload Files",
+                                    "group_upload_files_prompt",
+                                )]);
+                                keyboard_rows.push(vec![InlineKeyboardButton::callback(
+                                    "↩️ Back",
+                                    "back_to_group_settings",
+                                )]);
+                                (
+                                    response,
+                                    InlineKeyboardMarkup::new(keyboard_rows),
+                                )
+                            };
+
+                            bot.edit_message_text(m.chat.id, m.id, text)
+                                .parse_mode(ParseMode::Html)
+                                .reply_markup(keyboard)
+                                .await?;
+                        }
+                        Err(e) => {
+                            log::error!("Failed to open group document library: {}", e);
+                            bot.answer_callback_query(query.id)
+                                .text("❌ Error loading Group Document Library")
+                                .await?;
+                        }
+                    }
+                }
+            }
+        } else if data.starts_with("group_delete_file:") {
+            let file_id = data.strip_prefix("group_delete_file:").unwrap();
+            
+            if let Some(message) = &query.message {
+                if let MaybeInaccessibleMessage::Regular(m) = message {
+                    let is_admin = utils::is_admin(&bot, m.chat.id, query.from.id).await;
+                    if !is_admin {
+                        bot.answer_callback_query(query.id)
+                            .text("❌ Only administrators can manage group documents")
+                            .await?;
+                        return Ok(());
+                    }
+
+                    let group_id = m.chat.id.to_string();
+                    
+                    // Get group vector store ID
+                    use crate::group::document_library::GroupDocuments;
+                    let group_docs = GroupDocuments::new(&bot_deps.db)?;
+                    
+                    if let Some(vector_store_id) = group_docs.get_group_vector_store_id(group_id.clone()) {
+                        match delete_file_from_group_vector_store(
+                            group_id.clone(),
+                            bot_deps.clone(),
+                            &vector_store_id,
+                            file_id,
+                        )
+                        .await
+                        {
+                            Ok(_) => {
+                                bot.answer_callback_query(query.id.clone()).await?;
+
+                                match list_group_files_with_names(group_id.clone(), bot_deps.clone()) {
+                                    Ok(files) => {
+                                        if files.is_empty() {
+                                            bot.edit_message_text(m.chat.id, m.id, "✅ <b>File deleted successfully!</b>\n\n📁 <i>Your group document library is now empty</i>\n\n💡 Use <b>Upload Files</b> to add new documents")
+                                                .parse_mode(ParseMode::Html)
+                                                .reply_markup(InlineKeyboardMarkup::new(vec![
+                                                    vec![InlineKeyboardButton::callback(
+                                                        "📎 Upload Files",
+                                                        "group_upload_files_prompt",
+                                                    )],
+                                                    vec![InlineKeyboardButton::callback(
+                                                        "↩️ Back",
+                                                        "back_to_group_settings",
+                                                    )],
+                                                ]))
+                                                .await?;
+                                        } else {
+                                            let file_list = files
+                                                .iter()
+                                                .map(|file| {
+                                                    let icon = utils::get_file_icon(&file.name);
+                                                    let clean_name = utils::clean_filename(&file.name);
+                                                    format!("{}  <b>{}</b>", icon, clean_name)
+                                                })
+                                                .collect::<Vec<_>>()
+                                                .join("\n");
+                                            let response = format!(
+                                                "🗂️ <b>Group Document Library</b> ({} files)\n\n{}\n\n💡 <i>Tap any button below to manage your files</i>",
+                                                files.len(),
+                                                file_list
+                                            );
+                                            let mut keyboard_rows = Vec::new();
+                                            for file in &files {
+                                                let clean_name = utils::clean_filename(&file.name);
+                                                let button_text = if clean_name.len() > 25 {
+                                                    format!("🗑️ {}", &clean_name[..22].trim_end())
+                                                } else {
+                                                    format!("🗑️ {}", clean_name)
+                                                };
+                                                let delete_button = InlineKeyboardButton::callback(
+                                                    button_text,
+                                                    format!("group_delete_file:{}", file.id),
+                                                );
+                                                keyboard_rows.push(vec![delete_button]);
+                                            }
+                                            if files.len() > 1 {
+                                                let clear_all_button = InlineKeyboardButton::callback(
+                                                    "🗑️ Clear All Files",
+                                                    "group_clear_all_files",
+                                                );
+                                                keyboard_rows.push(vec![clear_all_button]);
+                                            }
+                                            keyboard_rows.push(vec![InlineKeyboardButton::callback(
+                                                "📎 Upload Files",
+                                                "group_upload_files_prompt",
+                                            )]);
+                                            keyboard_rows.push(vec![InlineKeyboardButton::callback(
+                                                "↩️ Back",
+                                                "back_to_group_settings",
+                                            )]);
+                                            let keyboard = InlineKeyboardMarkup::new(keyboard_rows);
+
+                                            bot.edit_message_text(m.chat.id, m.id, response)
+                                                .parse_mode(ParseMode::Html)
+                                                .reply_markup(keyboard)
+                                                .await?;
+                                        }
+                                    }
+                                    Err(e) => {
+                                        log::error!("Failed to list files after deletion: {}", e);
+                                        bot.answer_callback_query(query.id)
+                                            .text("❌ Error refreshing file list. Please reopen the Group Document Library.")
+                                            .await?;
+                                    }
+                                }
+                            }
+                            Err(e) => {
+                                log::error!("Group file deletion failed: {}", e);
+                                let error_msg = e.to_string();
+
+                                if error_msg.contains("group document library is no longer available") {
+                                    bot.answer_callback_query(query.id)
+                                        .text("📁 Your group document library was removed. Use <Upload Files> to create a new one!")
+                                        .await?;
+                                } else {
+                                    bot.answer_callback_query(query.id)
+                                        .text(&format!("❌ Failed to delete file. Error: {}", e))
+                                        .await?;
+                                }
+                            }
+                        }
+                    } else {
+                        bot.answer_callback_query(query.id)
+                            .text("❌ No group document library found. Please reopen the Group Document Library.")
+                            .await?;
+                    }
+                }
+            }
+        } else if data == "group_clear_all_files" {
+            if let Some(message) = &query.message {
+                if let MaybeInaccessibleMessage::Regular(m) = message {
+                    let is_admin = utils::is_admin(&bot, m.chat.id, query.from.id).await;
+                    if !is_admin {
+                        bot.answer_callback_query(query.id)
+                            .text("❌ Only administrators can manage group documents")
+                            .await?;
+                        return Ok(());
+                    }
+
+                    let group_id = m.chat.id.to_string();
+                    
+                    match delete_group_vector_store(group_id.clone(), bot_deps.clone()).await {
+                        Ok(_) => {
+                            bot.answer_callback_query(query.id).await?;
+                            bot.edit_message_text(m.chat.id, m.id, "✅ <b>All files cleared successfully!</b>\n\n🗑️ <i>Your entire group document library has been deleted</i>\n\n💡 Open <b>Group Settings → Document Library</b> and tap <b>Upload Files</b> to start building your library again")
+                                .parse_mode(teloxide::types::ParseMode::Html)
+                                .reply_markup(InlineKeyboardMarkup::new(vec![
+                                    vec![InlineKeyboardButton::callback(
+                                        "📎 Upload Files",
+                                        "group_upload_files_prompt",
+                                    )],
+                                    vec![InlineKeyboardButton::callback(
+                                        "↩️ Back",
+                                        "back_to_group_settings",
+                                    )],
+                                ]))
+                                .await?;
+                        }
+                        Err(e) => {
+                            log::error!("Failed to clear all group files: {}", e);
+                            bot.answer_callback_query(query.id)
+                                .text(&format!("❌ Failed to clear files. Error: {}", e))
+                                .await?;
+                        }
+                    }
+                }
+            }
+        } else if data == "group_upload_files_prompt" {
+            if let Some(message) = &query.message {
+                if let MaybeInaccessibleMessage::Regular(m) = message {
+                    let is_admin = utils::is_admin(&bot, m.chat.id, query.from.id).await;
+                    if !is_admin {
+                        bot.answer_callback_query(query.id)
+                            .text("❌ Only administrators can manage group documents")
+                            .await?;
+                        return Ok(());
+                    }
+
+                    use teloxide::types::{InlineKeyboardButton, InlineKeyboardMarkup};
+                    let kb = InlineKeyboardMarkup::new(vec![
+                        vec![InlineKeyboardButton::callback("↩️ Back", "open_group_document_library")],
+                    ]);
+                    // Set the group as awaiting files
+                    let group_id = m.chat.id.to_string();
+                    bot_deps.group_file_upload_state.set_awaiting(group_id).await;
+                    
+                    bot.edit_message_text(
+                        m.chat.id,
+                        m.id,
+                        "📎 Please attach the documents you wish to upload to the group document library in your next message.\n\n✅ Supported: Documents (.txt, .md, .py, .js, .pdf, .docx, etc.)\n💡 You can send multiple documents in one message!\n\n🔒 Only administrators can upload files to the group library.",
+                    )
+                    .reply_markup(kb)
+                    .await?;
                 }
             }
         } else if data == "open_group_payment_settings" {
@@ -849,6 +1150,10 @@ pub async fn handle_callback_query(
                             "welcome_settings",
                         )],
                         vec![InlineKeyboardButton::callback("🔍 Filters", "filters_main")],
+                        vec![InlineKeyboardButton::callback(
+                            "📁 Group Document Library",
+                            "open_group_document_library",
+                        )],
                         vec![InlineKeyboardButton::callback(
                             "⚙️ Command Settings",
                             "open_command_settings",
