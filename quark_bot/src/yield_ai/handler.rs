@@ -1,8 +1,8 @@
 use anyhow::Result as AnyResult;
 use teloxide::prelude::*;
-use teloxide::types::ParseMode;
 
 use crate::dependencies::BotDependencies;
+use crate::utils::{send_html_message, send_message};
 use crate::yield_ai::dto::TokenHolding;
 
 const TELEGRAM_MESSAGE_LIMIT: usize = 4096;
@@ -39,13 +39,11 @@ fn split_message(text: &str) -> Vec<String> {
 }
 
 /// Send a potentially long message, splitting it into multiple messages if necessary
-async fn send_long_message(bot: &Bot, chat_id: ChatId, text: &str) -> AnyResult<()> {
+async fn send_long_message(msg: Message, bot: &Bot, text: &str) -> AnyResult<()> {
     // Text is already prepared as HTML with proper escaping; send directly
     let chunks = split_message(text);
     for chunk in chunks {
-        bot.send_message(chat_id, chunk)
-            .parse_mode(ParseMode::Html)
-            .await?;
+        send_html_message(msg.clone(), bot.clone(), chunk).await?;
     }
     Ok(())
 }
@@ -85,7 +83,7 @@ pub async fn handle_balance(
     let user = match &msg.from {
         Some(u) => u,
         None => {
-            bot.send_message(msg.chat.id, "❌ User not found").await?;
+            send_message(msg, bot, "❌ User not found".to_string()).await?;
             return Ok(());
         }
     };
@@ -93,8 +91,7 @@ pub async fn handle_balance(
     let username = match &user.username {
         Some(u) => u,
         None => {
-            bot.send_message(msg.chat.id, "❌ Username not found")
-                .await?;
+            send_message(msg, bot, "❌ Username not found".to_string()).await?;
             return Ok(());
         }
     };
@@ -103,7 +100,7 @@ pub async fn handle_balance(
         let group_credentials = bot_deps.group.get_credentials(msg.chat.id);
 
         if group_credentials.is_none() {
-            bot.send_message(msg.chat.id, "❌ Group not found").await?;
+            send_message(msg, bot, "❌ Group not found".to_string()).await?;
             return Ok(());
         }
 
@@ -112,9 +109,11 @@ pub async fn handle_balance(
         match bot_deps.auth.get_credentials(username) {
             Some(c) => c.resource_account_address,
             None => {
-                bot.send_message(
-                    msg.chat.id,
-                    "❌ Account not linked. Please use /loginuser to connect your wallet.",
+                send_message(
+                    msg,
+                    bot,
+                    "❌ Account not linked. Please use /loginuser to connect your wallet."
+                        .to_string(),
                 )
                 .await?;
                 return Ok(());
@@ -131,14 +130,14 @@ pub async fn handle_balance(
     let snapshot = match snapshot {
         Ok(s) => s,
         Err(e) => {
-            bot.send_message(
-                msg.chat.id,
+            send_html_message(
+                msg,
+                bot,
                 format!(
                     "❌ <b>Failed to retrieve portfolio</b>\n\n<i>Please try again later.</i>\n\n<code>{}</code>",
                     teloxide::utils::html::escape(&e.to_string())
                 ),
             )
-            .parse_mode(ParseMode::Html)
             .await?;
             return Ok(());
         }
@@ -196,7 +195,7 @@ pub async fn handle_balance(
 
         if current_block.len() + line.len() > TELEGRAM_MESSAGE_LIMIT {
             // send current and start a new block with the header context
-            send_long_message(&bot, msg.chat.id, &current_block).await?;
+            send_long_message(msg.clone(), &bot, &current_block).await?;
             current_block = String::from("<b>Holdings (cont.)</b>\n");
         }
         current_block.push_str(&line);
@@ -206,7 +205,7 @@ pub async fn handle_balance(
         // Append footer attribution
         let mut with_footer = current_block;
         with_footer.push_str("\n<i>Powered by Yield AI</i>");
-        send_long_message(&bot, msg.chat.id, &with_footer).await?;
+        send_long_message(msg, &bot, &with_footer).await?;
     }
 
     Ok(())

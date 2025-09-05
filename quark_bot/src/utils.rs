@@ -6,12 +6,18 @@ use quark_core::helpers::dto::{AITool, PurchaseRequest, ToolUsage};
 use regex::Regex;
 use std::env;
 use teloxide::{
-    Bot,
+    Bot, RequestError,
     prelude::*,
-    types::{ChatId, UserId},
+    sugar::request::RequestReplyExt,
+    types::{ChatId, InlineKeyboardMarkup, KeyboardMarkup, MessageId, ParseMode, UserId},
 };
 
 use crate::dependencies::BotDependencies;
+
+pub enum KeyboardMarkupType {
+    InlineKeyboardType(InlineKeyboardMarkup),
+    KeyboardType(KeyboardMarkup),
+}
 
 /// Helper function to format Unix timestamp into readable date and time
 pub fn format_timestamp(timestamp: u64) -> String {
@@ -58,13 +64,21 @@ pub fn get_file_icon(filename: &str) -> &'static str {
 
 /// Smart filename cleaning and truncation
 pub fn clean_filename(filename: &str) -> String {
-    // Remove timestamp prefixes like "1030814179_"
+    // Remove prefixes like "1030814179_" or "group_-1002587813217_"
     let cleaned = if let Some(underscore_pos) = filename.find('_') {
         if filename[..underscore_pos]
             .chars()
             .all(|c| c.is_ascii_digit())
         {
+            // Handle user file prefix: "1030814179_filename.pdf" → "filename.pdf"
             &filename[underscore_pos + 1..]
+        } else if filename.starts_with("group_") {
+            // Handle group file prefix: "group_-1002587813217_filename.pdf" → "filename.pdf"
+            if let Some(second_underscore) = filename[6..].find('_') {
+                &filename[6 + second_underscore + 1..]
+            } else {
+                filename
+            }
         } else {
             filename
         }
@@ -87,6 +101,34 @@ pub fn clean_filename(filename: &str) -> String {
     } else {
         cleaned.to_string()
     }
+}
+
+/// Escape HTML entities but preserve valid Telegram HTML tags
+fn escape_html_preserve_tags(input: &str) -> String {
+    // First, fully escape all HTML
+    let escaped = teloxide::utils::html::escape(input);
+    
+    // Then restore valid Telegram HTML tags by converting escaped versions back
+    // Valid Telegram HTML tags: <b>, <i>, <u>, <s>, <code>, <pre>, <a href="...">
+    let escaped = escaped
+        .replace("&lt;b&gt;", "<b>")
+        .replace("&lt;/b&gt;", "</b>")
+        .replace("&lt;i&gt;", "<i>")
+        .replace("&lt;/i&gt;", "</i>")
+        .replace("&lt;u&gt;", "<u>")
+        .replace("&lt;/u&gt;", "</u>")
+        .replace("&lt;s&gt;", "<s>")
+        .replace("&lt;/s&gt;", "</s>")
+        .replace("&lt;code&gt;", "<code>")
+        .replace("&lt;/code&gt;", "</code>")
+        .replace("&lt;pre&gt;", "<pre>")
+        .replace("&lt;/pre&gt;", "</pre>");
+    
+    // Restore <a href="..."> tags (more complex regex needed)
+    let re_a_tag = Regex::new(r#"&lt;a href=&quot;([^&]+)&quot;&gt;([^&]+)&lt;/a&gt;"#).unwrap();
+    let escaped = re_a_tag.replace_all(&escaped, r#"<a href="$1">$2</a>"#);
+    
+    escaped.to_string()
 }
 
 // Enhanced markdown to Telegram-HTML converter supporting triple backtick fences and Markdown links
@@ -121,8 +163,8 @@ pub fn markdown_to_html(input: &str) -> String {
             html.push_str(&teloxide::utils::html::escape(line));
             html.push('\n');
         } else {
-            // Preserve non-code content as-is so valid Telegram-HTML (e.g., <a href=...>) remains clickable
-            html.push_str(line);
+            // Escape HTML entities but preserve intentional HTML tags like <a href>, <b>, <i>, etc.
+            html.push_str(&escape_html_preserve_tags(line));
             html.push('\n');
         }
     }
@@ -291,4 +333,165 @@ pub async fn is_admin(bot: &Bot, chat_id: ChatId, user_id: UserId) -> bool {
     let admins = admins.unwrap();
     let is_admin = admins.iter().any(|member| member.user.id == user_id);
     is_admin
+}
+
+pub async fn send_message(msg: Message, bot: Bot, text: String) -> Result<(), anyhow::Error> {
+    if msg.chat.is_group() || msg.chat.is_supergroup() {
+        bot.send_message(msg.chat.id, text).reply_to(msg.id).await?;
+    } else {
+        bot.send_message(msg.chat.id, text).await?;
+    }
+
+    Ok(())
+}
+
+pub async fn send_html_message(msg: Message, bot: Bot, text: String) -> Result<(), anyhow::Error> {
+    if msg.chat.is_group() || msg.chat.is_supergroup() {
+        bot.send_message(msg.chat.id, text)
+            .parse_mode(ParseMode::Html)
+            .reply_to(msg.id)
+            .await?;
+    } else {
+        bot.send_message(msg.chat.id, text)
+            .parse_mode(ParseMode::Html)
+            .await?;
+    }
+
+    Ok(())
+}
+
+pub async fn send_markdown_message(
+    msg: Message,
+    bot: Bot,
+    text: String,
+) -> Result<(), anyhow::Error> {
+    if msg.chat.is_group() || msg.chat.is_supergroup() {
+        bot.send_message(msg.chat.id, text)
+            .parse_mode(ParseMode::MarkdownV2)
+            .reply_to(msg.id)
+            .await?;
+    } else {
+        bot.send_message(msg.chat.id, text)
+            .parse_mode(ParseMode::MarkdownV2)
+            .await?;
+    }
+    Ok(())
+}
+
+pub async fn send_scheduled_message(
+    bot: &Bot,
+    chat_id: ChatId,
+    text: &str,
+    thread_id: Option<i32>,
+) -> Result<Message, RequestError> {
+    // For scheduled messages, send to thread if thread_id is available
+    let mut request = bot.send_message(chat_id, text).parse_mode(ParseMode::Html);
+
+    if let Some(thread) = thread_id {
+        request = request.reply_to(MessageId(thread));
+    }
+
+    request.await
+}
+
+pub async fn send_markdown_message_with_keyboard(
+    bot: Bot,
+    msg: Message,
+    keyboard_markup_type: KeyboardMarkupType,
+    text: &str,
+) -> Result<(), RequestError> {
+    match keyboard_markup_type {
+        KeyboardMarkupType::InlineKeyboardType(keyboard_markup) => {
+            reply_inline_markup(bot, msg, keyboard_markup, text).await?
+        }
+        KeyboardMarkupType::KeyboardType(keyboard_markup) => {
+            reply_markup(bot, msg, keyboard_markup, text).await?
+        }
+    };
+    Ok(())
+}
+
+pub async fn reply_markup(
+    bot: Bot,
+    msg: Message,
+    keyboard_markup: KeyboardMarkup,
+    text: &str,
+) -> Result<(), RequestError> {
+    if msg.chat.is_group() || msg.chat.is_supergroup() {
+        bot.send_message(msg.chat.id, text)
+            .parse_mode(ParseMode::Html)
+            .reply_markup(keyboard_markup)
+            .reply_to(msg.id)
+            .await?;
+    } else {
+        bot.send_message(msg.chat.id, text)
+            .parse_mode(ParseMode::Html)
+            .reply_markup(keyboard_markup)
+            .await?;
+    }
+    Ok(())
+}
+
+pub async fn reply_inline_markup(
+    bot: Bot,
+    msg: Message,
+    keyboard_markup: InlineKeyboardMarkup,
+    text: &str,
+) -> Result<(), RequestError> {
+    if msg.chat.is_group() || msg.chat.is_supergroup() {
+        bot.send_message(msg.chat.id, text)
+            .parse_mode(ParseMode::Html)
+            .reply_markup(keyboard_markup)
+            .reply_to(msg.id)
+            .await?;
+    } else {
+        bot.send_message(msg.chat.id, text)
+            .parse_mode(ParseMode::Html)
+            .reply_markup(keyboard_markup)
+            .await?;
+    }
+    Ok(())
+}
+
+pub async fn send_markdown_message_with_keyboard_with_reply(
+    bot: Bot,
+    msg: Message,
+    keyboard_markup: KeyboardMarkupType,
+    text: &str,
+) -> Result<Message, RequestError> {
+    let mut request = bot.send_message(msg.chat.id, text);
+
+    match keyboard_markup {
+        KeyboardMarkupType::InlineKeyboardType(inline_keyboard) => {
+            request = request.reply_markup(inline_keyboard);
+        }
+        KeyboardMarkupType::KeyboardType(keyboard) => {
+            request = request.reply_markup(keyboard);
+        }
+    }
+
+    if msg.chat.is_group() || msg.chat.is_supergroup() {
+        request = request.reply_to(msg.id);
+    }
+
+    request.await.map_err(|e| e.into())
+}
+
+pub async fn send_scheduled_message_with_keyboard(
+    bot: &Bot,
+    chat_id: ChatId,
+    text: &str,
+    thread_id: Option<i32>,
+    keyboard: InlineKeyboardMarkup,
+) -> Result<Message, RequestError> {
+    let mut request = bot
+        .send_message(chat_id, text)
+        .parse_mode(ParseMode::Html)
+        .reply_markup(keyboard);
+
+    if let Some(thread) = thread_id {
+        request = request.reply_to(MessageId(thread));
+    }
+
+    request.await
 }

@@ -34,6 +34,7 @@ pub struct ProposalEntry {
     pub last_active_notification: u64,
     pub last_result_notification: u64,
     pub disabled_notifications: bool,
+    pub thread_id: Option<i32>,
 }
 
 impl From<(&CreateProposalRequest, String)> for ProposalEntry {
@@ -54,6 +55,7 @@ impl From<(&CreateProposalRequest, String)> for ProposalEntry {
             last_active_notification: now,
             last_result_notification: now,
             disabled_notifications: false,
+            thread_id: request.thread_id,
         }
     }
 }

@@ -21,7 +21,7 @@ use open_ai_rust_responses_by_sshift::{
 };
 use serde_json;
 use teloxide::Bot;
-use teloxide::types::Message;
+use teloxide::types::{Message, User};
 
 #[derive(Clone)]
 pub struct AI {
@@ -91,7 +91,7 @@ impl AI {
         bot_deps: BotDependencies,
         group_id: Option<String>,
     ) -> Result<AIResponse, anyhow::Error> {
-        let user: Option<teloxide::types::User> = msg.from.clone();
+        let user: Option<User> = msg.from.clone();
 
         if user.is_none() {
             return Err(anyhow::anyhow!("User not found"));
@@ -258,7 +258,17 @@ impl AI {
         let mut total_output_tokens = 0u32;
         let mut total_tokens_used = 0u32;
 
-        let vector_store_id = user_convos.get_vector_store_id(user_id);
+        // Strict separation: group vs user vector stores
+        let vector_store_id = if group_id.is_some() {
+            // For /g commands: ONLY use group vector store, NO fallback to user
+            let group_id_str = group_id.as_ref().unwrap();
+            bot_deps
+                .group_docs
+                .get_group_vector_store_id(group_id_str.clone())
+        } else {
+            // For /c commands: ONLY use user vector store
+            user_convos.get_vector_store_id(user_id)
+        };
 
         // Enhanced tools: built-in tools + custom function tools
         let mut tools = vec![];
@@ -410,18 +420,38 @@ impl AI {
 
                 // Handle vector store not found errors
                 if error_msg.contains("Vector store") && error_msg.contains("not found") {
-                    log::warn!(
-                        "Vector store not found, clearing orphaned reference for user {}",
-                        user_id
-                    );
-                    // Centralized cleanup
-                    if let Err(clear_err) = user_convos.cleanup_orphaned_vector_store(user_id) {
-                        log::error!("Failed to clean up orphaned vector store: {}", clear_err);
+                    if group_id.is_some() {
+                        // Group vector store cleanup
+                        let group_id_str = group_id.as_ref().unwrap();
+                        log::warn!(
+                            "Group vector store not found, clearing orphaned reference for group {}",
+                            group_id_str
+                        );
+                        if let Err(clear_err) = bot_deps
+                            .group_docs
+                            .cleanup_orphaned_group_vector_store(group_id_str.clone())
+                        {
+                            log::error!(
+                                "Failed to clean up orphaned group vector store: {}",
+                                clear_err
+                            );
+                        }
+                        return Err(anyhow::anyhow!(
+                            "Your group document library is no longer available (vector store deleted). Please upload files again via Group Settings → Document Library → Upload Files to create a new document library."
+                        ));
+                    } else {
+                        // User vector store cleanup
+                        log::warn!(
+                            "Vector store not found, clearing orphaned reference for user {}",
+                            user_id
+                        );
+                        if let Err(clear_err) = user_convos.cleanup_orphaned_vector_store(user_id) {
+                            log::error!("Failed to clean up orphaned vector store: {}", clear_err);
+                        }
+                        return Err(anyhow::anyhow!(
+                            "Your document library is no longer available (vector store deleted). Please upload files again via /usersettings → Document Library → Upload Files to create a new document library."
+                        ));
                     }
-                    // Return a user-friendly error with suggestion to upload files
-                    return Err(anyhow::anyhow!(
-                        "Your document library is no longer available (vector store deleted). Please upload files again using /add_files to create a new document library."
-                    ));
                 }
 
                 return Err(e.into());
@@ -783,9 +813,9 @@ impl AI {
             )));
         }
 
-        // Use the creator's vector store (if any)
-        let user_convos = UserConversations::new(&bot_deps.db)?;
-        let vector_store_id = user_convos.get_vector_store_id(creator_user_id);
+        // Use the group's vector store (if any)
+        let group_docs = &bot_deps.group_docs;
+        let vector_store_id = group_docs.get_group_vector_store_id(group_id.clone());
 
         // Tools setup
         let mut tools = vec![];

@@ -1,11 +1,10 @@
-use crate::dependencies::BotDependencies;
+use crate::{dependencies::BotDependencies, utils::send_message};
 use anyhow::Result;
 use quark_core::helpers::bot_commands::{Command, QuarkState};
 use teloxide::{
     Bot,
     dispatching::{DpHandlerDescription, HandlerExt, UpdateFilterExt, dialogue::InMemStorage},
     dptree::{self, Handler},
-    prelude::Requester,
     types::{Message, Update, ChatMemberUpdated},
 };
 
@@ -16,13 +15,14 @@ use crate::{
 };
 
 async fn handle_unauthenticated(bot: Bot, msg: Message) -> Result<()> {
-    bot.send_message(
-        msg.chat.id,
+    send_message(
+        msg,
+        bot,
         "👋 Welcome to Nova! 
 
 To use commands like `/c` or `/newchat`, you need to authenticate first.
 
-Please use `/login` to authenticate.",
+Please use `/login` to authenticate.".to_string(),
     )
     .await?;
     Ok(())
@@ -158,8 +158,6 @@ pub fn handler_tree() -> Handler<'static, Result<()>, DpHandlerDescription> {
                                 Command::C(_)
                                     | Command::WalletAddress
                                     | Command::Balance(_)
-                                    | Command::AddFiles
-                                    | Command::ListFiles
                                     | Command::NewChat
                                     | Command::PromptExamples
                                     | Command::Announcement(_)
@@ -177,7 +175,7 @@ pub fn handler_tree() -> Handler<'static, Result<()>, DpHandlerDescription> {
                             matches!(
                                 cmd,
                                 Command::G(_) | Command::Groupsettings
-                                    | Command::Report | Command::GroupBalance(_) | Command::GroupWalletAddress | Command::ModerationRules | Command::SchedulePrompt | Command::ListScheduled | Command::SchedulePayment | Command::ListScheduledPayments
+                                    | Command::Report | Command::GroupBalance(_) | Command::GroupWalletAddress | Command::Rules | Command::SchedulePrompt | Command::ListScheduled | Command::SchedulePayment | Command::ListScheduledPayments
                             )
                         })
                         .filter_async(|msg: Message, bot_deps: BotDependencies| async move {
@@ -203,9 +201,10 @@ pub fn handler_tree() -> Handler<'static, Result<()>, DpHandlerDescription> {
                         .filter(|cmd| { matches!(cmd, Command::Usersettings) })
                         .filter(|msg: Message| !msg.chat.is_private())
                         .endpoint(|bot: Bot, msg: Message| async move {
-                            bot.send_message(
-                                msg.chat.id,
-                                "❌ This command is only available in direct messages (DMs).\n\n💬 Please send me a private message to use this feature."
+                            send_message(
+                                msg,
+                                bot,
+                                "❌ This command is only available in direct messages (DMs).\n\n💬 Please send me a private message to use this feature.".to_string(),
                             )
                             .await?;
                             Ok(())

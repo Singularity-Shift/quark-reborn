@@ -5,6 +5,7 @@ use crate::dependencies::BotDependencies;
 use crate::scheduled_payments::dto::{
     PendingPaymentStep, PendingPaymentWizardState, ScheduledPaymentRecord,
 };
+use crate::utils::{KeyboardMarkupType, send_markdown_message_with_keyboard, send_message};
 use chrono::Utc;
 use teloxide::types::{InlineKeyboardButton, InlineKeyboardMarkup, User};
 use uuid::Uuid;
@@ -15,8 +16,12 @@ pub async fn handle_schedulepayment_command(
     bot_deps: BotDependencies,
 ) -> Result<()> {
     if !msg.chat.is_group() && !msg.chat.is_supergroup() {
-        bot.send_message(msg.chat.id, "❌ This command is only available in groups.")
-            .await?;
+        send_message(
+            msg,
+            bot,
+            "❌ This command is only available in groups.".to_string(),
+        )
+        .await?;
         return Ok(());
     }
 
@@ -26,16 +31,24 @@ pub async fn handle_schedulepayment_command(
         None => return Ok(()),
     };
     if !admins.iter().any(|m| m.user.id == user.id) {
-        bot.send_message(msg.chat.id, "❌ Only administrators can use this command.")
-            .await?;
+        send_message(
+            msg,
+            bot,
+            "❌ Only administrators can use this command.".to_string(),
+        )
+        .await?;
         return Ok(());
     }
 
     let username = match user.username.clone() {
         Some(u) => u,
         None => {
-            bot.send_message(msg.chat.id, "❌ Username required to schedule payments.")
-                .await?;
+            send_message(
+                msg,
+                bot,
+                "❌ Username required to schedule payments.".to_string(),
+            )
+            .await?;
             return Ok(());
         }
     };
@@ -63,9 +76,11 @@ pub async fn handle_schedulepayment_command(
         .scheduled_payments
         .put_pending((&state.group_id, &state.creator_user_id), &state)?;
 
-    bot.send_message(
-        msg.chat.id,
-        "👤 Send the recipient @username to receive payment (must have a linked wallet).",
+    send_message(
+        msg,
+        bot,
+        "👤 Send the recipient @username to receive payment (must have a linked wallet)."
+            .to_string(),
     )
     .await?;
 
@@ -83,8 +98,12 @@ pub async fn handle_listscheduledpayments_command(
         None => return Ok(()),
     };
     if !admins.iter().any(|m| m.user.id == user.id) {
-        bot.send_message(msg.chat.id, "❌ Only administrators can use this command.")
-            .await?;
+        send_message(
+            msg,
+            bot,
+            "❌ Only administrators can use this command.".to_string(),
+        )
+        .await?;
         return Ok(());
     }
 
@@ -93,9 +112,10 @@ pub async fn handle_listscheduledpayments_command(
         .list_schedules_for_group(msg.chat.id.0 as i64);
 
     if list.is_empty() {
-        bot.send_message(
-            msg.chat.id,
-            "📭 No active scheduled payments in this group.",
+        send_message(
+            msg,
+            bot,
+            "📭 No active scheduled payments in this group.".to_string(),
         )
         .await?;
         return Ok(());
@@ -135,15 +155,20 @@ pub async fn handle_listscheduledpayments_command(
                 format!("schedpay_close:{}", rec.id),
             )],
         ]);
-        bot.send_message(msg.chat.id, title)
-            .reply_markup(kb)
-            .await?;
+        send_markdown_message_with_keyboard(
+            bot.clone(),
+            msg.clone(),
+            KeyboardMarkupType::InlineKeyboardType(kb),
+            &title,
+        )
+        .await?;
     }
 
     Ok(())
 }
 
 pub async fn finalize_and_register_payment(
+    msg: Message,
     bot: Bot,
     bot_deps: BotDependencies,
     state: PendingPaymentWizardState,
@@ -154,9 +179,10 @@ pub async fn finalize_and_register_payment(
         .list_schedules_for_group(state.group_id)
         .len();
     if active_count >= 50 {
-        bot.send_message(
-            teloxide::types::ChatId(state.group_id),
-            "❌ You already have 50 active scheduled payments in this group. Delete or pause some before adding new ones.",
+        send_message(
+            msg,
+            bot,
+            "❌ You already have 50 active scheduled payments in this group. Delete or pause some before adding new ones.".to_string(),
         )
         .await?;
         return Ok(());
@@ -218,11 +244,7 @@ pub async fn finalize_and_register_payment(
     crate::scheduled_payments::runner::register_schedule(bot.clone(), bot_deps.clone(), &mut rec)
         .await?;
     bot_deps.scheduled_payments.put_schedule(&rec)?;
-    bot.send_message(
-        teloxide::types::ChatId(rec.group_id),
-        "✅ Scheduled payment created!",
-    )
-    .await?;
+    send_message(msg, bot, "✅ Scheduled payment created!".to_string()).await?;
 
     Ok(())
 }
@@ -245,8 +267,12 @@ pub async fn handle_message_scheduled_payments(
             || text_raw.to_lowercase().starts_with("/cancel@")
         {
             bot_deps.scheduled_payments.delete_pending(pay_key)?;
-            bot.send_message(msg.chat.id, "✅ Cancelled scheduled payment setup.")
-                .await?;
+            send_message(
+                msg,
+                bot,
+                "✅ Cancelled scheduled payment setup.".to_string(),
+            )
+            .await?;
             return Ok(true);
         }
         if text_raw.is_empty() || text_raw.starts_with('/') {
@@ -261,15 +287,17 @@ pub async fn handle_message_scheduled_payments(
                     st.recipient_address = Some(creds.resource_account_address);
                     st.step = crate::scheduled_payments::dto::PendingPaymentStep::AwaitingToken;
                     bot_deps.scheduled_payments.put_pending(pay_key, &st)?;
-                    bot.send_message(
-                        msg.chat.id,
-                        "💳 Send token symbol (e.g., APT, USDC, or emoji)",
+                    send_message(
+                        msg,
+                        bot,
+                        "💳 Send token symbol (e.g., APT, USDC, or emoji)".to_string(),
                     )
                     .await?;
                 } else {
-                    bot.send_message(
-                        msg.chat.id,
-                        "❌ Unknown user. Please send a valid @username.",
+                    send_message(
+                        msg,
+                        bot,
+                        "❌ Unknown user. Please send a valid @username.".to_string(),
                     )
                     .await?;
                 }
@@ -300,9 +328,10 @@ pub async fn handle_message_scheduled_payments(
                             (t, token.decimals, token.symbol)
                         }
                         Err(_) => {
-                            bot.send_message(
-                                msg.chat.id,
-                                "❌ Token not found. Try again (e.g., APT, USDC)",
+                            send_message(
+                                msg,
+                                bot,
+                                "❌ Token not found. Try again (e.g., APT, USDC)".to_string(),
                             )
                             .await?;
                             return Ok(true);
@@ -314,8 +343,7 @@ pub async fn handle_message_scheduled_payments(
                 st.decimals = Some(decimals);
                 st.step = crate::scheduled_payments::dto::PendingPaymentStep::AwaitingAmount;
                 bot_deps.scheduled_payments.put_pending(pay_key, &st)?;
-                bot.send_message(msg.chat.id, "💰 Send amount (decimal)")
-                    .await?;
+                send_message(msg, bot, "💰 Send amount (decimal)".to_string()).await?;
                 return Ok(true);
             }
             crate::scheduled_payments::dto::PendingPaymentStep::AwaitingAmount => {
@@ -325,13 +353,18 @@ pub async fn handle_message_scheduled_payments(
                         st.amount_display = Some(v);
                         st.step = crate::scheduled_payments::dto::PendingPaymentStep::AwaitingDate;
                         bot_deps.scheduled_payments.put_pending(pay_key, &st)?;
-                        bot.send_message(msg.chat.id, "📅 Send start date in YYYY-MM-DD (UTC)")
-                            .await?;
+                        send_message(
+                            msg,
+                            bot,
+                            "📅 Send start date in YYYY-MM-DD (UTC)".to_string(),
+                        )
+                        .await?;
                     }
                     _ => {
-                        bot.send_message(
-                            msg.chat.id,
-                            "❌ Invalid amount. Please send a positive number.",
+                        send_message(
+                            msg,
+                            bot,
+                            "❌ Invalid amount. Please send a positive number.".to_string(),
                         )
                         .await?;
                     }
@@ -344,12 +377,15 @@ pub async fn handle_message_scheduled_payments(
                     st.step = crate::scheduled_payments::dto::PendingPaymentStep::AwaitingHour;
                     bot_deps.scheduled_payments.put_pending(pay_key, &st)?;
                     let kb = crate::scheduled_payments::helpers::build_hours_keyboard_payments();
-                    bot.send_message(msg.chat.id, "⏰ Select hour (UTC)")
-                        .reply_markup(kb)
-                        .await?;
+                    send_markdown_message_with_keyboard(
+                        bot,
+                        msg,
+                        KeyboardMarkupType::InlineKeyboardType(kb),
+                        "⏰ Select hour (UTC)",
+                    )
+                    .await?;
                 } else {
-                    bot.send_message(msg.chat.id, "❌ Invalid date. Use YYYY-MM-DD.")
-                        .await?;
+                    send_message(msg, bot, "❌ Invalid date. Use YYYY-MM-DD.".to_string()).await?;
                 }
                 return Ok(true);
             }
@@ -357,9 +393,10 @@ pub async fn handle_message_scheduled_payments(
                 // Support 'skip' to keep existing values during edit flow
                 if text_raw.eq_ignore_ascii_case("skip") {
                     // do nothing, keep values
-                    bot.send_message(
-                        msg.chat.id,
-                        "✔️ Keeping existing values. Use buttons to confirm.",
+                    send_message(
+                        msg,
+                        bot,
+                        "✔️ Keeping existing values. Use buttons to confirm.".to_string(),
                     )
                     .await?;
                     return Ok(true);

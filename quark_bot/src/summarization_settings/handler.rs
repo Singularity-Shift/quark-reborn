@@ -123,6 +123,10 @@ async fn show_user_settings_menu(bot: Bot, query: CallbackQuery) -> Result<()> {
                 "open_payment_settings",
             )],
             vec![InlineKeyboardButton::callback(
+                "📁 Document Library",
+                "open_document_library",
+            )],
+            vec![InlineKeyboardButton::callback(
                 "📋 View My Settings",
                 "open_my_settings",
             )],
@@ -176,6 +180,10 @@ async fn show_group_settings_menu(bot: Bot, query: CallbackQuery) -> Result<()> 
                 "welcome_settings",
             )],
             vec![InlineKeyboardButton::callback("🔍 Filters", "filters_main")],
+            vec![InlineKeyboardButton::callback(
+                "📁 Group Document Library",
+                "open_group_document_library",
+            )],
             vec![InlineKeyboardButton::callback(
                 "⚙️ Command Settings",
                 "open_command_settings",

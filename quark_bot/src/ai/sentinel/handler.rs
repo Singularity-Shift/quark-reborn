@@ -1,10 +1,11 @@
 use anyhow::Result as AnyResult;
 use open_ai_rust_responses_by_sshift::Model;
-use teloxide::{prelude::*, types::{InlineKeyboardButton, InlineKeyboardMarkup, Message, ParseMode}};
+use teloxide::{prelude::*, sugar::request::RequestReplyExt, types::{InlineKeyboardButton, InlineKeyboardMarkup, Message, ParseMode}};
 
-use crate::{ai::moderation::dto::ModerationOverrides, dependencies::BotDependencies, payment::dto::PaymentPrefs, utils::create_purchase_request};
+use crate::{ai::moderation::dto::ModerationOverrides, dependencies::BotDependencies, payment::dto::PaymentPrefs, utils::{create_purchase_request, send_scheduled_message}};
 
 pub async fn handle_message_sentinel(bot: Bot, msg: Message, bot_deps: BotDependencies, chat_id: String) -> AnyResult<bool> {
+    let thread_id = msg.thread_id;
     let sentinel_on = bot_deps.sentinel.get_sentinel(chat_id.clone());
     if sentinel_on {
         // Skip moderation if there's an active moderation settings wizard
@@ -26,6 +27,15 @@ pub async fn handle_message_sentinel(bot: Bot, msg: Message, bot_deps: BotDepend
             let admins = bot.get_chat_administrators(msg.chat.id).await?;
             let is_admin = admins.iter().any(|member| member.user.id == user.id);
             if is_admin {
+                // Special case: if group is awaiting file uploads and this is a document-only message,
+                // let it pass through to the group file upload handler instead of stopping here
+                let is_awaiting_files = bot_deps.group_file_upload_state.is_awaiting(chat_id.clone()).await;
+                let is_document_only = msg.document().is_some() && msg.text().is_none() && msg.caption().is_none();
+                
+                if is_awaiting_files && is_document_only {
+                    return Ok(false); // Let other handlers process this message
+                }
+                
                 return Ok(true);
             }
         } 
@@ -53,7 +63,7 @@ pub async fn handle_message_sentinel(bot: Bot, msg: Message, bot_deps: BotDepend
         let token = bot_deps.panora.get_token_by_symbol(&coin.label).await;
 
         if token.is_err() {
-            bot.send_message(msg.chat.id, "❌ Token not found, please contact support")
+            send_scheduled_message(&bot, msg.chat.id,"❌ Token not found, please contact support", if let Some(thread_id) = thread_id { Some(thread_id.0.0) } else { None })
                 .await?;
             return Ok(true);
         }
@@ -63,11 +73,8 @@ pub async fn handle_message_sentinel(bot: Bot, msg: Message, bot_deps: BotDepend
         let token_price = token.usd_price;
 
         if token_price.is_none() {
-            bot.send_message(
-                msg.chat.id,
-                "❌ Token price not found, please contact support",
-            )
-            .await?;
+            send_scheduled_message(&bot, msg.chat.id,"❌ Token price not found, please contact support", if let Some(thread_id) = thread_id { Some(thread_id.0.0) } else { None })
+                .await?;
             return Ok(true);
         }
 
@@ -76,11 +83,8 @@ pub async fn handle_message_sentinel(bot: Bot, msg: Message, bot_deps: BotDepend
         let token_price = token_price.parse::<f64>();
 
         if token_price.is_err() {
-            bot.send_message(
-                msg.chat.id,
-                "❌ Token price not found, please contact support",
-            )
-            .await?;
+            send_scheduled_message(&bot, msg.chat.id,"❌ Token price not found, please contact support", if let Some(thread_id) = thread_id { Some(thread_id.0.0) } else { None })
+                .await?;
             return Ok(true);
         }
 
@@ -103,7 +107,7 @@ pub async fn handle_message_sentinel(bot: Bot, msg: Message, bot_deps: BotDepend
                 group_balance as f64 / 10_f64.powi(token_decimals as i32)
             );
 
-            bot.send_message(
+            let request= bot.send_message(
                 msg.chat.id,
                 format!(
                     "User balance is less than the minimum deposit. Please fund your account transfering {} to <code>{}</code> address. Minimum deposit: {} {} (Your balance: {} {})",
@@ -114,9 +118,14 @@ pub async fn handle_message_sentinel(bot: Bot, msg: Message, bot_deps: BotDepend
                     group_balance_formatted,
                     token.symbol
                 )
-            )
-            .parse_mode(ParseMode::Html)
-            .await?;
+            );
+
+            if let Some(thread_id) = thread_id {
+                request.reply_to(thread_id.0).parse_mode(ParseMode::Html).await?;
+            } else {
+                request.parse_mode(ParseMode::Html).await?;
+            }
+            
             return Ok(true);
         }
 
@@ -214,7 +223,7 @@ pub async fn handle_message_sentinel(bot: Bot, msg: Message, bot_deps: BotDepend
                             )
                         };
 
-                        bot.send_message(
+                        let request= bot.send_message(
                             msg.chat.id,
                             format!(
                                 "🛡️ <b>Content Flagged & User Muted</b>\n\n📝 Message ID: <code>{}</code>\n\n❌ Status: <b>FLAGGED</b> 🔴\n🔇 User has been muted\n👤 <b>User:</b> {}\n\n💬 <i>Flagged message:</i>\n<blockquote><span class=\"tg-spoiler\">{}</span></blockquote>",
@@ -224,8 +233,13 @@ pub async fn handle_message_sentinel(bot: Bot, msg: Message, bot_deps: BotDepend
                             )
                         )
                         .parse_mode(ParseMode::Html)
-                        .reply_markup(keyboard)
-                        .await?;
+                        .reply_markup(keyboard);
+
+                        if let Some(thread_id) = thread_id {
+                            request.reply_to(thread_id.0).parse_mode(ParseMode::Html).await?;
+                        } else {
+                            request.parse_mode(ParseMode::Html).await?;
+                        }
                         // Immediately remove the offending message from the chat
                     }
                     if let Err(e) = bot.delete_message(msg.chat.id, msg.id).await {
@@ -244,5 +258,5 @@ pub async fn handle_message_sentinel(bot: Bot, msg: Message, bot_deps: BotDepend
         return Ok(true);
     }
 
-    Ok(true)
+    Ok(false)
 }

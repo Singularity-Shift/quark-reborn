@@ -5,12 +5,18 @@ use teloxide::{
     utils::render::RenderMessageTextHelper,
 };
 
-use crate::dependencies::BotDependencies;
-use crate::filters::dto::{
-    FilterError, MatchType, PendingFilterStep, PendingFilterWizardState, ResponseType,
-};
 use crate::filters::helpers::{parse_triggers, replace_filter_placeholders};
-use crate::utils;
+use crate::utils::{self, KeyboardMarkupType, send_markdown_message_with_keyboard};
+use crate::{
+    dependencies::BotDependencies,
+    utils::{send_markdown_message, send_message},
+};
+use crate::{
+    filters::dto::{
+        FilterError, MatchType, PendingFilterStep, PendingFilterWizardState, ResponseType,
+    },
+    utils::send_html_message,
+};
 
 pub async fn handle_filters_callback(
     bot: Bot,
@@ -104,24 +110,28 @@ pub async fn process_message_for_filters(
                     );
 
                     // Determine parse mode based on filter response type
-                    let send_message = match filter_match.filter.response_type {
+                    let send_message_result = match filter_match.filter.response_type {
                         ResponseType::Markdown => {
                             // For markdown responses, use MarkdownV2 with proper escaping
-                            bot.send_message(msg.chat.id, &personalized_response)
-                                .parse_mode(ParseMode::MarkdownV2)
+                            send_markdown_message(
+                                msg.clone(),
+                                bot.clone(),
+                                personalized_response.clone(),
+                            )
+                            .await
                         }
                         ResponseType::Text => {
                             // For text responses, send as plain text without parse mode
-                            bot.send_message(msg.chat.id, &personalized_response)
+                            send_message(msg.clone(), bot.clone(), personalized_response.clone())
+                                .await
                         }
                     };
 
-                    if let Err(e) = send_message.await {
+                    if let Err(e) = send_message_result {
                         log::error!("Failed to send filter response: {}", e);
 
                         // Fallback to simple message without parse mode
-                        bot.send_message(msg.chat.id, &personalized_response)
-                            .await?;
+                        send_message(msg.clone(), bot, personalized_response.clone()).await?;
                     }
 
                     if let Some(user) = &msg.from {
@@ -476,6 +486,10 @@ async fn show_group_settings_menu(
         )],
         vec![InlineKeyboardButton::callback("🔍 Filters", "filters_main")],
         vec![InlineKeyboardButton::callback(
+            "📁 Group Document Library",
+            "open_group_document_library",
+        )],
+        vec![InlineKeyboardButton::callback(
             "⚙️ Command Settings",
             "open_command_settings",
         )],
@@ -688,8 +702,12 @@ pub async fn handle_message_filters(
             if let Err(e) = bot_deps.filters.remove_pending_settings(&filter_key) {
                 log::error!("Failed to remove filter wizard state: {}", e);
             }
-            bot.send_message(msg.chat.id, "✅ Cancelled filter creation.")
-                .await?;
+            send_message(
+                msg,
+                bot.clone(),
+                "✅ Cancelled filter creation.".to_string(),
+            )
+            .await?;
             return Ok(true);
         }
         if text_raw.is_empty() || text_raw.starts_with('/') {
@@ -702,13 +720,19 @@ pub async fn handle_message_filters(
                 st.step = crate::filters::dto::PendingFilterStep::AwaitingResponse;
                 if let Err(e) = bot_deps.filters.put_pending_settings(filter_key, &st) {
                     log::error!("Failed to save filter wizard state: {}", e);
-                    bot.send_message(msg.chat.id, "❌ Failed to save filter progress.")
-                        .await?;
+                    send_message(
+                        msg,
+                        bot.clone(),
+                        "❌ Failed to save filter progress.".to_string(),
+                    )
+                    .await?;
                     return Ok(true);
                 }
-                bot.send_message(msg.chat.id, "🔍 <b>Add New Filter - Step 2/3</b>\n\nNow send the response message that the bot should reply with when someone types your trigger.\n\n💡 <i>You can use Markdown formatting (bold, code, etc.) or just plain text. Both work perfectly!</i>\n\n✨ <b>Available Placeholders:</b>\n• <code>{username}</code> → @username (creates clickable mention)\n• <code>{group_name}</code> → Group name\n• <code>{trigger}</code> → The word/phrase that triggered the filter\n\n<b>Examples:</b>\n• <code>Hello {username}! Welcome to {group_name}! 👋</code>\n• <code>**Bold text** works great!</code>\n• <code>Use `code` for inline formatting</code>\n• <code>Hey {username}, you said '{trigger}'! 🎯</code>\n• <code>Good morning {username}! ☀️</code>")
-                        .parse_mode(ParseMode::Html)
-                        .await?;
+                send_html_message(
+                    msg.clone(),
+                    bot.clone(),
+                    "🔍 <b>Add New Filter - Step 2/3</b>\n\nNow send the response message that the bot should reply with when someone types your trigger.\n\n💡 <i>You can use Markdown formatting (bold, code, etc.) or just plain text. Both work perfectly!</i>\n\n✨ <b>Available Placeholders:</b>\n• <code>{username}</code> → @username (creates clickable mention)\n• <code>{group_name}</code> → Group name\n• <code>{trigger}</code> → The word/phrase that triggered the filter\n\n<b>Examples:</b>\n• <code>Hello {username}! Welcome to {group_name}! 👋</code>\n• <code>**Bold text** works great!</code>\n• <code>Use `code` for inline formatting</code>\n• <code>Hey {username}, you said '{trigger}'! 🎯</code>\n• <code>Good morning {username}! ☀️</code>".to_string(),
+                ).await?;
                 return Ok(true);
             }
             crate::filters::dto::PendingFilterStep::AwaitingResponse => {
@@ -717,8 +741,12 @@ pub async fn handle_message_filters(
                 st.step = crate::filters::dto::PendingFilterStep::AwaitingConfirm;
                 if let Err(e) = bot_deps.filters.put_pending_settings(filter_key, &st) {
                     log::error!("Failed to save filter wizard state: {}", e);
-                    bot.send_message(msg.chat.id, "❌ Failed to save filter progress.")
-                        .await?;
+                    send_message(
+                        msg,
+                        bot.clone(),
+                        "❌ Failed to save filter progress.".to_string(),
+                    )
+                    .await?;
                     return Ok(true);
                 }
 
@@ -732,10 +760,13 @@ pub async fn handle_message_filters(
                     teloxide::types::InlineKeyboardButton::callback("❌ Cancel", "filters_cancel"),
                 ]]);
 
-                bot.send_message(msg.chat.id, summary)
-                    .parse_mode(ParseMode::Html)
-                    .reply_markup(keyboard)
-                    .await?;
+                send_markdown_message_with_keyboard(
+                    bot.clone(),
+                    msg,
+                    KeyboardMarkupType::InlineKeyboardType(keyboard),
+                    &summary,
+                )
+                .await?;
                 return Ok(true);
             }
             crate::filters::dto::PendingFilterStep::AwaitingConfirm => {

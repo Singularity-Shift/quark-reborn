@@ -1,5 +1,8 @@
 //! Callback query handlers for quark_bot.
 
+use crate::ai::group_vector_store::{
+    delete_file_from_group_vector_store, delete_group_vector_store, list_group_files_with_names,
+};
 use crate::ai::moderation::dto::{ModerationSettings, ModerationState};
 use crate::ai::vector_store::{
     delete_file_from_vector_store, delete_vector_store, list_user_files_with_names,
@@ -11,12 +14,13 @@ use crate::scheduled_payments::callbacks::handle_scheduled_payments_callback;
 use crate::scheduled_prompts::callbacks::handle_scheduled_prompts_callback;
 use crate::sponsor::handler::handle_sponsor_settings_callback;
 use crate::user_model_preferences::callbacks::handle_model_preferences_callback;
-use crate::utils;
+use crate::utils::{self, send_html_message};
 use crate::welcome::handler::handle_welcome_settings_callback;
 use anyhow::Result;
+use teloxide::sugar::request::RequestReplyExt;
 use teloxide::{
     prelude::*,
-    types::{InlineKeyboardButton, InlineKeyboardMarkup},
+    types::{InlineKeyboardButton, InlineKeyboardMarkup, MaybeInaccessibleMessage, ParseMode},
 };
 
 pub async fn handle_callback_query(
@@ -51,13 +55,22 @@ pub async fn handle_callback_query(
                         match list_user_files_with_names(user_id, bot_deps.clone()) {
                             Ok(files) => {
                                 if files.is_empty() {
-                                    if let Some(
-                                        teloxide::types::MaybeInaccessibleMessage::Regular(message),
-                                    ) = &query.message
+                                    if let Some(MaybeInaccessibleMessage::Regular(message)) =
+                                        &query.message
                                     {
-                                        bot.edit_message_text(message.chat.id, message.id, "✅ <b>File deleted successfully!</b>\n\n📁 <i>Your document library is now empty</i>\n\n💡 Use /add_files to upload new documents")
-                                            .parse_mode(teloxide::types::ParseMode::Html)
-                                            .reply_markup(InlineKeyboardMarkup::new(vec![] as Vec<Vec<InlineKeyboardButton>>))
+                                        let kb = InlineKeyboardMarkup::new(vec![
+                                            vec![InlineKeyboardButton::callback(
+                                                "📎 Upload Files",
+                                                "upload_files_prompt",
+                                            )],
+                                            vec![InlineKeyboardButton::callback(
+                                                "↩️ Back",
+                                                "back_to_user_settings",
+                                            )],
+                                        ]);
+                                        bot.edit_message_text(message.chat.id, message.id, "✅ <b>File deleted successfully!</b>\n\n📁 <i>Your document library is now empty</i>\n\n💡 Use the button below to add new documents")
+                                            .parse_mode(ParseMode::Html)
+                                            .reply_markup(kb)
                                             .await?;
                                     }
                                 } else {
@@ -98,16 +111,15 @@ pub async fn handle_callback_query(
                                     }
                                     let keyboard = InlineKeyboardMarkup::new(keyboard_rows);
 
-                                    if let Some(
-                                        teloxide::types::MaybeInaccessibleMessage::Regular(message),
-                                    ) = &query.message
+                                    if let Some(MaybeInaccessibleMessage::Regular(message)) =
+                                        &query.message
                                     {
                                         bot.edit_message_text(
                                             message.chat.id,
                                             message.id,
                                             response,
                                         )
-                                        .parse_mode(teloxide::types::ParseMode::Html)
+                                        .parse_mode(ParseMode::Html)
                                         .reply_markup(keyboard)
                                         .await?;
                                     }
@@ -116,7 +128,7 @@ pub async fn handle_callback_query(
                             Err(e) => {
                                 log::error!("Failed to list files after deletion: {}", e);
                                 bot.answer_callback_query(query.id)
-                                    .text("❌ Error refreshing file list. Please try /list_files again.")
+                                    .text("❌ Error refreshing file list. Please reopen the Document Library.")
                                     .await?;
                             }
                         }
@@ -128,7 +140,7 @@ pub async fn handle_callback_query(
                         // Check if it's a vector store not found error
                         if error_msg.contains("document library is no longer available") {
                             bot.answer_callback_query(query.id)
-                                .text("📁 Your document library was removed. Use /add_files to create a new one!")
+                                .text("📁 Your document library was removed. Use <Upload Files> to create a new one!")
                                 .await?;
                         } else {
                             bot.answer_callback_query(query.id)
@@ -139,19 +151,27 @@ pub async fn handle_callback_query(
                 }
             } else {
                 bot.answer_callback_query(query.id)
-                    .text("❌ No document library found. Please try /list_files again.")
+                    .text("❌ No document library found. Please reopen the Document Library.")
                     .await?;
             }
         } else if data == "clear_all_files" {
             match delete_vector_store(user_id, bot_deps.clone()).await {
                 Ok(_) => {
                     bot.answer_callback_query(query.id).await?;
-                    if let Some(teloxide::types::MaybeInaccessibleMessage::Regular(message)) =
-                        &query.message
-                    {
-                        bot.edit_message_text(message.chat.id, message.id, "✅ <b>All files cleared successfully!</b>\n\n🗑️ <i>Your entire document library has been deleted</i>\n\n💡 Use /add_files to start building your library again")
+                    if let Some(MaybeInaccessibleMessage::Regular(message)) = &query.message {
+                        let kb = InlineKeyboardMarkup::new(vec![
+                            vec![InlineKeyboardButton::callback(
+                                "📎 Upload Files",
+                                "upload_files_prompt",
+                            )],
+                            vec![InlineKeyboardButton::callback(
+                                "↩️ Back",
+                                "back_to_user_settings",
+                            )],
+                        ]);
+                        bot.edit_message_text(message.chat.id, message.id, "✅ <b>All files cleared successfully!</b>\n\n📁 <i>Your document library is now empty</i>\n\n💡 Use the button below to add new documents")
                             .parse_mode(teloxide::types::ParseMode::Html)
-                            .reply_markup(InlineKeyboardMarkup::new(vec![] as Vec<Vec<InlineKeyboardButton>>))
+                            .reply_markup(kb)
                             .await?;
                     }
                 }
@@ -167,9 +187,7 @@ pub async fn handle_callback_query(
             let user_id_str = data.strip_prefix("unmute:").unwrap();
             let target_user_id: i64 = user_id_str.parse().unwrap_or(0);
 
-            if let Some(teloxide::types::MaybeInaccessibleMessage::Regular(message)) =
-                &query.message
-            {
+            if let Some(MaybeInaccessibleMessage::Regular(message)) = &query.message {
                 // Check if the user clicking the button is an admin
                 let admins = bot.get_chat_administrators(message.chat.id).await?;
                 let requester_id = query.from.id;
@@ -225,9 +243,7 @@ pub async fn handle_callback_query(
             }
             let target_user_id: i64 = parts[1].parse().unwrap_or(0);
 
-            if let Some(teloxide::types::MaybeInaccessibleMessage::Regular(message)) =
-                &query.message
-            {
+            if let Some(MaybeInaccessibleMessage::Regular(message)) = &query.message {
                 // Check if the user clicking the button is an admin
                 let admins = bot.get_chat_administrators(message.chat.id).await?;
                 let requester_id = query.from.id;
@@ -288,7 +304,7 @@ pub async fn handle_callback_query(
         } else if data == "open_select_model" {
             // Start the same workflow as /selectmodel: show chat model options
             if let Some(message) = &query.message {
-                if let teloxide::types::MaybeInaccessibleMessage::Regular(m) = message {
+                if let MaybeInaccessibleMessage::Regular(m) = message {
                     let keyboard = InlineKeyboardMarkup::new(vec![
                         vec![InlineKeyboardButton::callback(
                             "GPT-5 (💸 Smart & Creative)",
@@ -309,14 +325,14 @@ pub async fn handle_callback_query(
                         "🤖 <b>Select your chat model:</b>\n\nChoose which model to use for regular chat commands (/c):",
                     )
                     .reply_markup(keyboard)
-                    .parse_mode(teloxide::types::ParseMode::Html)
+                    .parse_mode(ParseMode::Html)
                     .await?;
                 }
             }
         } else if data == "open_my_settings" {
             // Render user's current settings using existing logic
             if let Some(message) = &query.message {
-                if let teloxide::types::MaybeInaccessibleMessage::Regular(m) = message {
+                if let MaybeInaccessibleMessage::Regular(m) = message {
                     // Build comprehensive settings view: Model, Mode, Verbosity, Token selected
                     let user = query.from.username.clone();
                     let id = query.from.id;
@@ -369,7 +385,7 @@ pub async fn handle_callback_query(
                             )]]);
 
                         bot.edit_message_text(m.chat.id, m.id, text)
-                            .parse_mode(teloxide::types::ParseMode::Html)
+                            .parse_mode(ParseMode::Html)
                             .reply_markup(keyboard)
                             .await?;
                     } else {
@@ -382,7 +398,7 @@ pub async fn handle_callback_query(
         } else if data == "open_payment_settings" {
             // Show submenu with the choose token action and the default currency
             if let Some(message) = &query.message {
-                if let teloxide::types::MaybeInaccessibleMessage::Regular(m) = message {
+                if let MaybeInaccessibleMessage::Regular(m) = message {
                     let mut default_currency = bot_deps.default_payment_prefs.label.clone();
 
                     let prefs = bot_deps
@@ -413,14 +429,114 @@ pub async fn handle_callback_query(
                             default_currency
                         ),
                     )
-                    .parse_mode(teloxide::types::ParseMode::Html)
+                    .parse_mode(ParseMode::Html)
                     .reply_markup(kb)
                     .await?;
                 }
             }
+        } else if data == "open_document_library" {
+            // Open the user's Document Library within /usersettings (DM context)
+            let user_id = query.from.id.0 as i64;
+
+            match list_user_files_with_names(user_id, bot_deps.clone()) {
+                Ok(files) => {
+                    use teloxide::types::{InlineKeyboardButton, InlineKeyboardMarkup};
+
+                    let (text, keyboard) = if files.is_empty() {
+                        let kb = InlineKeyboardMarkup::new(vec![
+                            vec![InlineKeyboardButton::callback(
+                                "📎 Upload Files",
+                                "upload_files_prompt",
+                            )],
+                            vec![InlineKeyboardButton::callback(
+                                "↩️ Back",
+                                "back_to_user_settings",
+                            )],
+                        ]);
+                        (
+                            "📁 <b>Your Document Library</b>\n\n<i>No files uploaded yet</i>\n\n💡 Use the button below to upload your first documents.".to_string(),
+                            kb,
+                        )
+                    } else {
+                        let file_list = files
+                            .iter()
+                            .map(|file| {
+                                let icon = utils::get_file_icon(&file.name);
+                                let clean_name = utils::clean_filename(&file.name);
+                                format!("{}  <b>{}</b>", icon, clean_name)
+                            })
+                            .collect::<Vec<_>>()
+                            .join("\n");
+                        let response = format!(
+                            "🗂️ <b>Your Document Library</b> ({} files)\n\n{}\n\n💡 <i>Tap any button below to manage your files</i>",
+                            files.len(),
+                            file_list
+                        );
+                        let mut keyboard_rows = Vec::new();
+                        for file in &files {
+                            let clean_name = utils::clean_filename(&file.name);
+                            let button_text = if clean_name.len() > 25 {
+                                format!("🗑️ {}", &clean_name[..22].trim_end())
+                            } else {
+                                format!("🗑️ {}", clean_name)
+                            };
+                            let delete_button = InlineKeyboardButton::callback(
+                                button_text,
+                                format!("delete_file:{}", file.id),
+                            );
+                            keyboard_rows.push(vec![delete_button]);
+                        }
+                        if files.len() > 1 {
+                            let clear_all_button = InlineKeyboardButton::callback(
+                                "🗑️ Clear All Files",
+                                "clear_all_files",
+                            );
+                            keyboard_rows.push(vec![clear_all_button]);
+                        }
+                        // Upload + Back controls
+                        keyboard_rows.push(vec![InlineKeyboardButton::callback(
+                            "📎 Upload Files",
+                            "upload_files_prompt",
+                        )]);
+                        keyboard_rows.push(vec![InlineKeyboardButton::callback(
+                            "↩️ Back",
+                            "back_to_user_settings",
+                        )]);
+                        (response, InlineKeyboardMarkup::new(keyboard_rows))
+                    };
+
+                    if let Some(MaybeInaccessibleMessage::Regular(message)) = &query.message {
+                        bot.edit_message_text(message.chat.id, message.id, text)
+                            .parse_mode(ParseMode::Html)
+                            .reply_markup(keyboard)
+                            .await?;
+                    }
+                }
+                Err(e) => {
+                    log::error!("Failed to open document library: {}", e);
+                    bot.answer_callback_query(query.id)
+                        .text("❌ Error loading Document Library")
+                        .await?;
+                }
+            }
+        } else if data == "upload_files_prompt" {
+            if let Some(MaybeInaccessibleMessage::Regular(message)) = &query.message {
+                use teloxide::types::{InlineKeyboardButton, InlineKeyboardMarkup};
+                let kb = InlineKeyboardMarkup::new(vec![vec![InlineKeyboardButton::callback(
+                    "↩️ Back",
+                    "open_document_library",
+                )]]);
+                bot.edit_message_text(
+                    message.chat.id,
+                    message.id,
+                    "📎 Please attach the documents you wish to upload in your next message.\n\n✅ Supported: Documents (.txt, .md, .py, .js, .pdf, .docx, etc.)\n💡 You can send multiple documents in one message!",
+                )
+                .reply_markup(kb)
+                .await?;
+            }
         } else if data == "back_to_user_settings" {
             if let Some(message) = &query.message {
-                if let teloxide::types::MaybeInaccessibleMessage::Regular(m) = message {
+                if let MaybeInaccessibleMessage::Regular(m) = message {
                     let kb = InlineKeyboardMarkup::new(vec![
                         vec![InlineKeyboardButton::callback(
                             "🧠 Select Model",
@@ -431,8 +547,16 @@ pub async fn handle_callback_query(
                             "open_payment_settings",
                         )],
                         vec![InlineKeyboardButton::callback(
+                            "📁 Document Library",
+                            "open_document_library",
+                        )],
+                        vec![InlineKeyboardButton::callback(
                             "📋 View My Settings",
                             "open_my_settings",
+                        )],
+                        vec![InlineKeyboardButton::callback(
+                            "🧾 Summarization Settings",
+                            "open_summarization_settings",
                         )],
                         vec![InlineKeyboardButton::callback(
                             "↩️ Close",
@@ -440,22 +564,328 @@ pub async fn handle_callback_query(
                         )],
                     ]);
                     bot.edit_message_text(m.chat.id, m.id, "⚙️ <b>User Settings</b>\n\n• Manage your model, view current settings, and configure payment.\n\n💡 If no payment token is selected, the on-chain default will be used.")
-                        .parse_mode(teloxide::types::ParseMode::Html)
+                        .parse_mode(ParseMode::Html)
                         .reply_markup(kb)
                         .await?;
                 }
             }
         } else if data == "user_settings_close" {
             if let Some(message) = &query.message {
-                if let teloxide::types::MaybeInaccessibleMessage::Regular(m) = message {
+                if let MaybeInaccessibleMessage::Regular(m) = message {
                     let _ = bot.edit_message_reply_markup(m.chat.id, m.id).await;
                     bot.answer_callback_query(query.id).text("Closed").await?;
+                }
+            }
+        } else if data == "open_group_document_library" {
+            // Open the group's Document Library within /groupsettings (admin only)
+            if let Some(message) = &query.message {
+                if let MaybeInaccessibleMessage::Regular(m) = message {
+                    let is_admin = utils::is_admin(&bot, m.chat.id, query.from.id).await;
+                    if !is_admin {
+                        bot.answer_callback_query(query.id)
+                            .text("❌ Only administrators can manage group documents")
+                            .await?;
+                        return Ok(());
+                    }
+
+                    let group_id = m.chat.id.to_string();
+
+                    // Use reusable function but edit existing message instead of sending new one
+                    match list_group_files_with_names(group_id.clone(), bot_deps.clone()) {
+                        Ok(files) => {
+                            use teloxide::types::{InlineKeyboardButton, InlineKeyboardMarkup};
+
+                            let (text, keyboard) = if files.is_empty() {
+                                let kb = InlineKeyboardMarkup::new(vec![
+                                    vec![InlineKeyboardButton::callback(
+                                        "📎 Upload Files",
+                                        "group_upload_files_prompt",
+                                    )],
+                                    vec![InlineKeyboardButton::callback(
+                                        "↩️ Back",
+                                        "back_to_group_settings",
+                                    )],
+                                ]);
+                                (
+                                    "📁 <b>Group Document Library</b>\n\n<i>No files uploaded yet</i>\n\n💡 Use the button below to upload your first documents for /g commands.".to_string(),
+                                    kb,
+                                )
+                            } else {
+                                let file_list = files
+                                    .iter()
+                                    .map(|file| {
+                                        let icon = utils::get_file_icon(&file.name);
+                                        let clean_name = utils::clean_filename(&file.name);
+                                        format!("{}  <b>{}</b>", icon, clean_name)
+                                    })
+                                    .collect::<Vec<_>>()
+                                    .join("\n");
+                                let response = format!(
+                                    "🗂️ <b>Group Document Library</b> ({} files)\n\n{}\n\n💡 <i>Tap any button below to manage your files</i>",
+                                    files.len(),
+                                    file_list
+                                );
+                                let mut keyboard_rows = Vec::new();
+                                for file in &files {
+                                    let clean_name = utils::clean_filename(&file.name);
+                                    let button_text = if clean_name.len() > 25 {
+                                        format!("🗑️ {}", &clean_name[..22].trim_end())
+                                    } else {
+                                        format!("🗑️ {}", clean_name)
+                                    };
+                                    let delete_button = InlineKeyboardButton::callback(
+                                        button_text,
+                                        format!("group_delete_file:{}", file.id),
+                                    );
+                                    keyboard_rows.push(vec![delete_button]);
+                                }
+                                if files.len() > 1 {
+                                    let clear_all_button = InlineKeyboardButton::callback(
+                                        "🗑️ Clear All Files",
+                                        "group_clear_all_files",
+                                    );
+                                    keyboard_rows.push(vec![clear_all_button]);
+                                }
+                                // Upload + Back controls
+                                keyboard_rows.push(vec![InlineKeyboardButton::callback(
+                                    "📎 Upload Files",
+                                    "group_upload_files_prompt",
+                                )]);
+                                keyboard_rows.push(vec![InlineKeyboardButton::callback(
+                                    "↩️ Back",
+                                    "back_to_group_settings",
+                                )]);
+                                (response, InlineKeyboardMarkup::new(keyboard_rows))
+                            };
+
+                            bot.edit_message_text(m.chat.id, m.id, text)
+                                .parse_mode(ParseMode::Html)
+                                .reply_markup(keyboard)
+                                .await?;
+                        }
+                        Err(e) => {
+                            log::error!("Failed to open group document library: {}", e);
+                            bot.answer_callback_query(query.id)
+                                .text("❌ Error loading Group Document Library")
+                                .await?;
+                        }
+                    }
+                }
+            }
+        } else if data.starts_with("group_delete_file:") {
+            let file_id = data.strip_prefix("group_delete_file:").unwrap();
+
+            if let Some(message) = &query.message {
+                if let MaybeInaccessibleMessage::Regular(m) = message {
+                    let is_admin = utils::is_admin(&bot, m.chat.id, query.from.id).await;
+                    if !is_admin {
+                        bot.answer_callback_query(query.id)
+                            .text("❌ Only administrators can manage group documents")
+                            .await?;
+                        return Ok(());
+                    }
+
+                    let group_id = m.chat.id.to_string();
+
+                    if let Some(vector_store_id) = bot_deps
+                        .group_docs
+                        .get_group_vector_store_id(group_id.clone())
+                    {
+                        match delete_file_from_group_vector_store(
+                            group_id.clone(),
+                            bot_deps.clone(),
+                            &vector_store_id,
+                            file_id,
+                        )
+                        .await
+                        {
+                            Ok(_) => {
+                                bot.answer_callback_query(query.id.clone()).await?;
+
+                                match list_group_files_with_names(
+                                    group_id.clone(),
+                                    bot_deps.clone(),
+                                ) {
+                                    Ok(files) => {
+                                        if files.is_empty() {
+                                            bot.edit_message_text(m.chat.id, m.id, "✅ <b>File deleted successfully!</b>\n\n📁 <i>Your group document library is now empty</i>\n\n💡 Use <b>Upload Files</b> to add new documents")
+                                                .parse_mode(ParseMode::Html)
+                                                .reply_markup(InlineKeyboardMarkup::new(vec![
+                                                    vec![InlineKeyboardButton::callback(
+                                                        "📎 Upload Files",
+                                                        "group_upload_files_prompt",
+                                                    )],
+                                                    vec![InlineKeyboardButton::callback(
+                                                        "↩️ Back",
+                                                        "back_to_group_settings",
+                                                    )],
+                                                ]))
+                                                .await?;
+                                        } else {
+                                            let file_list = files
+                                                .iter()
+                                                .map(|file| {
+                                                    let icon = utils::get_file_icon(&file.name);
+                                                    let clean_name =
+                                                        utils::clean_filename(&file.name);
+                                                    format!("{}  <b>{}</b>", icon, clean_name)
+                                                })
+                                                .collect::<Vec<_>>()
+                                                .join("\n");
+                                            let response = format!(
+                                                "🗂️ <b>Group Document Library</b> ({} files)\n\n{}\n\n💡 <i>Tap any button below to manage your files</i>",
+                                                files.len(),
+                                                file_list
+                                            );
+                                            let mut keyboard_rows = Vec::new();
+                                            for file in &files {
+                                                let clean_name = utils::clean_filename(&file.name);
+                                                let button_text = if clean_name.len() > 25 {
+                                                    format!("🗑️ {}", &clean_name[..22].trim_end())
+                                                } else {
+                                                    format!("🗑️ {}", clean_name)
+                                                };
+                                                let delete_button = InlineKeyboardButton::callback(
+                                                    button_text,
+                                                    format!("group_delete_file:{}", file.id),
+                                                );
+                                                keyboard_rows.push(vec![delete_button]);
+                                            }
+                                            if files.len() > 1 {
+                                                let clear_all_button =
+                                                    InlineKeyboardButton::callback(
+                                                        "🗑️ Clear All Files",
+                                                        "group_clear_all_files",
+                                                    );
+                                                keyboard_rows.push(vec![clear_all_button]);
+                                            }
+                                            keyboard_rows.push(vec![
+                                                InlineKeyboardButton::callback(
+                                                    "📎 Upload Files",
+                                                    "group_upload_files_prompt",
+                                                ),
+                                            ]);
+                                            keyboard_rows.push(vec![
+                                                InlineKeyboardButton::callback(
+                                                    "↩️ Back",
+                                                    "back_to_group_settings",
+                                                ),
+                                            ]);
+                                            let keyboard = InlineKeyboardMarkup::new(keyboard_rows);
+
+                                            bot.edit_message_text(m.chat.id, m.id, response)
+                                                .parse_mode(ParseMode::Html)
+                                                .reply_markup(keyboard)
+                                                .await?;
+                                        }
+                                    }
+                                    Err(e) => {
+                                        log::error!("Failed to list files after deletion: {}", e);
+                                        bot.answer_callback_query(query.id)
+                                            .text("❌ Error refreshing file list. Please reopen the Group Document Library.")
+                                            .await?;
+                                    }
+                                }
+                            }
+                            Err(e) => {
+                                log::error!("Group file deletion failed: {}", e);
+                                let error_msg = e.to_string();
+
+                                if error_msg
+                                    .contains("group document library is no longer available")
+                                {
+                                    bot.answer_callback_query(query.id)
+                                        .text("📁 Your group document library was removed. Use <Upload Files> to create a new one!")
+                                        .await?;
+                                } else {
+                                    bot.answer_callback_query(query.id)
+                                        .text(&format!("❌ Failed to delete file. Error: {}", e))
+                                        .await?;
+                                }
+                            }
+                        }
+                    } else {
+                        bot.answer_callback_query(query.id)
+                            .text("❌ No group document library found. Please reopen the Group Document Library.")
+                            .await?;
+                    }
+                }
+            }
+        } else if data == "group_clear_all_files" {
+            if let Some(message) = &query.message {
+                if let MaybeInaccessibleMessage::Regular(m) = message {
+                    let is_admin = utils::is_admin(&bot, m.chat.id, query.from.id).await;
+                    if !is_admin {
+                        bot.answer_callback_query(query.id)
+                            .text("❌ Only administrators can manage group documents")
+                            .await?;
+                        return Ok(());
+                    }
+
+                    let group_id = m.chat.id.to_string();
+
+                    match delete_group_vector_store(group_id.clone(), bot_deps.clone()).await {
+                        Ok(_) => {
+                            bot.answer_callback_query(query.id).await?;
+                            bot.edit_message_text(m.chat.id, m.id, "✅ <b>All files cleared successfully!</b>\n\n🗑️ <i>Your entire group document library has been deleted</i>\n\n💡 Open <b>Group Settings → Document Library</b> and tap <b>Upload Files</b> to start building your library again")
+                                .parse_mode(teloxide::types::ParseMode::Html)
+                                .reply_markup(InlineKeyboardMarkup::new(vec![
+                                    vec![InlineKeyboardButton::callback(
+                                        "📎 Upload Files",
+                                        "group_upload_files_prompt",
+                                    )],
+                                    vec![InlineKeyboardButton::callback(
+                                        "↩️ Back",
+                                        "back_to_group_settings",
+                                    )],
+                                ]))
+                                .await?;
+                        }
+                        Err(e) => {
+                            log::error!("Failed to clear all group files: {}", e);
+                            bot.answer_callback_query(query.id)
+                                .text(&format!("❌ Failed to clear files. Error: {}", e))
+                                .await?;
+                        }
+                    }
+                }
+            }
+        } else if data == "group_upload_files_prompt" {
+            if let Some(message) = &query.message {
+                if let MaybeInaccessibleMessage::Regular(m) = message {
+                    let is_admin = utils::is_admin(&bot, m.chat.id, query.from.id).await;
+                    if !is_admin {
+                        bot.answer_callback_query(query.id)
+                            .text("❌ Only administrators can manage group documents")
+                            .await?;
+                        return Ok(());
+                    }
+
+                    use teloxide::types::{InlineKeyboardButton, InlineKeyboardMarkup};
+                    let kb = InlineKeyboardMarkup::new(vec![vec![InlineKeyboardButton::callback(
+                        "↩️ Back",
+                        "open_group_document_library",
+                    )]]);
+                    // Set the group as awaiting files
+                    let group_id = m.chat.id.to_string();
+                    bot_deps
+                        .group_file_upload_state
+                        .set_awaiting(group_id)
+                        .await;
+
+                    bot.edit_message_text(
+                        m.chat.id,
+                        m.id,
+                        "📎 Please attach the documents you wish to upload to the group document library in your next message.\n\n✅ Supported: Documents (.txt, .md, .py, .js, .pdf, .docx, etc.)\n💡 You can send multiple documents in one message!\n\n🔒 Only administrators can upload files to the group library.",
+                    )
+                    .reply_markup(kb)
+                    .await?;
                 }
             }
         } else if data == "open_group_payment_settings" {
             // Show group payment settings submenu
             if let Some(message) = &query.message {
-                if let teloxide::types::MaybeInaccessibleMessage::Regular(m) = message {
+                if let MaybeInaccessibleMessage::Regular(m) = message {
                     let is_admin = utils::is_admin(&bot, m.chat.id, query.from.id).await;
 
                     if !is_admin {
@@ -494,7 +924,7 @@ pub async fn handle_callback_query(
                             default_currency
                         ),
                     )
-                    .parse_mode(teloxide::types::ParseMode::Html)
+                    .parse_mode(ParseMode::Html)
                     .reply_markup(kb)
                     .await?;
                 }
@@ -502,7 +932,7 @@ pub async fn handle_callback_query(
         } else if data == "open_dao_preferences" {
             // Open DAO preferences menu
             if let Some(message) = &query.message {
-                if let teloxide::types::MaybeInaccessibleMessage::Regular(m) = message {
+                if let MaybeInaccessibleMessage::Regular(m) = message {
                     // Check if user is admin
                     let admins = bot.get_chat_administrators(m.chat.id).await?;
                     let requester_id = query.from.id;
@@ -598,7 +1028,7 @@ pub async fn handle_callback_query(
                         m.id,
                         "🏛️ <b>DAO Preferences</b>\n\nConfigure group DAO settings:",
                     )
-                    .parse_mode(teloxide::types::ParseMode::Html)
+                    .parse_mode(ParseMode::Html)
                     .reply_markup(keyboard)
                     .await?;
                 }
@@ -606,7 +1036,7 @@ pub async fn handle_callback_query(
         } else if data == "open_migrate_group_id" {
             // Handle group ID migration
             if let Some(message) = &query.message {
-                if let teloxide::types::MaybeInaccessibleMessage::Regular(m) = message {
+                if let MaybeInaccessibleMessage::Regular(m) = message {
                     // Check if user is admin
                     let admins = bot.get_chat_administrators(m.chat.id).await?;
                     let requester_id = query.from.id;
@@ -678,7 +1108,7 @@ pub async fn handle_callback_query(
                                 m.id,
                                 "⚙️ <b>Group Settings</b>\n\n• Configure payment token, DAO preferences, moderation, sponsor settings, welcome settings, filters, and group migration.\n\n💡 Only group administrators can access these settings."
                             )
-                            .parse_mode(teloxide::types::ParseMode::Html)
+                            .parse_mode(ParseMode::Html)
                             .reply_markup(kb)
                             .await?;
                         }
@@ -751,6 +1181,10 @@ pub async fn handle_callback_query(
                         )],
                         vec![InlineKeyboardButton::callback("🔍 Filters", "filters_main")],
                         vec![InlineKeyboardButton::callback(
+                            "📁 Group Document Library",
+                            "open_group_document_library",
+                        )],
+                        vec![InlineKeyboardButton::callback(
                             "⚙️ Command Settings",
                             "open_command_settings",
                         )],
@@ -768,14 +1202,14 @@ pub async fn handle_callback_query(
                         )],
                     ]);
                     bot.edit_message_text(m.chat.id, m.id, "⚙️ <b>Group Settings</b>\n\n• Configure payment token, DAO preferences, moderation, sponsor settings, command settings, filters, and group migration.\n\n💡 Only group administrators can access these settings.")
-                        .parse_mode(teloxide::types::ParseMode::Html)
+                        .parse_mode(ParseMode::Html)
                         .reply_markup(kb)
                         .await?;
                 }
             }
         } else if data == "group_settings_close" {
             if let Some(message) = &query.message {
-                if let teloxide::types::MaybeInaccessibleMessage::Regular(m) = message {
+                if let MaybeInaccessibleMessage::Regular(m) = message {
                     let is_admin = utils::is_admin(&bot, m.chat.id, query.from.id).await;
 
                     if !is_admin {
@@ -944,7 +1378,7 @@ pub async fn handle_callback_query(
         } else if data == "open_moderation_settings" {
             // Open Moderation submenu inside Group Settings
             if let Some(message) = &query.message {
-                if let teloxide::types::MaybeInaccessibleMessage::Regular(m) = message {
+                if let MaybeInaccessibleMessage::Regular(m) = message {
                     // Admin check
                     let is_admin = utils::is_admin(&bot, m.chat.id, query.from.id).await;
                     if !is_admin {
@@ -999,6 +1433,14 @@ pub async fn handle_callback_query(
                             "mod_reset",
                         )],
                         vec![InlineKeyboardButton::callback(
+                            "✅ Show Allowed Rules",
+                            "mod_show_allowed",
+                        )],
+                        vec![InlineKeyboardButton::callback(
+                            "⛔ Show Disallowed Rules",
+                            "mod_show_disallowed",
+                        )],
+                        vec![InlineKeyboardButton::callback(
                             "📜 Show Default Rules",
                             "mod_show_defaults",
                         )],
@@ -1016,7 +1458,7 @@ pub async fn handle_callback_query(
         } else if data == "mod_toggle_sentinel_on" || data == "mod_toggle_sentinel_off" {
             // Toggle sentinel ON/OFF
             if let Some(message) = &query.message {
-                if let teloxide::types::MaybeInaccessibleMessage::Regular(m) = message {
+                if let MaybeInaccessibleMessage::Regular(m) = message {
                     let is_admin = utils::is_admin(&bot, m.chat.id, query.from.id).await;
                     if !is_admin {
                         bot.answer_callback_query(query.id)
@@ -1078,6 +1520,14 @@ pub async fn handle_callback_query(
                             "mod_reset",
                         )],
                         vec![InlineKeyboardButton::callback(
+                            "✅ Show Allowed Rules",
+                            "mod_show_allowed",
+                        )],
+                        vec![InlineKeyboardButton::callback(
+                            "⛔ Show Disallowed Rules",
+                            "mod_show_disallowed",
+                        )],
+                        vec![InlineKeyboardButton::callback(
                             "📜 Show Default Rules",
                             "mod_show_defaults",
                         )],
@@ -1087,7 +1537,7 @@ pub async fn handle_callback_query(
                         )],
                     ]);
                     bot.edit_message_text(m.chat.id, m.id, text)
-                        .parse_mode(teloxide::types::ParseMode::Html)
+                        .parse_mode(ParseMode::Html)
                         .reply_markup(kb)
                         .await?;
                 }
@@ -1104,15 +1554,27 @@ pub async fn handle_callback_query(
                         return Ok(());
                     }
 
-                    let mut state =
-                        ModerationState::from(("AwaitingAllowed".to_string(), None, None));
+                    let mut state = ModerationState::from((
+                        "AwaitingAllowed".to_string(),
+                        None,
+                        None,
+                        query.from.id.0 as i64,
+                    ));
                     // Prompt Step 1/2 in chat
-                    let sent = bot.send_message(
-                        m.chat.id,
-                        "🛡️ <b>Moderation Settings — Step 1/2</b>\n\n<b>Send ALLOWED items</b> for this group.\n\n<b>Be specific</b>: include concrete phrases and examples.\n\n<b>Cancel anytime</b>: Tap <b>Back</b> or <b>Close</b> in the Moderation menu — this prompt will be removed.\n\n<b>Warning</b>: Allowed items can reduce moderation strictness; we've included a <b>copy & paste</b> template below to safely allow discussion of your token. To skip this step, send <code>na</code>.\n\n<b>Format</b>:\n- Send them in a <b>single message</b>\n- Separate each item with <code>;</code>\n\n<b>Example</b>:\n<b>discussion of APT token and ecosystem; official project links and documentation; community updates and announcements</b>\n\n<b>Quick template (copy/paste) to allow your own token</b>:\n<code>discussion of [YOUR_TOKEN] and ecosystem; official project links and documentation; community updates and announcements</code>\n\n<i>Note:</i> Default rules still protect against scams, phishing, and inappropriate content.\n\nWhen ready, send your list now.\n\n<i>Tip:</i> Use <b>Reset Custom Rules</b> in the Moderation menu anytime to clear custom rules.",
-                    )
-                    .parse_mode(teloxide::types::ParseMode::Html)
-                    .await?;
+                    let sent = bot
+                        .send_message(
+                            m.chat.id,
+                            "🛡️ <b>Moderation Settings — Step 1/2</b>\n\n<b>Send ALLOWED items</b> for this group.\n\n<b>Be specific</b>: include concrete phrases and examples.\n\n<b>Cancel anytime</b>: Tap <b>Back</b> or <b>Close</b> in the Moderation menu — this prompt will be removed.\n\n<b>Warning</b>: Allowed items can reduce moderation strictness; we've included a <b>copy & paste</b> template below to safely allow discussion of your token.\n\n<b>Format</b>:\n- Send them in a <b>single message</b>\n- Separate each item with <code>;</code>\n\n<b>Example</b>:\n<b>discussion of APT token and ecosystem; official project links and documentation; community updates and announcements</b>\n\n<b>Quick template (copy/paste) to allow your own token</b>:\n<code>discussion of [YOUR_TOKEN] and ecosystem; official project links and documentation; community updates and announcements</code>\n\n<i>Note:</i> Default rules still protect against scams, phishing, and inappropriate content.\n\nWhen ready, send your list now — or use the button below to skip.",
+                        )
+                        .parse_mode(ParseMode::Html)
+                        .reply_markup(InlineKeyboardMarkup::new(vec![
+                            vec![InlineKeyboardButton::callback(
+                                "⏭️ Skip Allowed",
+                                "mod_skip_allowed",
+                            )],
+                        ]))
+                        .reply_to(m.id)
+                        .await?;
 
                     state.message_id = Some(sent.id.0 as i64);
                     bot_deps
@@ -1121,6 +1583,151 @@ pub async fn handle_callback_query(
                     bot.answer_callback_query(query.id)
                         .text("📝 Wizard started")
                         .await?;
+                }
+            }
+        } else if data == "mod_skip_allowed" {
+            // Skip Step 1 (Allowed) and move to Step 2
+            if let Some(message) = &query.message {
+                if let teloxide::types::MaybeInaccessibleMessage::Regular(m) = message {
+                    // Verify there's an active wizard and the caller is the owner
+                    if let Ok(mut state) = bot_deps
+                        .moderation
+                        .get_moderation_state(m.chat.id.to_string())
+                    {
+                        // Ensure only the admin who started the wizard can skip
+                        if let Some(owner) = state.started_by_user_id {
+                            if owner != query.from.id.0 as i64 {
+                                bot.answer_callback_query(query.id)
+                                    .text("❌ Only the admin who started the wizard can skip this step")
+                                    .await?;
+                                return Ok(());
+                            }
+                        }
+
+                        if state.step != "AwaitingAllowed" {
+                            bot.answer_callback_query(query.id)
+                                .text("❌ Wizard is not waiting for Allowed items")
+                                .await?;
+                            return Ok(());
+                        }
+
+                        // Remove previous prompt if present
+                        if let Some(mid) = state.message_id {
+                            let _ = bot
+                                .delete_message(m.chat.id, teloxide::types::MessageId(mid as i32))
+                                .await;
+                        }
+
+                        // Advance to Step 2 (Disallowed)
+                        state.allowed_items = Some(vec![]);
+                        state.step = "AwaitingDisallowed".to_string();
+
+                        let sent = bot
+                            .send_message(
+                                m.chat.id,
+                                "🛡️ <b>Moderation Settings — Step 2/2</b>\n\n<b>Now send DISALLOWED items</b> for this group.\n\n<b>Be specific</b>: include concrete phrases, patterns, and examples you want flagged.\n\n<b>Cancel anytime</b>: Tap <b>Back</b> or <b>Close</b> in the Moderation menu — this prompt will be removed.\n\n<b>Format</b>:\n- Send them in a <b>single message</b>\n- Separate each item with <code>;</code>\n\n<b>Examples (community standards)</b>:\n<code>harassment, insults, or personal attacks; hate speech or slurs (racism, homophobia, etc.); doxxing or sharing private information; NSFW/explicit content; graphic violence/gore; off-topic spam or mass mentions; repeated flooding/emoji spam; political or religious debates (off-topic); promotion of unrelated/non-affiliated projects; misinformation/FUD targeting members</code>\n\n<i>Notes:</i> \n- Avoid duplicating default scam rules (phishing links, wallet approvals, DM requests, giveaways) — those are already enforced by Default Rules.\n- <b>Group Disallowed</b> > <b>Group Allowed</b> > <b>Default Rules</b> (strict priority).\n- If any Group Disallowed item matches, the message will be flagged.\n\nWhen ready, send your list now — or use the button below to skip.",
+                            )
+                            .parse_mode(ParseMode::Html)
+                            .reply_markup(InlineKeyboardMarkup::new(vec![
+                                vec![InlineKeyboardButton::callback(
+                                    "⏭️ Skip Disallowed",
+                                    "mod_skip_disallowed",
+                                )],
+                            ]))
+                            .reply_to(m.id)
+                            .await?;
+
+                        state.message_id = Some(sent.id.0 as i64);
+                        bot_deps
+                            .moderation
+                            .set_moderation_state(m.chat.id.to_string(), state)?;
+
+                        bot.answer_callback_query(query.id)
+                            .text("⏭️ Skipped Allowed. Now send DISALLOWED items.")
+                            .await?;
+                    } else {
+                        bot.answer_callback_query(query.id)
+                            .text("❌ No active moderation wizard")
+                            .await?;
+                    }
+                }
+            }
+        } else if data == "mod_skip_disallowed" {
+            // Finish wizard with empty Disallowed
+            if let Some(message) = &query.message {
+                if let teloxide::types::MaybeInaccessibleMessage::Regular(m) = message {
+                    if let Ok(state) = bot_deps
+                        .moderation
+                        .get_moderation_state(m.chat.id.to_string())
+                    {
+                        if state.step != "AwaitingDisallowed" {
+                            bot.answer_callback_query(query.id)
+                                .text("❌ Wizard is not waiting for Disallowed items")
+                                .await?;
+                            return Ok(());
+                        }
+                        if let Some(owner) = state.started_by_user_id {
+                            if owner != query.from.id.0 as i64 {
+                                bot.answer_callback_query(query.id)
+                                    .text("❌ Only the admin who started the wizard can skip this step")
+                                    .await?;
+                                return Ok(());
+                            }
+                        }
+
+                        // Remove current prompt if present
+                        if let Some(mid) = state.message_id {
+                            let _ = bot
+                                .delete_message(m.chat.id, teloxide::types::MessageId(mid as i32))
+                                .await;
+                        }
+
+                        let allowed = state.allowed_items.unwrap_or_default();
+                        let disallowed: Vec<String> = vec![];
+
+                        let settings = ModerationSettings::from((
+                            allowed.clone(),
+                            disallowed.clone(),
+                            query.from.id.0 as i64,
+                            chrono::Utc::now().timestamp_millis(),
+                        ));
+                        bot_deps
+                            .moderation
+                            .set_or_update_moderation_settings(m.chat.id.to_string(), settings)?;
+                        bot_deps
+                            .moderation
+                            .remove_moderation_state(m.chat.id.to_string())?;
+
+                        let allowed_list = if allowed.is_empty() {
+                            "<i>(none)</i>".to_string()
+                        } else {
+                            allowed
+                                .iter()
+                                .map(|x| format!("• {}", teloxide::utils::html::escape(x)))
+                                .collect::<Vec<_>>()
+                                .join("\n")
+                        };
+                        let disallowed_list = "<i>(none)</i>".to_string();
+
+                        let mut summary = format!(
+                            "✅ <b>Custom moderation rules saved.</b>\n\n<b>Allowed ({})</b>:\n{}\n\n<b>Disallowed ({})</b>:\n{}",
+                            allowed.len(),
+                            allowed_list,
+                            0,
+                            disallowed_list,
+                        );
+                        if allowed.is_empty() {
+                            summary.push_str("\n\n<i>No custom rules recorded. Default moderation rules remain fully in effect.</i>");
+                        }
+                        send_html_message(*m.clone(), bot.clone(), summary).await?;
+                        bot.answer_callback_query(query.id)
+                            .text("⏭️ Skipped Disallowed and saved.")
+                            .await?;
+                    } else {
+                        bot.answer_callback_query(query.id)
+                            .text("❌ No active moderation wizard")
+                            .await?;
+                    }
                 }
             }
         } else if data == "mod_reset" {
@@ -1177,6 +1784,14 @@ pub async fn handle_callback_query(
                             "mod_reset",
                         )],
                         vec![InlineKeyboardButton::callback(
+                            "✅ Show Allowed Rules",
+                            "mod_show_allowed",
+                        )],
+                        vec![InlineKeyboardButton::callback(
+                            "⛔ Show Disallowed Rules",
+                            "mod_show_disallowed",
+                        )],
+                        vec![InlineKeyboardButton::callback(
                             "📜 Show Default Rules",
                             "mod_show_defaults",
                         )],
@@ -1190,7 +1805,7 @@ pub async fn handle_callback_query(
                         )],
                     ]);
                     bot.edit_message_text(m.chat.id, m.id, text)
-                        .parse_mode(teloxide::types::ParseMode::Html)
+                        .parse_mode(ParseMode::Html)
                         .reply_markup(kb)
                         .await?;
                 }
@@ -1227,12 +1842,44 @@ To avoid being muted or banned, please follow these rules:
 
 If you have questions, ask an admin before posting.
 "#;
-                    bot.send_message(m.chat.id, rules)
-                        .parse_mode(teloxide::types::ParseMode::Html)
-                        .await?;
+                    send_html_message(*m.clone(), bot.clone(), rules.to_string()).await?;
                     bot.answer_callback_query(query.id)
                         .text("📜 Default rules sent")
                         .await?;
+                }
+            }
+        } else if data == "mod_show_allowed" || data == "mod_show_disallowed" {
+            // Show current Allowed or Disallowed custom rules
+            if let Some(message) = &query.message {
+                if let teloxide::types::MaybeInaccessibleMessage::Regular(m) = message {
+                    let settings = bot_deps
+                        .moderation
+                        .get_moderation_settings(m.chat.id.to_string())
+                        .unwrap_or(ModerationSettings::from((vec![], vec![], 0, 0)));
+
+                    let (title, items) = if data == "mod_show_allowed" {
+                        ("✅ <b>Allowed Rules</b>", settings.allowed_items)
+                    } else {
+                        ("⛔ <b>Disallowed Rules</b>", settings.disallowed_items)
+                    };
+
+                    let body = if items.is_empty() {
+                        "<i>No custom rules set.</i>".to_string()
+                    } else {
+                        items
+                            .iter()
+                            .map(|x| format!("• {}", x))
+                            .collect::<Vec<_>>()
+                            .join("\n")
+                    };
+
+                    send_html_message(
+                        *m.clone(),
+                        bot.clone(),
+                        format!("{title}\n\n{body}", title = title, body = body),
+                    )
+                    .await?;
+                    bot.answer_callback_query(query.id).text("✅ Sent").await?;
                 }
             }
         } else if data == "disable_notifications" {
@@ -1335,7 +1982,7 @@ pub async fn handle_payment_callback(
 
         // Edit the message to remove buttons
         if let Some(message) = &query.message {
-            if let teloxide::types::MaybeInaccessibleMessage::Regular(msg) = message {
+            if let MaybeInaccessibleMessage::Regular(msg) = message {
                 if let Err(e) = bot.edit_message_reply_markup(msg.chat.id, msg.id).await {
                     log::warn!("Failed to clear reply markup: {}", e);
                 }
@@ -1376,7 +2023,7 @@ pub async fn handle_payment_callback(
 
         // Edit the message to show expiration
         if let Some(message) = &query.message {
-            if let teloxide::types::MaybeInaccessibleMessage::Regular(msg) = message {
+            if let MaybeInaccessibleMessage::Regular(msg) = message {
                 let recipients_text = if pending_transaction.original_usernames.len() == 1 {
                     format!("@{}", pending_transaction.original_usernames[0])
                 } else {
@@ -1397,7 +2044,7 @@ pub async fn handle_payment_callback(
                 );
 
                 bot.edit_message_text(msg.chat.id, msg.id, expired_message)
-                    .parse_mode(teloxide::types::ParseMode::Html)
+                    .parse_mode(ParseMode::Html)
                     .await?;
             }
         }
@@ -1462,9 +2109,9 @@ pub async fn handle_payment_callback(
 
                     // Edit the original message
                     if let Some(message) = &query.message {
-                        if let teloxide::types::MaybeInaccessibleMessage::Regular(msg) = message {
+                        if let MaybeInaccessibleMessage::Regular(msg) = message {
                             bot.edit_message_text(msg.chat.id, msg.id, success_message)
-                                .parse_mode(teloxide::types::ParseMode::Html)
+                                .parse_mode(ParseMode::Html)
                                 .await?;
                         }
                     }
@@ -1478,9 +2125,9 @@ pub async fn handle_payment_callback(
 
                     // Edit the original message
                     if let Some(message) = &query.message {
-                        if let teloxide::types::MaybeInaccessibleMessage::Regular(msg) = message {
+                        if let MaybeInaccessibleMessage::Regular(msg) = message {
                             bot.edit_message_text(msg.chat.id, msg.id, error_message)
-                                .parse_mode(teloxide::types::ParseMode::Html)
+                                .parse_mode(ParseMode::Html)
                                 .await?;
                         }
                     }
@@ -1521,9 +2168,9 @@ pub async fn handle_payment_callback(
 
             // Edit the original message
             if let Some(message) = &query.message {
-                if let teloxide::types::MaybeInaccessibleMessage::Regular(msg) = message {
+                if let MaybeInaccessibleMessage::Regular(msg) = message {
                     bot.edit_message_text(msg.chat.id, msg.id, cancel_message)
-                        .parse_mode(teloxide::types::ParseMode::Html)
+                        .parse_mode(ParseMode::Html)
                         .await?;
                 }
             }

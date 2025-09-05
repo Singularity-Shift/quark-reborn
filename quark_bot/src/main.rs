@@ -42,7 +42,7 @@ use crate::{
     dao::dao::Dao,
     dependencies::BotDependencies,
     filters::filters::Filters,
-    group::handler::Group,
+    group::{document_library::GroupDocuments, handler::Group},
     job::job_scheduler::schedule_jobs,
     message_history::handler::MessageHistory,
     panora::handler::Panora,
@@ -78,7 +78,6 @@ async fn main() {
     let db = db::init_tree();
     let auth_db = db.open_tree("auth").expect("Failed to open auth tree");
     let group_db = db.open_tree("group").expect("Failed to open group tree");
-
 
     let openai_api_key = env::var("OPENAI_API_KEY").expect("OPENAI_API_KEY not set");
     let gcs_creds = env::var("STORAGE_CREDENTIALS").expect("STORAGE_CREDENTIALS not set");
@@ -136,10 +135,7 @@ async fn main() {
     let payment = Payment::new(&db).unwrap();
 
     let ai = AI::new(openai_api_key.clone(), google_cloud);
-    let summarizer = SummarizerService::new(
-        db.clone(),
-        ai.get_client().clone(),
-    );
+    let summarizer = SummarizerService::new(db.clone(), ai.get_client().clone());
     let schedule_guard = ScheduleGuardService::new(openai_api_key.clone())
         .expect("Failed to create ScheduleGuardService");
     let moderation = ModerationService::new(openai_api_key.clone(), db.clone())
@@ -149,6 +145,8 @@ async fn main() {
 
     let user_convos = UserConversations::new(&db).unwrap();
     let user_model_prefs = UserModelPreferences::new(&db).unwrap();
+    let group_docs = GroupDocuments::new(&db).unwrap();
+    let group_file_upload_state = assets::group_file_upload_state::GroupFileUploadState::new();
     let pending_transactions = PendingTransactions::new(&db).unwrap();
     let yield_ai = YieldAI::new();
     let welcome_service = welcome::welcome_service::WelcomeService::new(db.clone());
@@ -193,8 +191,6 @@ async fn main() {
         BotCommand::new("help", "Display this text."),
         BotCommand::new("loginuser", "Log in as a user (DM only)."),
         BotCommand::new("logingroup", "Group login (under development)."),
-        BotCommand::new("addfiles", "Upload files to your vector store (DM only)."),
-        BotCommand::new("listfiles", "List files in your vector store (DM only)."),
         BotCommand::new("newchat", "Start a new conversation thread."),
         BotCommand::new("c", "prompt to chat AI with the bot."),
         BotCommand::new(
@@ -225,10 +221,7 @@ async fn main() {
             "report",
             "Moderate content (reply to message) and send a report to the admin if content is found to be inappropriate, muting the user in this case.",
         ),
-        BotCommand::new(
-            "moderationrules",
-            "Display the moderation rules to avoid getting muted.",
-        ),
+        BotCommand::new("rules", "Show core and custom rules for this group."),
         BotCommand::new("balance", "Get your balance of a token."),
         BotCommand::new("groupwalletaddress", "Get the group's wallet address."),
         BotCommand::new("groupbalance", "Get the group's balance of a token."),
@@ -264,6 +257,8 @@ async fn main() {
         cmd_collector,
         panora: panora_for_dispatcher,
         group,
+        group_docs,
+        group_file_upload_state,
         dao,
         filters,
         command_settings,

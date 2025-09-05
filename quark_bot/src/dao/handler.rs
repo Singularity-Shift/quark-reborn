@@ -12,7 +12,11 @@ use teloxide::{
 
 use uuid::Uuid;
 
-use crate::{dao::dto::ProposalEntry, dependencies::BotDependencies, utils::format_time_duration};
+use crate::{
+    dao::dto::ProposalEntry,
+    dependencies::BotDependencies,
+    utils::{format_time_duration, send_html_message, send_message},
+};
 
 pub async fn execute_create_proposal(
     arguments: &serde_json::Value,
@@ -215,6 +219,11 @@ pub async fn execute_create_proposal(
             token.token_address.unwrap()
         } else {
             token.fa_address
+        },
+        thread_id: if let Some(thread_id) = msg.thread_id {
+            Some(thread_id.0.0)
+        } else {
+            None
         },
     };
 
@@ -1517,11 +1526,11 @@ pub async fn handle_message_dao(
                         // Clear the pending state
                         bot_deps.dao.remove_pending_tokens(key).unwrap();
 
-                        bot.send_message(
-                            msg.chat.id,
+                        send_html_message(
+                            msg,
+                            bot,
                             format!("✅ <b>DAO token updated to {}</b>", processed_token),
                         )
-                        .parse_mode(teloxide::types::ParseMode::Html)
                         .await?;
                         return Ok(true);
                     }
@@ -1529,16 +1538,22 @@ pub async fn handle_message_dao(
 
                 // If we get here, there was an error
                 bot_deps.dao.remove_pending_tokens(key).unwrap();
-                bot.send_message(msg.chat.id, "❌ Error updating DAO token preference")
-                    .await?;
+                send_message(
+                    msg,
+                    bot,
+                    "❌ Error updating DAO token preference".to_string(),
+                )
+                .await?;
                 return Ok(true);
             }
         }
 
         // Invalid input, ask again
-        bot.send_message(
-            msg.chat.id,
-            "❌ Please send a valid token ticker or emojicoin. Example: APT, USDC, or GUI",
+        send_message(
+            msg,
+            bot,
+            "❌ Please send a valid token ticker or emojicoin. Example: APT, USDC, or GUI"
+                .to_string(),
         )
         .await?;
 
