@@ -1,9 +1,11 @@
 //! File upload and processing logic for quark_bot.
 
-use crate::ai::vector_store::{upload_files_to_vector_store, list_user_files_with_names};
-use crate::ai::group_vector_store::{upload_files_to_group_vector_store, list_group_files_with_names};
+use crate::ai::group_vector_store::{
+    list_group_files_with_names, upload_files_to_group_vector_store,
+};
+use crate::ai::vector_store::{list_user_files_with_names, upload_files_to_vector_store};
 use crate::dependencies::BotDependencies;
-use crate::utils::{self, send_message};
+use crate::utils::{self, KeyboardMarkupType, send_markdown_message_with_keyboard, send_message};
 use anyhow::Result as AnyResult;
 use std::time::Duration;
 use teloxide::net::Download;
@@ -65,7 +67,7 @@ pub async fn handle_file_upload(
             Ok(vector_store_id) => {
                 let file_count = file_paths.len();
                 let files_text = if file_count == 1 { "file" } else { "files" };
-                
+
                 // Show success message
                 send_message(
                     msg.clone(),
@@ -76,7 +78,7 @@ pub async fn handle_file_upload(
                     ),
                 )
                 .await?;
-                
+
                 // Show updated user document library
                 show_user_document_library(bot, chat_id, user_id, bot_deps).await?;
             }
@@ -144,10 +146,8 @@ pub async fn show_user_document_library(
                     keyboard_rows.push(vec![delete_button]);
                 }
                 if files.len() > 1 {
-                    let clear_all_button = InlineKeyboardButton::callback(
-                        "🗑️ Clear All Files",
-                        "clear_all_files",
-                    );
+                    let clear_all_button =
+                        InlineKeyboardButton::callback("🗑️ Clear All Files", "clear_all_files");
                     keyboard_rows.push(vec![clear_all_button]);
                 }
                 // Upload + Back controls
@@ -159,10 +159,7 @@ pub async fn show_user_document_library(
                     "↩️ Back to User Settings",
                     "back_to_user_settings",
                 )]);
-                (
-                    response,
-                    InlineKeyboardMarkup::new(keyboard_rows),
-                )
+                (response, InlineKeyboardMarkup::new(keyboard_rows))
             };
 
             bot.send_message(chat_id, text)
@@ -185,7 +182,7 @@ pub async fn handle_group_file_upload(
     bot_deps: BotDependencies,
 ) -> AnyResult<()> {
     use tokio::fs::File;
-    
+
     // Ensure this is a group chat
     if msg.chat.is_private() {
         send_message(
@@ -202,12 +199,7 @@ pub async fn handle_group_file_upload(
     // Check if user is admin
     let user = msg.from.as_ref();
     if user.is_none() {
-        send_message(
-            msg,
-            bot,
-            "❌ Unable to verify permissions.".to_string(),
-        )
-        .await?;
+        send_message(msg, bot, "❌ Unable to verify permissions.".to_string()).await?;
         return Ok(());
     }
 
@@ -217,7 +209,8 @@ pub async fn handle_group_file_upload(
         send_message(
             msg,
             bot,
-            "❌ Only group administrators can upload files to the group document library.".to_string(),
+            "❌ Only group administrators can upload files to the group document library."
+                .to_string(),
         )
         .await?;
         return Ok(());
@@ -263,20 +256,27 @@ pub async fn handle_group_file_upload(
             }
         });
 
-        let upload_result =
-            upload_files_to_group_vector_store(group_id.clone(), bot_deps.clone(), file_paths.clone()).await;
+        let upload_result = upload_files_to_group_vector_store(
+            group_id.clone(),
+            bot_deps.clone(),
+            file_paths.clone(),
+        )
+        .await;
 
         // Stop the typing indicator task
         typing_indicator_handle.abort();
 
         // Clear the awaiting state after upload attempt
-        bot_deps.group_file_upload_state.clear_awaiting(group_id.clone()).await;
+        bot_deps
+            .group_file_upload_state
+            .clear_awaiting(group_id.clone())
+            .await;
 
         match upload_result {
             Ok(vector_store_id) => {
                 let file_count = file_paths.len();
                 let files_text = if file_count == 1 { "file" } else { "files" };
-                
+
                 // Show success message
                 send_message(
                     msg.clone(),
@@ -287,9 +287,9 @@ pub async fn handle_group_file_upload(
                     ),
                 )
                 .await?;
-                
+
                 // Show updated group document library
-                show_group_document_library(bot, chat_id, group_id, bot_deps).await?;
+                show_group_document_library(msg, bot, group_id, bot_deps).await?;
             }
             Err(e) => {
                 send_message(msg, bot, format!("[Group upload error]: {}", e).to_string()).await?;
@@ -303,8 +303,8 @@ pub async fn handle_group_file_upload(
 
 /// Display the group document library interface as a new message
 pub async fn show_group_document_library(
+    msg: Message,
     bot: Bot,
-    chat_id: ChatId,
     group_id: String,
     bot_deps: BotDependencies,
 ) -> AnyResult<()> {
@@ -370,21 +370,25 @@ pub async fn show_group_document_library(
                     "↩️ Back to Group Settings",
                     "back_to_group_settings",
                 )]);
-                (
-                    response,
-                    InlineKeyboardMarkup::new(keyboard_rows),
-                )
+                (response, InlineKeyboardMarkup::new(keyboard_rows))
             };
 
-            bot.send_message(chat_id, text)
-                .parse_mode(ParseMode::Html)
-                .reply_markup(keyboard)
-                .await?;
+            send_markdown_message_with_keyboard(
+                bot,
+                msg,
+                KeyboardMarkupType::InlineKeyboardType(keyboard),
+                &text,
+            )
+            .await?;
         }
         Err(e) => {
             log::error!("Failed to show group document library: {}", e);
-            bot.send_message(chat_id, "❌ Error loading Group Document Library")
-                .await?;
+            send_message(
+                msg,
+                bot,
+                "❌ Error loading Group Document Library".to_string(),
+            )
+            .await?;
         }
     }
     Ok(())
