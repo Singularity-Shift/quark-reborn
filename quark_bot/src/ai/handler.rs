@@ -809,9 +809,9 @@ impl AI {
             )));
         }
 
-        // Use the creator's vector store (if any)
-        let user_convos = UserConversations::new(&bot_deps.db)?;
-        let vector_store_id = user_convos.get_vector_store_id(creator_user_id);
+        // Use the group's vector store (if any)
+        let group_docs = &bot_deps.group_docs;
+        let vector_store_id = group_docs.get_group_vector_store_id(group_id.clone());
 
         // Tools setup
         let mut tools = vec![];
